@@ -25,6 +25,7 @@ export interface FieldSchema {
   tips?: string;
   pauseAfterExplain?: number;
   pauseAfterFill?: number;
+  waitAfterFillMs?: number;
   commonQuestions?: Array<{ question: string; answer: string }>;
 }
 
@@ -41,6 +42,12 @@ export interface SubFormSchema {
   conditionalOn?: { field: string; values: string[] } | null;
   explanation?: string;
   explanationForMultiple?: string;
+  copyFrom?: {
+    subFormId: string;
+    whenFieldEquals?: { field: string; value: string };
+    checkboxLabel: string;
+    copyExplanation?: string;
+  };
   fields: FieldSchema[];
 }
 

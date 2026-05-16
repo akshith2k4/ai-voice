@@ -39,6 +39,8 @@ export function handleStatus(
     case "dialog_opened":
     case "dialog_closed":
     case "fields_cleared":
+    case "checkbox_clicked":
+    case "item_added":
       // Acknowledge — will be used by walkthrough driver in later slices
       break;
 

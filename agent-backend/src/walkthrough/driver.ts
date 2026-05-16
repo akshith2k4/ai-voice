@@ -42,6 +42,13 @@ class CancellationError extends Error {
   }
 }
 
+class FieldSkipError extends Error {
+  constructor(public fieldKey: string) {
+    super(`Field skipped: ${fieldKey}`);
+    this.name = "FieldSkipError";
+  }
+}
+
 class WalkthroughAbortError extends Error {
   constructor(message: string) {
     super(message);
@@ -286,9 +293,18 @@ class WalkthroughDriver {
       }
 
       console.log(`[Driver] Processing field ${i + 1}/${schema.fields.length}: "${field.key}"`);
-      await this.processField(session, field);
-      stateMachine.transition("FIELD_COMPLETE");
-      session.filledValues.set(field.key, field.demoValue);
+      try {
+        await this.processField(session, field);
+        stateMachine.transition("FIELD_COMPLETE");
+        session.filledValues.set(field.key, field.demoValue);
+      } catch (error) {
+        if (error instanceof FieldSkipError) {
+          console.log(`[Driver] Skipping field "${field.key}" — fill failed`);
+          stateMachine.transition("FIELD_COMPLETE");
+          continue;
+        }
+        throw error;
+      }
     }
 
     // Step 7: Walk through sub-forms
@@ -347,13 +363,14 @@ class WalkthroughDriver {
 
     // Close dialog
     console.log(`[Driver] Closing dialog`);
-    await this.sendTool(
+    this.sendTool(
       session,
       "close_dialog",
       {},
-      "dialog_closed",
-      TIMEOUTS.CLOSE_DIALOG
+      null,
+      0
     );
+    await this.wait(500);
 
     // Done
     stateMachine.transition("RESET");
@@ -462,10 +479,10 @@ class WalkthroughDriver {
     const pauseAfterFill = field.pauseAfterFill || 800;
     await this.wait(pauseAfterFill);
 
-    // 8. If customer field was filled, wait for auto-population
-    if (key === "customer") {
-      console.log(`[Driver] Customer selected — waiting for auto-population`);
-      await this.wait(TIMEOUTS.AUTO_POPULATION_WAIT);
+    // 8. If field has a wait, pause
+    if (field.waitAfterFillMs) {
+      console.log(`[Driver] Waiting ${field.waitAfterFillMs}ms after filling ${key}`);
+      await this.wait(field.waitAfterFillMs);
     }
   }
 
@@ -494,11 +511,16 @@ class WalkthroughDriver {
 
     if (subForm.autoPopulated) {
       await this.processAutoPopulatedSubForm(session, subForm);
-    } else if (
-      subForm.id === "pickupItem" &&
-      session.filledValues.get("deliveryType") === "BOTH"
-    ) {
-      await this.processPickupWithCheckbox(session, subForm);
+    } else if (subForm.copyFrom) {
+      const { subFormId, whenFieldEquals, checkboxLabel } = subForm.copyFrom;
+      const shouldCopy = !whenFieldEquals || 
+        session.filledValues.get(whenFieldEquals.field) === whenFieldEquals.value;
+
+      if (shouldCopy) {
+        await this.processCopySubForm(session, subForm, checkboxLabel);
+      } else {
+        await this.processManualSubForm(session, subForm);
+      }
     } else {
       await this.processManualSubForm(session, subForm);
     }
@@ -544,87 +566,96 @@ class WalkthroughDriver {
       for (const field of subForm.fields) {
         this.checkCancelled(session);
 
-        // Go to field with sub-form context
-        await this.retryOperation(
-          session,
-          async () => {
-            await this.sendTool(
-              session,
-              "go_to_field",
-              {
-                fieldKey: field.key,
-                label: field.label,
-                subFormId: subForm.id,
-                itemIndex: itemIndex,
-              },
-              "field_reached",
-              TIMEOUTS.GO_TO_FIELD
-            );
-          },
-          field.key
-        );
+        try {
+          // Go to field with sub-form context
+          await this.retryOperation(
+            session,
+            async () => {
+              await this.sendTool(
+                session,
+                "go_to_field",
+                {
+                  fieldKey: field.key,
+                  label: field.label,
+                  subFormId: subForm.id,
+                  itemIndex: itemIndex,
+                },
+                "field_reached",
+                TIMEOUTS.GO_TO_FIELD
+              );
+            },
+            field.key
+          );
 
-        // Explain field
-        await this.sendTool(
-          session,
-          "explain_field",
-          {
-            fieldKey: field.key,
-            text: field.explanation,
-            tts: true,
-          },
-          null,
-          0
-        );
-        await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-
-        // Skip auto-filled fields
-        if (field.autoFilled) {
+          // Explain field
           await this.sendTool(
             session,
-            "respond",
+            "explain_field",
             {
-              message: "This field was already filled automatically for you.",
+              fieldKey: field.key,
+              text: field.explanation,
               tts: true,
             },
             null,
             0
           );
-          await this.wait(500);
-          stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-          continue;
-        }
+          await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-        // Fill field with sub-form context
-        await this.retryOperation(
-          session,
-          async () => {
+          // Skip auto-filled fields
+          if (field.autoFilled) {
             await this.sendTool(
               session,
-              "fill_field",
+              "respond",
               {
-                fieldKey: field.key,
-                label: field.label,
-                type: field.type,
-                value: String(field.demoValue),
-                subFormId: subForm.id,
-                itemIndex: itemIndex,
+                message: "This field was already filled automatically for you.",
+                tts: true,
               },
-              "field_filled",
-              TIMEOUTS.FILL_FIELD
+              null,
+              0
             );
-          },
-          field.key
-        );
+            await this.wait(500);
+            stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
+            continue;
+          }
 
-        const pauseAfterFill = field.pauseAfterFill || 800;
-        await this.wait(pauseAfterFill);
+          // Fill field with sub-form context
+          await this.retryOperation(
+            session,
+            async () => {
+              await this.sendTool(
+                session,
+                "fill_field",
+                {
+                  fieldKey: field.key,
+                  label: field.label,
+                  type: field.type,
+                  value: String(field.demoValue),
+                  subFormId: subForm.id,
+                  itemIndex: itemIndex,
+                },
+                "field_filled",
+                TIMEOUTS.FILL_FIELD
+              );
+            },
+            field.key
+          );
 
-        stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-        session.filledValues.set(
-          `${subForm.id}_${itemIndex}_${field.key}`,
-          field.demoValue
-        );
+          const pauseAfterFill = field.pauseAfterFill || 800;
+          await this.wait(pauseAfterFill);
+
+          stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
+          session.filledValues.set(
+            `${subForm.id}_${itemIndex}_${field.key}`,
+            field.demoValue
+          );
+        } catch (error) {
+          if (error instanceof FieldSkipError) {
+            console.log(`[Driver] Skipping sub-form field "${field.key}" — fill failed`);
+            stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
+            continue;
+          }
+          throw error;
+        }
       }
     }
   }
@@ -669,79 +700,100 @@ class WalkthroughDriver {
       for (const field of subForm.fields) {
         this.checkCancelled(session);
 
-        // Go to field with sub-form context
-        await this.retryOperation(
-          session,
-          async () => {
-            await this.sendTool(
-              session,
-              "go_to_field",
-              {
-                fieldKey: field.key,
-                label: field.label,
-                subFormId: subForm.id,
-                itemIndex: itemIndex,
-              },
-              "field_reached",
-              TIMEOUTS.GO_TO_FIELD
-            );
-          },
-          field.key
-        );
+        try {
+          // Go to field with sub-form context
+          await this.retryOperation(
+            session,
+            async () => {
+              await this.sendTool(
+                session,
+                "go_to_field",
+                {
+                  fieldKey: field.key,
+                  label: field.label,
+                  subFormId: subForm.id,
+                  itemIndex: itemIndex,
+                },
+                "field_reached",
+                TIMEOUTS.GO_TO_FIELD
+              );
+            },
+            field.key
+          );
 
-        // Explain field
-        await this.sendTool(
-          session,
-          "explain_field",
-          {
-            fieldKey: field.key,
-            text: field.explanation,
-            tts: true,
-          },
-          null,
-          0
-        );
-        await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+          // Explain field
+          await this.sendTool(
+            session,
+            "explain_field",
+            {
+              fieldKey: field.key,
+              text: field.explanation,
+              tts: true,
+            },
+            null,
+            0
+          );
+          await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-        // Fill field with sub-form context
-        await this.retryOperation(
-          session,
-          async () => {
-            await this.sendTool(
-              session,
-              "fill_field",
-              {
-                fieldKey: field.key,
-                label: field.label,
-                type: field.type,
-                value: String(field.demoValue),
-                subFormId: subForm.id,
-                itemIndex: itemIndex,
-              },
-              "field_filled",
-              TIMEOUTS.FILL_FIELD
-            );
-          },
-          field.key
-        );
+          // Fill field with sub-form context
+          await this.retryOperation(
+            session,
+            async () => {
+              await this.sendTool(
+                session,
+                "fill_field",
+                {
+                  fieldKey: field.key,
+                  label: field.label,
+                  type: field.type,
+                  value: String(field.demoValue),
+                  subFormId: subForm.id,
+                  itemIndex: itemIndex,
+                },
+                "field_filled",
+                TIMEOUTS.FILL_FIELD
+              );
+            },
+            field.key
+          );
 
-        const pauseAfterFill = field.pauseAfterFill || 800;
-        await this.wait(pauseAfterFill);
+          const pauseAfterFill = field.pauseAfterFill || 800;
+          await this.wait(pauseAfterFill);
 
-        stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-        session.filledValues.set(
-          `${subForm.id}_${itemIndex}_${field.key}`,
-          field.demoValue
-        );
+          stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
+          session.filledValues.set(
+            `${subForm.id}_${itemIndex}_${field.key}`,
+            field.demoValue
+          );
+        } catch (error) {
+          if (error instanceof FieldSkipError) {
+            console.log(`[Driver] Skipping sub-form field "${field.key}" — fill failed`);
+            stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
+            continue;
+          }
+          throw error;
+        }
       }
     }
   }
 
-  private async processPickupWithCheckbox(
+  private async processCopySubForm(
     session: WalkthroughSession,
-    subForm: SubFormSchema
+    subForm: SubFormSchema,
+    checkboxLabel: string
   ): Promise<void> {
-    console.log(`[Driver] Pickup items — using "Use same items as Delivery" checkbox`);
+    console.log(`[Driver] Sub-form ${subForm.id} — using copy checkbox`);
+
+    await this.sendTool(
+      session,
+      "respond",
+      {
+        message: subForm.copyExplanation || `These items can be copied from ${subForm.copyFrom?.subFormId}.`,
+        tts: true,
+      },
+      null,
+      0
+    );
 
     await this.retryOperation(
       session,
@@ -750,21 +802,21 @@ class WalkthroughDriver {
           session,
           "click_checkbox",
           {
-            fieldKey: "copyDeliveryToPickup",
-            labelText: "Use same items and quantities as Delivery",
+            fieldKey: `copy_${subForm.copyFrom?.subFormId}`, // fallback logic mostly replaced by generic checkbox match on labelText
+            labelText: checkboxLabel,
           },
           "checkbox_clicked",
           TIMEOUTS.FILL_FIELD
         );
       },
-      "copyDeliveryToPickup"
+      `copy_${subForm.id}`
     );
 
     await this.sendTool(
       session,
       "respond",
       {
-        message: "I've checked 'Use same items as Delivery' to automatically copy the delivery items to pickup. This saves you from entering the same items twice.",
+        message: "I've checked the copy option to automatically copy items.",
         tts: true,
       },
       null,
@@ -870,7 +922,7 @@ class WalkthroughDriver {
             session,
             "respond",
             {
-              message: `I had trouble with the ${fieldKey} field. You can fill it manually later.`,
+              message: `I had trouble with the ${fieldKey} field. I'll skip it and continue.`,
               tts: true,
             },
             null,
@@ -891,7 +943,7 @@ class WalkthroughDriver {
             );
             throw new WalkthroughAbortError(`${session.errorCount} errors — aborting`);
           }
-          return;
+          throw new FieldSkipError(fieldKey);
         }
         await this.wait(TIMEOUTS.RETRY_DELAY);
       }

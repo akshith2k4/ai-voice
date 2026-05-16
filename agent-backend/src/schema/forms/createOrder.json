@@ -39,6 +39,7 @@
       "visibleWhen": null,
       "explanation": "This is the customer who is placing the order. Start typing the customer name and the system will search automatically. Only active customers will appear in the results.",
       "tips": "If a customer doesn't show up, check if they are marked as active in the Customers section.",
+      "waitAfterFillMs": 4000,
       "commonQuestions": [
         {
           "question": "Why can't I find my customer?",
@@ -253,6 +254,11 @@
           "PICKUP",
           "BOTH"
         ]
+      },
+      "copyFrom": {
+        "subFormId": "deliveryItem",
+        "whenFieldEquals": { "field": "deliveryType", "value": "BOTH" },
+        "checkboxLabel": "Use same items and quantities as Delivery"
       },
       "explanationForMultiple": "Let me add a second pickup item to show you.",
       "explanation": "These are the items being picked up from the customer. You can add them manually, or use the 'Use same items as Delivery' checkbox to copy the delivery items automatically.",

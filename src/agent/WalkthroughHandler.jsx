@@ -52,16 +52,10 @@ export default function WalkthroughHandler() {
           }
 
           case "close_dialog": {
-            console.log("[Agent] Closing dialog");
-            // Send confirmation BEFORE closing — closing unmounts the component
-            // which disconnects the WebSocket
             sendMessage({ type: "status", event: "dialog_closed" });
-
-            // Small delay to ensure the message is sent
-            setTimeout(() => {
-              filler.closeDialog();
-            }, 100);
-            return; // We already sent the status, so return early to avoid clearPendingTool double-firing if we're unmounting
+            await new Promise(r => setTimeout(r, 200));
+            filler.closeDialog();
+            break;
           }
 
           case "go_to_field": {
@@ -96,7 +90,7 @@ export default function WalkthroughHandler() {
                 args.itemIndex
               );
             } else {
-              result = filler.fillField(
+              result = await filler.fillField(
                 args.fieldKey,
                 args.label,
                 args.type,
@@ -104,9 +98,6 @@ export default function WalkthroughHandler() {
                 args.subFormId,
                 args.itemIndex
               );
-              if (result instanceof Promise) {
-                result = await result;
-              }
             }
 
             if (result.success) {

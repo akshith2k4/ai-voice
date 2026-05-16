@@ -53,7 +53,7 @@ export function findField(fieldKey, label, subFormId, itemIndex) {
  * Fill a field with a value.
  * Returns { success: true } or { success: false, reason: string }
  */
-export function fillField(fieldKey, label, type, value, subFormId, itemIndex) {
+export async function fillField(fieldKey, label, type, value, subFormId, itemIndex) {
   const element = findField(fieldKey, label, subFormId, itemIndex);
   if (!element) {
     return { success: false, reason: `Field not found: ${fieldKey || label}` };
@@ -65,7 +65,7 @@ export function fillField(fieldKey, label, type, value, subFormId, itemIndex) {
     case "date":
       return fillDateField(element, value);
     case "select":
-      return fillSelectField(element, value);
+      return await fillSelectField(element, value);
     case "autocomplete":
       // Autocomplete is async — caller must await
       return { success: false, reason: "Use fillAutocompleteField for autocomplete fields" };
@@ -389,93 +389,83 @@ function fillDateField(element, value) {
 }
 
 function fillSelectField(element, value) {
-  const displayValue = getSelectDisplayValue(value);
 
-  const selectTrigger = element.querySelector('[role="combobox"]');
+  // Strategy 1: Try to find the hidden input that MUI Select creates
+  const formControl = element.closest('.MuiFormControl-root') || element;
+  const hiddenInput = formControl.querySelector('input[type="hidden"]');
+  
+  // Find the visual trigger
+  const selectTrigger = element.querySelector('[role="combobox"],.MuiSelect-select');
+
   if (!selectTrigger) {
-    return { success: false, reason: "Select trigger not found" };
+    return Promise.resolve({ success: false, reason: "Select trigger not found" });
   }
 
-  // Record existing menus/listboxes BEFORE clicking
-  const menusBefore = new Set(
-    Array.from(
-      document.querySelectorAll(
-        '[role="listbox"], .MuiMenu-root, .MuiPopover-root, .MuiPaper-root.MuiPopover-paper'
-      )
-    )
-  );
+  // Open with mousedown + click sequence that MUI expects
+  ['mousedown','mouseup','click'].forEach(type => {
+    selectTrigger.dispatchEvent(new MouseEvent(type, { 
+      bubbles: true, 
+      cancelable: true, 
+      view: window 
+    }));
+  });
 
-  // Click to open the dropdown
-  selectTrigger.click();
-
-  // Find the NEWLY appeared menu (wasn't there before the click)
   return new Promise((resolve) => {
-    setTimeout(() => {
-      const allMenus = document.querySelectorAll(
-        '[role="listbox"], .MuiMenu-root, .MuiPopover-root, .MuiPaper-root.MuiPopover-paper'
-      );
+    const timeout = 3000;
+    const start = Date.now();
 
-      // Find the menu that appeared AFTER the click
-      let newMenu = null;
-      for (const menu of allMenus) {
-        if (!menusBefore.has(menu)) {
-          newMenu = menu;
-          break;
+    const poll = () => {
+      const listboxes = Array.from(document.querySelectorAll('[role="listbox"]'));
+      const visibleListbox = listboxes.find(lb => {
+        const style = window.getComputedStyle(lb);
+        const rect = lb.getBoundingClientRect();
+        return style.display !== 'none' && 
+               style.visibility !== 'hidden' && 
+               rect.width > 0 && 
+               rect.height > 0;
+      });
+
+      if (visibleListbox) {
+        const options = visibleListbox.querySelectorAll('[role="option"],.MuiMenuItem-root');
+        const match = Array.from(options).find(o => {
+          const text = o.textContent.trim();
+          return text.toUpperCase() === String(value).toUpperCase() ||
+                 text.replace(/\s+/g, '').toUpperCase() === String(value).replace(/\s+/g, '').toUpperCase();
+        });
+
+        if (match) {
+          match.click();
+          element.setAttribute("data-agent-filled", "select");
+          return resolve({ success: true });
         }
       }
 
-      if (!newMenu) {
-        // Fallback: find any listbox with options
-        newMenu = document.querySelector('[role="listbox"]');
-      }
-
-      if (!newMenu) {
-        selectTrigger.click(); // Close
-        resolve({
-          success: false,
-          reason: `No dropdown menu appeared for "${value}"`,
-        });
-        return;
-      }
-
-      const options = newMenu.querySelectorAll(
-        '[role="option"], .MuiMenuItem-root, li'
-      );
-
-      if (options.length === 0) {
-        selectTrigger.click(); // Close
-        resolve({
-          success: false,
-          reason: `No options in dropdown for "${value}"`,
-        });
-        return;
-      }
-
-      const match = Array.from(options).find((o) => {
-        const text = o.textContent.trim();
-        return (
-          text === value ||
-          text === displayValue ||
-          text.toUpperCase() === value.toUpperCase() ||
-          text.toLowerCase() === value.toLowerCase()
-        );
-      });
-
-      if (match) {
-        match.click();
+      // Fallback: if menu never appears, set value directly via hidden input
+      if (Date.now() - start > 1000 && hiddenInput) {
+        setNativeValue(hiddenInput, value);
+        hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        // Update the visible display text
+        const displayEl = formControl.querySelector('.MuiSelect-select');
+        if (displayEl) {
+          displayEl.textContent = value;
+        }
+        
         element.setAttribute("data-agent-filled", "select");
-        resolve({ success: true });
-      } else {
-        const available = Array.from(options)
-          .map((o) => o.textContent.trim())
-          .join(", ");
-        selectTrigger.click(); // Close
-        resolve({
-          success: false,
-          reason: `Option "${value}" not found. Available: [${available}]`,
-        });
+        // Close any open menu
+        document.body.click();
+        return resolve({ success: true });
       }
-    }, 500);
+
+      if (Date.now() - start < timeout) {
+        setTimeout(poll, 100);
+      } else {
+        document.body.click();
+        resolve({ success: false, reason: `No dropdown menu appeared for "${value}"` });
+      }
+    };
+
+    setTimeout(poll, 150);
   });
 }
 
@@ -541,32 +531,44 @@ function fillCheckboxField(element, value) {
 }
 
 async function doFillAutocomplete(element, value) {
-  const autocompleteRoot = element.closest(".MuiAutocomplete-root") || element;
-  const input = autocompleteRoot.querySelector("input");
-
+  const root = element.closest(".MuiAutocomplete-root") || element;
+  const input = root.querySelector("input");
   if (!input) {
     return { success: false, reason: "Autocomplete input not found" };
   }
 
-  // Focus
+  // Focus and open
   input.focus();
+  input.click();
   await new Promise(r => setTimeout(r, 50));
 
-  // Set the visual value
-  setNativeValue(input, String(value));
+  // Clear first
+  setNativeValue(input, "");
   input.dispatchEvent(new Event("input", { bubbles: true }));
 
-  // Trigger Autocomplete's onInputChange through React fiber
-  const fiberKey = Object.keys(autocompleteRoot).find((k) =>
-    k.startsWith("__reactFiber")
-  );
+  // Type character by character to trigger debounce + API
+  const str = String(value);
+  for (let i = 0; i < str.length; i++) {
+    const partial = str.slice(0, i + 1);
+    setNativeValue(input, partial);
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      data: str[i],
+      inputType: "insertText"
+    }));
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  // Also call React's onInputChange via fiber with a proper event
+  const fiberKey = Object.keys(root).find(k => k.startsWith("__reactFiber"));
   if (fiberKey) {
-    let fiber = autocompleteRoot[fiberKey];
+    let fiber = root[fiberKey];
     let depth = 0;
-    while (fiber && depth < 20) {
+    while (fiber && depth < 25) {
       const props = fiber.memoizedProps || fiber.pendingProps;
       if (props?.onInputChange) {
-        props.onInputChange({}, String(value), "input");
+        const fakeEvent = { target: { value: str } };
+        props.onInputChange(fakeEvent, str, "input");
         break;
       }
       fiber = fiber.return;
@@ -574,41 +576,35 @@ async function doFillAutocomplete(element, value) {
     }
   }
 
-  // Wait for dropdown options to appear
-  const optionFound = await pollForAutocompleteOption(value);
-
-  if (!optionFound) {
-    return {
-      success: false,
-      reason: `No autocomplete results for "${value}"`,
-    };
+  // Wait for options
+  const option = await pollForAutocompleteOption(str);
+  if (!option) {
+    return { success: false, reason: `No autocomplete results for "${value}"` };
   }
 
-  optionFound.click();
-
+  option.click();
   element.setAttribute("data-agent-filled", "autocomplete");
   return { success: true };
 }
 
 async function pollForAutocompleteOption(searchValue) {
-  const startTime = Date.now();
+  const start = Date.now();
+  const needle = searchValue.toLowerCase();
 
-  while (Date.now() - startTime < AUTOCOMPLETE_POLL_TIMEOUT) {
-    await new Promise((r) => setTimeout(r, AUTOCOMPLETE_POLL_INTERVAL));
+  while (Date.now() - start < AUTOCOMPLETE_POLL_TIMEOUT) {
+    await new Promise(r => setTimeout(r, AUTOCOMPLETE_POLL_INTERVAL));
 
     const listbox = document.querySelector('[role="listbox"]');
     if (!listbox) continue;
 
-    const options = listbox.querySelectorAll("li");
+    const options = Array.from(listbox.querySelectorAll('[role="option"], li'));
     if (options.length === 0) continue;
 
-    const match = Array.from(options).find((o) =>
-      o.textContent.toLowerCase().includes(searchValue.toLowerCase())
+    const match = options.find(o =>
+      o.textContent.toLowerCase().includes(needle)
     );
-
     if (match) return match;
   }
-
   return null;
 }
 
@@ -637,15 +633,3 @@ function setNativeValue(element, value) {
   }
 }
 
-function getSelectDisplayValue(internalValue) {
-  // Convert internal values like "LEASING" to display values like "Leasing"
-  const map = {
-    LEASING: "Leasing",
-    RENTAL: "Rental",
-    WASHING: "Washing",
-    DELIVERY: "Delivery",
-    PICKUP: "Pickup",
-    BOTH: "Both",
-  };
-  return map[internalValue] || internalValue;
-}
