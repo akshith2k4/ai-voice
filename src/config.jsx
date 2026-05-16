@@ -1,0 +1,1 @@
+export const DATE_PARSE_MODE = "UTC"; // or "local" or "browser"

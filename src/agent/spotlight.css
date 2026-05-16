@@ -1,0 +1,30 @@
+/* Agent Spotlight Styles */
+
+.agent-spotlight {
+  position: relative;
+  transition: box-shadow 0.3s ease;
+  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.6),
+    0 0 20px rgba(0, 188, 212, 0.3) !important;
+  border-radius: 4px;
+  z-index: 9998;
+}
+
+.agent-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px solid rgba(0, 188, 212, 0.8);
+  border-radius: 6px;
+  pointer-events: none;
+  animation: agent-spotlight-pulse 2s ease-in-out infinite;
+}
+
+@keyframes agent-spotlight-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

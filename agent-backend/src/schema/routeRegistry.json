@@ -1,0 +1,140 @@
+{
+  "routes": [
+    {
+      "path": "/dashboard",
+      "name": "Dashboard",
+      "aliases": ["dashboard", "home", "overview", "main page", "main"]
+    },
+    {
+      "path": "/hotels",
+      "name": "Hotels",
+      "aliases": ["hotels", "hotel list", "hotel management", "hotel page"]
+    },
+    {
+      "path": "/products",
+      "name": "Products",
+      "aliases": ["products", "product list", "product management", "product page"]
+    },
+    {
+      "path": "/orders",
+      "name": "Orders",
+      "aliases": ["orders", "order list", "order management", "order page", "orders page"]
+    },
+    {
+      "path": "/trips",
+      "name": "Trips",
+      "aliases": ["trips", "trip management", "trip list", "trip page"]
+    },
+    {
+      "path": "/vendors",
+      "name": "Vendors",
+      "aliases": ["vendors", "vendor list", "vendor management", "vendor page"]
+    },
+    {
+      "path": "/processing",
+      "name": "Processing",
+      "aliases": ["processing", "processing list", "processing page"]
+    },
+    {
+      "path": "/invoices",
+      "name": "Invoices",
+      "aliases": ["invoices", "invoice list", "invoice page", "invoices page"]
+    },
+    {
+      "path": "/users",
+      "name": "Users",
+      "aliases": ["users", "user list", "user management", "user page"]
+    },
+    {
+      "path": "/vehicles",
+      "name": "Vehicles",
+      "aliases": ["vehicles", "vehicle management", "vehicle list", "vehicle page"]
+    },
+    {
+      "path": "/billing",
+      "name": "Billing",
+      "aliases": ["billing", "billing page", "billing cycles", "billing cycle"]
+    },
+    {
+      "path": "/billing/preference",
+      "name": "Billing Preferences",
+      "aliases": ["billing preferences", "billing prefs", "billing preference", "preference"]
+    },
+    {
+      "path": "/laundry-vendors",
+      "name": "Laundry Vendors",
+      "aliases": ["laundry vendors", "laundry vendor list", "laundry"]
+    },
+    {
+      "path": "/wash-requests",
+      "name": "Wash Requests",
+      "aliases": ["wash requests", "wash request list", "wash", "washing requests"]
+    },
+    {
+      "path": "/inventory",
+      "name": "Inventory",
+      "aliases": ["inventory", "inventory management", "inventory page", "inventory list"]
+    },
+    {
+      "path": "/inventory-summary",
+      "name": "Inventory Summary",
+      "aliases": ["inventory summary", "inventory overview", "stock summary"]
+    },
+    {
+      "path": "/inventory-pool",
+      "name": "Inventory Pool",
+      "aliases": ["inventory pool", "pool", "inventory pool page"]
+    },
+    {
+      "path": "/inventory-pool/reservation",
+      "name": "Inventory Pool Reservation",
+      "aliases": ["inventory pool reservation", "pool reservation", "reserve inventory pool"]
+    },
+    {
+      "path": "/inventory-item-reservation",
+      "name": "Inventory Item Reservation",
+      "aliases": ["inventory item reservation", "item reservation", "reserve item", "reserve inventory item"]
+    },
+    {
+      "path": "/routes",
+      "name": "Route Management",
+      "aliases": ["routes", "route management", "manage routes", "route list", "route page"]
+    },
+    {
+      "path": "/issue-tracker",
+      "name": "Issue Tracker",
+      "aliases": ["issue tracker", "issues", "issue list", "issue page", "tracker"]
+    },
+    {
+      "path": "/damage-assessment",
+      "name": "Damage Assessment",
+      "aliases": ["damage assessment", "damage", "damage page", "assessment"]
+    },
+    {
+      "path": "/helpers",
+      "name": "Helpers",
+      "aliases": ["helpers", "helper tools", "tools", "helper page", "utilities"]
+    },
+    {
+      "path": "/customers",
+      "name": "Customers",
+      "aliases": ["customers", "customer list", "customer management", "customer page"]
+    }
+  ],
+  "forms": [
+    {
+      "id": "createOrder",
+      "name": "Create Order",
+      "route": "/orders",
+      "aliases": [
+        "create order",
+        "new order",
+        "add order",
+        "create an order",
+        "make an order",
+        "place an order"
+      ],
+      "description": "Walkthrough for creating a new leasing or sales order"
+    }
+  ]
+}
