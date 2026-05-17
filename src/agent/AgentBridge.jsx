@@ -202,6 +202,7 @@ export function AgentBridgeProvider({ children }) {
               setPendingTool({ type: "cancel_walkthrough" });
             } else if (
               [
+                "begin_walkthrough",
                 "open_dialog",
                 "close_dialog",
                 "go_to_field",
@@ -210,6 +211,8 @@ export function AgentBridgeProvider({ children }) {
                 "click_checkbox",
                 "clear_all_fields",
                 "explain_field",
+                "select_item",
+                "click_element",
               ].includes(message.tool)
             ) {
               setPendingTool({ type: message.tool, args: message.args });

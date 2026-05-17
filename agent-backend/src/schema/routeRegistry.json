@@ -135,6 +135,22 @@
         "place an order"
       ],
       "description": "Walkthrough for creating a new leasing or sales order"
+    },
+    {
+      "id": "createHotel",
+      "name": "Create Hotel",
+      "route": "/hotels",
+      "aliases": [
+        "create hotel",
+        "new hotel",
+        "add hotel",
+        "create a hotel",
+        "add a hotel",
+        "create customer",
+        "new customer",
+        "add customer"
+      ],
+      "description": "Walkthrough for creating a new hotel or customer"
     }
   ]
 }

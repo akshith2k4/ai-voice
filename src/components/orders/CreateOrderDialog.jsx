@@ -1,5 +1,6 @@
 // src/components/orders/CreateOrderDialog.jsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useAgentForm } from "../../agent/useAgentForm";
 import {
   Dialog,
   DialogTitle,
@@ -625,6 +626,121 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
     setCopyDeliveryToPickup(false);
     qtyRefs.current = { deliveryItems: [], pickupItems: [], items: [] };
   };
+
+  // ============================================
+  // AGENT REGISTRATION — exposes form state to the agent registry.
+  // ~40 lines, zero impact on existing behavior.
+  // ============================================
+  useAgentForm("createOrder", {
+    fields: [
+      {
+        key: "orderReferenceId",
+        type: "text",
+        set: (v) => handleInputChange("orderReferenceId", v),
+      },
+      {
+        key: "customer",
+        type: "autocomplete",
+        set: (customer) => {
+          setSelectedCustomer(customer);
+          handleInputChange("customerId", customer ? customer.id : "");
+        },
+        search: debouncedFetchCustomerOptions,
+        getOptions: () => customerOptions,
+        getElement: () =>
+          document.querySelector('[name="customerId"]')?.closest('.MuiAutocomplete-root') || null,
+      },
+      {
+        key: "orderDate",
+        type: "date",
+        set: (v) => handleOrderDateChange(new Date(v)),
+      },
+      {
+        key: "orderType",
+        type: "select",
+        set: (v) => handleInputChange("orderType", v),
+      },
+      {
+        key: "isAdjustment",
+        type: "toggle",
+        set: (v) => handleInputChange("isAdjustment", v === true || v === "true"),
+      },
+      {
+        key: "deliveryType",
+        type: "select",
+        set: (v) => handleInputChange("deliveryType", v),
+      },
+      {
+        key: "pickupDate",
+        type: "date",
+        set: (v) => handleInputChange("pickupDate", new Date(v)),
+      },
+      {
+        key: "deliveryDate",
+        type: "date",
+        set: (v) => handleInputChange("deliveryDate", new Date(v)),
+      },
+    ],
+    subForms: [
+      {
+        id: "deliveryItem",
+        add: () => handleAddItem("deliveryItems"),
+        fields: [
+          {
+            key: "product",
+            type: "select",
+            setByIndex: (val, idx) => {
+              const productId = typeof val === 'string'
+                ? (products.find(p => p.name.toLowerCase() === val.toLowerCase())?.id || val)
+                : (val && val.id ? val.id : val);
+              handleItemChange(idx, "productId", productId, "deliveryItems");
+            },
+          },
+          {
+            key: "quantity",
+            type: "text",
+            setByIndex: (val, idx) =>
+              handleItemChange(idx, "quantity", val, "deliveryItems"),
+          },
+          {
+            key: "remarks",
+            type: "text",
+            setByIndex: (val, idx) =>
+              handleItemChange(idx, "remarks", val, "deliveryItems"),
+          },
+        ],
+      },
+      {
+        id: "pickupItem",
+        add: () => handleAddItem("pickupItems"),
+        fields: [
+          {
+            key: "product",
+            type: "select",
+            setByIndex: (val, idx) => {
+              const productId = typeof val === 'string'
+                ? (products.find(p => p.name.toLowerCase() === val.toLowerCase())?.id || val)
+                : (val && val.id ? val.id : val);
+              handleItemChange(idx, "productId", productId, "pickupItems");
+            },
+          },
+          {
+            key: "quantity",
+            type: "text",
+            setByIndex: (val, idx) =>
+              handleItemChange(idx, "quantity", val, "pickupItems"),
+          },
+          {
+            key: "remarks",
+            type: "text",
+            setByIndex: (val, idx) =>
+              handleItemChange(idx, "remarks", val, "pickupItems"),
+          },
+        ],
+      },
+    ],
+    clearAll: resetForm,
+  });
 
   const handleClose = () => {
     resetForm();

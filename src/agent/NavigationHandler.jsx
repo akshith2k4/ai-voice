@@ -22,16 +22,23 @@ export default function NavigationHandler() {
   // Kick off navigation when pendingNavigation changes
   useEffect(() => {
     if (!pendingNavigation) return;
+
+    // Already on the target route → complete immediately
     if (pendingNavigation === location.pathname) {
-      // Already on the target route — send completion immediately (after one frame)
-      targetRef.current = pendingNavigation;
+      console.log(`[NavigationHandler] Already on ${location.pathname} — sending navigation_complete`);
+      sendMessage({
+        type: "status",
+        event: "navigation_complete",
+        route: location.pathname,
+      });
+      clearPendingNavigation();
       return;
     }
 
     targetRef.current = pendingNavigation;
     console.log(`[NavigationHandler] Navigating to: ${pendingNavigation}`);
     navigate(pendingNavigation);
-  }, [pendingNavigation, navigate, location.pathname]);
+  }, [pendingNavigation, navigate, location.pathname, sendMessage, clearPendingNavigation]);
 
   // Report completion after location actually changes to the target
   useEffect(() => {

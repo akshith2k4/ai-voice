@@ -3,6 +3,9 @@
   "name": "Create Agreement",
   "mode": "create",
   "route": "/hotels",
+  "selectItem": {
+    "label": "AutoTest Hotel 124032"
+  },
   "openAction": {
     "type": "button",
     "selector": "[data-agent-action='add-agreement']",

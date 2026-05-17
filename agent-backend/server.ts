@@ -5,10 +5,10 @@ import type { ClientData, OutgoingMessage } from "./src/types.js";
 // ============================================
 // Agent Backend — Bun WebSocket Server
 // ============================================
-import { loadAllSchemas,getAvailableForms } from "./src/schema/forms/loader";
-
+import { loadAllSchemas, getAvailableForms } from "./src/schema/loader";
+import { resolve } from "path";
 // After server starts
-loadAllSchemas();
+loadAllSchemas(resolve(import.meta.dir, "src/schema/forms"));
 console.log("Available forms:", getAvailableForms());
 // Bun auto-loads .env files
 const PORT = parseInt(process.env.PORT || "3001");

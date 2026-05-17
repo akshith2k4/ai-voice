@@ -1,0 +1,230 @@
+{
+  "id": "createHotel",
+  "name": "Create Hotel",
+  "mode": "create",
+  "route": "/hotels",
+  "openAction": {
+    "type": "button",
+    "selector": "[data-agent-action='add-hotel']",
+    "fallbackText": "Add Hotel"
+  },
+  "overview": "A hotel is a customer in the LinenGrass system. Each hotel has basic contact details, tax registration numbers, billing and shipping addresses, and contact persons. Once created, you can create orders and agreements for this hotel.",
+  "fields": [
+    {
+      "key": "name",
+      "label": "Hotel Name",
+      "type": "text",
+      "required": true,
+      "demoValue": "Grand Hyatt Mumbai",
+      "explanation": "This is the name of the hotel or customer. It appears on invoices, orders, and throughout the system. Use the official business name.",
+      "tips": "Use the full official name. You can always search by partial name later.",
+      "commonQuestions": [
+        { "question": "Can I change the name later?", "answer": "Yes, you can edit the hotel details after creation." }
+      ]
+    },
+    {
+      "key": "phone",
+      "label": "Contact Phone",
+      "type": "text",
+      "demoValue": "+91 98765 43210",
+      "explanation": "The primary phone number for contacting this hotel. This is used for delivery coordination and general communication.",
+      "commonQuestions": []
+    },
+    {
+      "key": "email",
+      "label": "Contact Email",
+      "type": "text",
+      "demoValue": "reservations@grandhyatt.com",
+      "explanation": "The primary email address for this hotel. Invoices and order confirmations are sent to this email.",
+      "tips": "Use a generic department email rather than a personal one, so it stays active even if staff changes.",
+      "commonQuestions": []
+    },
+    {
+      "key": "status",
+      "label": "Status",
+      "type": "select",
+      "required": true,
+      "options": ["ACTIVE", "INACTIVE"],
+      "demoValue": "ACTIVE",
+      "explanation": "This controls whether the hotel is active in the system. Only active hotels appear when creating orders. Set to Inactive if the hotel has stopped doing business with you.",
+      "tips": "New hotels should always be Active. Use Inactive only when the relationship has ended.",
+      "commonQuestions": [
+        { "question": "What happens if I set a hotel to Inactive?", "answer": "Existing orders and data are preserved, but you cannot create new orders for this hotel. It will not appear in the customer dropdown." }
+      ]
+    },
+    {
+      "key": "type",
+      "label": "Customer Type",
+      "type": "select",
+      "required": true,
+      "demoValue": "HOTEL",
+      "explanation": "This categorizes the customer. Hotels, resorts, hospitals, and other businesses may have different billing rules and product agreements.",
+      "tips": "Choose the type that best matches the business. This affects which product agreements are available.",
+      "commonQuestions": []
+    },
+    {
+      "key": "gstin",
+      "label": "GSTIN Number",
+      "type": "text",
+      "demoValue": "27AABCU9603R1ZM",
+      "explanation": "The GST Identification Number for this hotel. This is required for tax compliance and appears on invoices. It is a 15-character alphanumeric code.",
+      "tips": "Verify the GSTIN on the government GST portal before entering. An incorrect GSTIN will cause invoice mismatches.",
+      "commonQuestions": [
+        { "question": "Is GSTIN mandatory?", "answer": "It depends on your tax configuration. If your business is GST-registered, you should enter the customer's GSTIN for proper invoicing." }
+      ]
+    },
+    {
+      "key": "pan",
+      "label": "PAN Number",
+      "type": "text",
+      "demoValue": "AABCU9603R",
+      "explanation": "The Permanent Account Number for this hotel. It is a 10-character code used for tax identification. The PAN is usually the first 10 characters of the GSTIN.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingAddressLine1",
+      "label": "Address Line 1",
+      "type": "text",
+      "demoValue": "Off Western Express Highway",
+      "explanation": "The first line of the billing address. This address appears on invoices and is used for all financial correspondence.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingAddressLine2",
+      "label": "Address Line 2",
+      "type": "text",
+      "demoValue": "Santacruz East",
+      "explanation": "The second line of the billing address. Use this for area name, landmark, or building details.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingCity",
+      "label": "City",
+      "type": "text",
+      "demoValue": "Mumbai",
+      "explanation": "The city for the billing address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingState",
+      "label": "State",
+      "type": "text",
+      "demoValue": "Maharashtra",
+      "explanation": "The state for the billing address. This affects GST calculation — interstate and intrastate deliveries have different tax rates.",
+      "tips": "Make sure the state matches the GSTIN registration state for correct tax calculation.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingPincode",
+      "label": "ZIP Code",
+      "type": "text",
+      "demoValue": "400055",
+      "explanation": "The postal code for the billing address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingCountry",
+      "label": "Country",
+      "type": "text",
+      "demoValue": "India",
+      "explanation": "The country for the billing address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingAddressLine1",
+      "label": "Address Line 1",
+      "type": "text",
+      "demoValue": "Off Western Express Highway",
+      "explanation": "The first line of the shipping address. This is where deliveries will be sent. It can be the same as the billing address or a different location.",
+      "commonQuestions": [
+        { "question": "Is the shipping address the same as billing?", "answer": "It can be. Many hotels use the same address for both. If deliveries go to a different entrance or location, enter that address here." }
+      ]
+    },
+    {
+      "key": "shippingAddressLine2",
+      "label": "Address Line 2",
+      "type": "text",
+      "demoValue": "Santacruz East",
+      "explanation": "The second line of the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingCity",
+      "label": "City",
+      "type": "text",
+      "demoValue": "Mumbai",
+      "explanation": "The city for the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingState",
+      "label": "State",
+      "type": "text",
+      "demoValue": "Maharashtra",
+      "explanation": "The state for the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingPincode",
+      "label": "ZIP Code",
+      "type": "text",
+      "demoValue": "400055",
+      "explanation": "The postal code for the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingCountry",
+      "label": "Country",
+      "type": "text",
+      "demoValue": "India",
+      "explanation": "The country for the shipping address.",
+      "commonQuestions": []
+    }
+  ],
+  "subForms": [
+    {
+      "id": "contactPerson",
+      "name": "Contact Person",
+      "triggerText": "Add Contact Person",
+      "repeatable": true,
+      "demoItemCount": 1,
+      "explanation": "Contact persons are the people at this hotel you communicate with directly — the linen manager, housekeeping head, or procurement officer. Adding them here makes it easy to track who you coordinate with.",
+      "explanationForMultiple": "Let me add a second contact person to show you.",
+      "fields": [
+        {
+          "key": "contactName",
+          "label": "Name",
+          "type": "text",
+          "demoValue": "Rajesh Kumar",
+          "explanation": "The name of the contact person at this hotel.",
+          "commonQuestions": []
+        },
+        {
+          "key": "contactPhone",
+          "label": "Phone",
+          "type": "text",
+          "demoValue": "+91 99887 76655",
+          "explanation": "Their direct phone number for quick communication about deliveries or issues.",
+          "commonQuestions": []
+        },
+        {
+          "key": "contactEmail",
+          "label": "Email",
+          "type": "text",
+          "demoValue": "rajesh@grandhyatt.com",
+          "explanation": "Their email address. Order notifications and delivery updates can be sent to this person.",
+          "commonQuestions": []
+        },
+        {
+          "key": "contactTag",
+          "label": "Tag",
+          "type": "text",
+          "demoValue": "Housekeeping Manager",
+          "explanation": "A tag or title to identify their role. For example, 'Housekeeping Manager', 'Procurement', or 'General Manager'. This helps your team know who to contact for what.",
+          "commonQuestions": []
+        }
+      ]
+    }
+  ],
+  "wrapUp": "That covers all the fields for creating a hotel! You've seen how to enter basic details, tax information, addresses, and contact persons. Remember, this was a demo — all the data has been cleared. When you're ready, you can create a real hotel entry."
+}

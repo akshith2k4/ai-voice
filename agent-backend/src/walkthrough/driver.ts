@@ -33,6 +33,7 @@ const TIMEOUTS = {
 
 const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
+const TTS_ENABLED = false; // flip to true when ElevenLabs TTS is wired up
 
 // --- Errors ---
 class CancellationError extends Error {
@@ -234,6 +235,14 @@ class WalkthroughDriver {
 
     // Step 1: Start
     stateMachine.transition("START_WALKTHROUGH", { formId: schema.id });
+
+    // Tell frontend which form we're walking through
+    this.send(sessionId, {
+      type: "tool",
+      tool: "begin_walkthrough",
+      args: { formId: schema.id },
+    });
+
     console.log(`[Driver] ▶ Starting walkthrough: ${schema.id}`);
 
     // Step 2: Navigate to the form's page
@@ -247,6 +256,23 @@ class WalkthroughDriver {
     );
     this.checkCancelled(session);
     await this.wait(500); // Let React mount the page before interacting
+
+    // Step 2b: Select an item (e.g. click a hotel row) if the schema requires it
+    if (schema.selectItem) {
+      console.log(`[Driver] Selecting item: ${schema.selectItem.label || schema.selectItem.selector}`);
+      await this.sendTool(
+        session,
+        "select_item",
+        {
+          label: schema.selectItem.label,
+          selector: schema.selectItem.selector,
+        },
+        "item_selected",
+        TIMEOUTS.NAVIGATE
+      );
+      this.checkCancelled(session);
+      await this.wait(1000); // Let sidebar / detail panel open
+    }
 
     // Step 3: Open the dialog
     console.log(`[Driver] Opening dialog: ${schema.openAction.fallbackText}`);
@@ -270,7 +296,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "respond",
-      { message: schema.overview, tts: true },
+      { message: schema.overview, tts: TTS_ENABLED },
       null,
       0
     );
@@ -336,7 +362,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "respond",
-      { message: schema.wrapUp, tts: true },
+      { message: schema.wrapUp, tts: TTS_ENABLED },
       null,
       0
     );
@@ -346,7 +372,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "respond",
-      { message: "I'll clear the demo data now.", tts: true },
+      { message: "I'll clear the demo data now.", tts: TTS_ENABLED },
       null,
       0
     );
@@ -407,7 +433,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "explain_field",
-      { fieldKey: key, text: explanation, tts: true },
+      { fieldKey: key, text: explanation, tts: TTS_ENABLED },
       null,
       0
     );
@@ -420,7 +446,7 @@ class WalkthroughDriver {
         "respond",
         {
           message: "This field is read-only. It gets filled automatically when you save.",
-          tts: true,
+          tts: TTS_ENABLED,
         },
         null,
         0
@@ -436,7 +462,7 @@ class WalkthroughDriver {
         "respond",
         {
           message: "This field was already filled automatically for you.",
-          tts: true,
+          tts: TTS_ENABLED,
         },
         null,
         0
@@ -452,7 +478,7 @@ class WalkthroughDriver {
         "respond",
         {
           message: "I'll skip filling this field — no demo value is configured.",
-          tts: true,
+          tts: TTS_ENABLED,
         },
         null,
         0
@@ -503,7 +529,7 @@ class WalkthroughDriver {
       await this.sendTool(
         session,
         "respond",
-        { message: subForm.explanation, tts: true },
+        { message: subForm.explanation, tts: TTS_ENABLED },
         null,
         0
       );
@@ -541,7 +567,7 @@ class WalkthroughDriver {
       "respond",
       {
         message: "The products have been loaded automatically based on the customer's agreement.",
-        tts: true,
+        tts: TTS_ENABLED,
       },
       null,
       0
@@ -555,7 +581,7 @@ class WalkthroughDriver {
           await this.sendTool(
             session,
             "respond",
-            { message: subForm.explanationForMultiple, tts: true },
+            { message: subForm.explanationForMultiple, tts: TTS_ENABLED },
             null,
             0
           );
@@ -595,7 +621,7 @@ class WalkthroughDriver {
             {
               fieldKey: field.key,
               text: field.explanation,
-              tts: true,
+              tts: TTS_ENABLED,
             },
             null,
             0
@@ -609,7 +635,7 @@ class WalkthroughDriver {
               "respond",
               {
                 message: "This field was already filled automatically for you.",
-                tts: true,
+                tts: TTS_ENABLED,
               },
               null,
               0
@@ -690,7 +716,7 @@ class WalkthroughDriver {
         await this.sendTool(
           session,
           "respond",
-          { message: subForm.explanationForMultiple, tts: true },
+          { message: subForm.explanationForMultiple, tts: TTS_ENABLED },
           null,
           0
         );
@@ -729,7 +755,7 @@ class WalkthroughDriver {
             {
               fieldKey: field.key,
               text: field.explanation,
-              tts: true,
+              tts: TTS_ENABLED,
             },
             null,
             0
@@ -790,7 +816,7 @@ class WalkthroughDriver {
       "respond",
       {
         message: subForm.copyExplanation || `These items can be copied from ${subForm.copyFrom?.subFormId}.`,
-        tts: true,
+        tts: TTS_ENABLED,
       },
       null,
       0
@@ -818,7 +844,7 @@ class WalkthroughDriver {
       "respond",
       {
         message: "I've checked the copy option to automatically copy items.",
-        tts: true,
+        tts: TTS_ENABLED,
       },
       null,
       0
@@ -924,7 +950,7 @@ class WalkthroughDriver {
             "respond",
             {
               message: `I had trouble with the ${fieldKey} field. I'll skip it and continue.`,
-              tts: true,
+              tts: TTS_ENABLED,
             },
             null,
             0
@@ -937,7 +963,7 @@ class WalkthroughDriver {
               "respond",
               {
                 message: "I'm having trouble with this form. The walkthrough will stop now. Please try again later.",
-                tts: true,
+                tts: TTS_ENABLED,
               },
               null,
               0
