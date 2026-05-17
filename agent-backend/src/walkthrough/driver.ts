@@ -288,6 +288,14 @@ class WalkthroughDriver {
     );
     this.checkCancelled(session);
 
+    // Step 3b: Wait for form registration as a tighter timing mechanism
+    try {
+      console.log(`[Driver] Waiting for form registration: ${schema.id}`);
+      await this.waitForStatus(session, "form_registered", 3000);
+    } catch {
+      console.log(`[Driver] Form registration event not received — assuming unregistered/fallback mode`);
+    }
+
     // Step 4: Form ready
     stateMachine.transition("FORM_READY");
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAgent } from "./AgentBridge";
+import { STATUS_EVENTS } from "./protocol";
+import { sendStatus } from "./wsConnection";
 
 // ============================================
 // Navigation Handler
@@ -16,7 +18,7 @@ import { useAgent } from "./AgentBridge";
 export default function NavigationHandler() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { pendingNavigation, sendMessage, clearPendingNavigation } = useAgent();
+  const { pendingNavigation, clearPendingNavigation } = useAgent();
   const targetRef = useRef(null);
 
   // Kick off navigation when pendingNavigation changes
@@ -26,11 +28,7 @@ export default function NavigationHandler() {
     // Already on the target route → complete immediately
     if (pendingNavigation === location.pathname) {
       console.log(`[NavigationHandler] Already on ${location.pathname} — sending navigation_complete`);
-      sendMessage({
-        type: "status",
-        event: "navigation_complete",
-        route: location.pathname,
-      });
+      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname });
       clearPendingNavigation();
       return;
     }
@@ -38,7 +36,7 @@ export default function NavigationHandler() {
     targetRef.current = pendingNavigation;
     console.log(`[NavigationHandler] Navigating to: ${pendingNavigation}`);
     navigate(pendingNavigation);
-  }, [pendingNavigation, navigate, location.pathname, sendMessage, clearPendingNavigation]);
+  }, [pendingNavigation, navigate, location.pathname, clearPendingNavigation]);
 
   // Report completion after location actually changes to the target
   useEffect(() => {
@@ -48,17 +46,13 @@ export default function NavigationHandler() {
     // Wait one frame for DOM to mount after the route change
     const id = requestAnimationFrame(() => {
       console.log(`[NavigationHandler] Route confirmed: ${location.pathname} — sending navigation_complete`);
-      sendMessage({
-        type: "status",
-        event: "navigation_complete",
-        route: location.pathname,
-      });
+      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname });
       clearPendingNavigation();
       targetRef.current = null;
     });
 
     return () => cancelAnimationFrame(id);
-  }, [location.pathname, sendMessage, clearPendingNavigation]);
+  }, [location.pathname, clearPendingNavigation]);
 
   return null;
 }

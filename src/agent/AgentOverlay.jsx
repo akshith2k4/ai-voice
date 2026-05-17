@@ -35,6 +35,7 @@ export default function AgentOverlay() {
     clearMessages,
     sendMessage,
     addMessage,
+    isPaused,
   } = useAgent();
 
   const [expanded, setExpanded] = useState(false);
@@ -265,7 +266,7 @@ export default function AgentOverlay() {
               width: 8,
               height: 8,
               borderRadius: "50%",
-              backgroundColor: statusConfig.color,
+              backgroundColor: isPaused ? "#f59e0b" : statusConfig.color,
               animation:
                 connectionStatus === "reconnecting"
                   ? "pulse-dot 2s ease-in-out infinite"
@@ -276,9 +277,26 @@ export default function AgentOverlay() {
               },
             }}
           />
-          <Typography variant="caption" sx={{ color: isAgentSpeaking ? "#10b981" : "#94a3b8", fontSize: 12 }}>
-            {isAgentSpeaking ? "Speaking..." : statusConfig.label}
+          <Typography variant="caption" sx={{ color: isPaused ? "#f59e0b" : isAgentSpeaking ? "#10b981" : "#94a3b8", fontSize: 12 }}>
+            {isPaused ? "Paused" : isAgentSpeaking ? "Speaking..." : statusConfig.label}
           </Typography>
+          {isPaused && (
+            <Box
+              sx={{
+                px: 1,
+                py: 0.2,
+                borderRadius: 1,
+                backgroundColor: "rgba(245, 158, 11, 0.2)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "#f59e0b", fontSize: 9, fontWeight: "bold" }}>
+                PAUSED
+              </Typography>
+            </Box>
+          )}
         </Box>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
