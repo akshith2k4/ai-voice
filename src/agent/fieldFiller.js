@@ -93,22 +93,36 @@ export async function fillAutocompleteField(fieldKey, label, value, subFormId, i
 
 /**
  * Click a button by text content.
+ * Polls the DOM for up to `timeout` ms to handle cases where
+ * the button hasn't mounted yet (e.g. after navigation).
  */
-export function clickButton(text) {
-  const buttons = document.querySelectorAll("button");
-  const match = Array.from(buttons).find(
-    (b) => {
+export function clickButton(text, timeout = 3000) {
+  const start = Date.now();
+
+  const tryClick = () => {
+    const buttons = document.querySelectorAll("button");
+    const match = Array.from(buttons).find((b) => {
       const btnText = b.textContent.trim().toLowerCase();
       const search = text.toLowerCase();
       // Fuzzy match: either one contains the other
       return btnText.includes(search) || search.includes(btnText);
+    });
+
+    if (match) {
+      match.click();
+      return { success: true };
     }
-  );
-  if (match) {
-    match.click();
-    return { success: true };
-  }
-  return { success: false, reason: `Button not found: ${text}` };
+
+    if (Date.now() - start < timeout) {
+      return new Promise((resolve) =>
+        setTimeout(() => resolve(tryClick()), 200)
+      );
+    }
+
+    return { success: false, reason: `Button not found: ${text}` };
+  };
+
+  return tryClick();
 }
 
 /**

@@ -37,13 +37,13 @@ export default function WalkthroughHandler() {
               }
             }
 
-            // Fallback to button text
+            // Fallback to button text (polls up to 3s for mount)
             if (!result.success && fallbackText) {
-              result = filler.clickButton(fallbackText);
+              result = await filler.clickButton(fallbackText);
             }
 
             if (result.success) {
-              await new Promise((r) => setTimeout(r, 1000)); // Wait for animation
+              await new Promise((r) => setTimeout(r, 800)); // Wait for dialog animation
               sendMessage({ type: "status", event: "dialog_opened" });
             } else {
               throw new Error(result.reason || `Trigger not found: ${selector || fallbackText}`);

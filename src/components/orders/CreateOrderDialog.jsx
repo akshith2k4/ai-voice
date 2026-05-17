@@ -31,6 +31,28 @@ import {
 } from "date-fns";
 import CustomSnackbar from "../layout/CustomSnackbar";
 
+/**
+ * Safely convert a Date (or falsy/invalid value) to ISO date string "YYYY-MM-DD".
+ * Returns "" when the value is null, undefined, empty-string, or an Invalid Date.
+ */
+function safeDateToISO(d) {
+  if (!d) return "";
+  const date = d instanceof Date ? d : new Date(d);
+  if (isNaN(date.getTime())) return "";
+  return date.toISOString().split("T")[0];
+}
+
+/**
+ * Safely convert a Date to a full ISO string for API payloads.
+ * Returns null when the value is invalid.
+ */
+function safeDateToFullISO(d) {
+  if (!d) return null;
+  const date = d instanceof Date ? d : new Date(d);
+  if (isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
 function CreateOrderDialog({ open, onClose, onSave, order }) {
   const [formData, setFormData] = useState({
     orderReferenceId: "",
@@ -411,7 +433,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
         customerId: formData.customerId,
         orderType: formData.orderType.toUpperCase(),
         branchId,
-        orderDate: formData.orderDate.toISOString(),
+        orderDate: safeDateToFullISO(formData.orderDate),
         notes: formData.notes || "",
         isAdjustment: formData.isAdjustment || false,
       };
@@ -436,12 +458,8 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
 
         orderData.leasingOrderDetails = {
           leasingOrderType: type,
-          pickupDate: formData.pickupDate
-            ? formData.pickupDate.toISOString()
-            : null,
-          deliveryDate: formData.deliveryDate
-            ? formData.deliveryDate.toISOString()
-            : null,
+          pickupDate: safeDateToFullISO(formData.pickupDate),
+          deliveryDate: safeDateToFullISO(formData.deliveryDate),
           pickupItems: finalPickupItems,
           deliveryItems: finalDeliveryItems,
         };
@@ -449,21 +467,15 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
 
       if (formData.orderType === "WASHING") {
         orderData.washingOrderDetails = {
-          pickupDate: formData.pickupDate
-            ? formData.pickupDate.toISOString()
-            : null,
-          deliveryDate: formData.deliveryDate
-            ? formData.deliveryDate.toISOString()
-            : null,
+          pickupDate: safeDateToFullISO(formData.pickupDate),
+          deliveryDate: safeDateToFullISO(formData.deliveryDate),
           items: withFinalizedQty(formData.items),
         };
       }
 
       if (formData.orderType === "RENTAL") {
         orderData.rentalOrderDetails = {
-          deliveryDate: formData.deliveryDate
-            ? formData.deliveryDate.toISOString()
-            : null,
+          deliveryDate: safeDateToFullISO(formData.deliveryDate),
           items: withFinalizedQty(formData.items),
         };
       }
@@ -623,7 +635,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>{order ? "Edit Order" : "Create Order"}</DialogTitle>
       <DialogContent>
-        <Box container="true" spacing={3} marginTop={1}>
+        <Box sx={{ mt: 1 }}>
           {/* Order Reference ID and Customer */}
           <Box display={"flex"} gap={2} alignItems="center" mb={1}>
             <Box flex={1}>
@@ -677,12 +689,11 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 name="orderDate"
                 label="Order Date"
                 type="date"
-                value={
-                  formData.orderDate
-                    ? formData.orderDate.toISOString().split("T")[0]
-                    : ""
-                }
-                onChange={(e) => handleOrderDateChange(new Date(e.target.value))}
+                value={safeDateToISO(formData.orderDate)}
+                onChange={(e) => {
+                  const d = new Date(e.target.value);
+                  if (isValidDate(d)) handleOrderDateChange(d);
+                }}
                 variant="outlined"
                 margin="dense"
                 slotProps={{
@@ -758,14 +769,11 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                     name="pickupDate"
                     label="Pickup Date"
                     type="date"
-                    value={
-                      formData.pickupDate
-                        ? formData.pickupDate.toISOString().split("T")[0]
-                        : ""
-                    }
-                    onChange={(e) =>
-                      handleInputChange("pickupDate", new Date(e.target.value))
-                    }
+                    value={safeDateToISO(formData.pickupDate)}
+                    onChange={(e) => {
+                      const d = new Date(e.target.value);
+                      handleInputChange("pickupDate", isValidDate(d) ? d : null);
+                    }}
                     variant="outlined"
                     margin="dense"
                     slotProps={{
@@ -781,17 +789,11 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                     name="deliveryDate"
                     label="Delivery Date"
                     type="date"
-                    value={
-                      formData.deliveryDate
-                        ? formData.deliveryDate.toISOString().split("T")[0]
-                        : ""
-                    }
-                    onChange={(e) =>
-                      handleInputChange(
-                        "deliveryDate",
-                        new Date(e.target.value)
-                      )
-                    }
+                    value={safeDateToISO(formData.deliveryDate)}
+                    onChange={(e) => {
+                      const d = new Date(e.target.value);
+                      handleInputChange("deliveryDate", isValidDate(d) ? d : null);
+                    }}
                     variant="outlined"
                     margin="dense"
                     slotProps={{
@@ -867,14 +869,11 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                   fullWidth
                   label="Delivery Date"
                   type="date"
-                  value={
-                    formData.deliveryDate
-                      ? formData.deliveryDate.toISOString().split("T")[0]
-                      : ""
-                  }
-                  onChange={(e) =>
-                    handleInputChange("deliveryDate", new Date(e.target.value))
-                  }
+                  value={safeDateToISO(formData.deliveryDate)}
+                  onChange={(e) => {
+                    const d = new Date(e.target.value);
+                    handleInputChange("deliveryDate", isValidDate(d) ? d : null);
+                  }}
                   variant="outlined"
                   margin="dense"
                   slotProps={{
@@ -973,14 +972,11 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                   fullWidth
                   label="Pickup Date"
                   type="date"
-                  value={
-                    formData.pickupDate
-                      ? formData.pickupDate.toISOString().split("T")[0]
-                      : ""
-                  }
-                  onChange={(e) =>
-                    handleInputChange("pickupDate", new Date(e.target.value))
-                  }
+                  value={safeDateToISO(formData.pickupDate)}
+                  onChange={(e) => {
+                    const d = new Date(e.target.value);
+                    handleInputChange("pickupDate", isValidDate(d) ? d : null);
+                  }}
                   variant="outlined"
                   margin="dense"
                   slotProps={{
@@ -993,14 +989,11 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                   fullWidth
                   label="Delivery Date"
                   type="date"
-                  value={
-                    formData.deliveryDate
-                      ? formData.deliveryDate.toISOString().split("T")[0]
-                      : ""
-                  }
-                  onChange={(e) =>
-                    handleInputChange("deliveryDate", new Date(e.target.value))
-                  }
+                  value={safeDateToISO(formData.deliveryDate)}
+                  onChange={(e) => {
+                    const d = new Date(e.target.value);
+                    handleInputChange("deliveryDate", isValidDate(d) ? d : null);
+                  }}
                   variant="outlined"
                   margin="dense"
                   slotProps={{

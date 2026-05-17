@@ -246,6 +246,7 @@ class WalkthroughDriver {
       TIMEOUTS.NAVIGATE
     );
     this.checkCancelled(session);
+    await this.wait(500); // Let React mount the page before interacting
 
     // Step 3: Open the dialog
     console.log(`[Driver] Opening dialog: ${schema.openAction.fallbackText}`);
