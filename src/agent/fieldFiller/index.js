@@ -45,7 +45,12 @@ export async function fillAutocompleteField(fieldKey, label, value, subFormId, i
   return await doFillAutocomplete(element, value);
 }
 
-export function clearAllFields(container = document) {
+export function clearAllFields(container) {
+  if (!container) {
+    console.error("[fieldFiller] clearAllFields requires an explicit container.");
+    return { success: false, reason: "Container is required" };
+  }
+
   const filled = container.querySelectorAll("[data-agent-filled]");
   let cleared = 0;
 
@@ -63,7 +68,29 @@ export function clearAllFields(container = document) {
     } else if (type === "select") {
       const select = el.querySelector('[role="combobox"]');
       if (select) {
-        // Re-click to deselect — complex. Just clear the display value
+        const nativeInput = el.querySelector(".MuiSelect-nativeInput") || el.querySelector("input");
+        if (nativeInput) {
+          setNativeValue(nativeInput, "");
+          nativeInput.dispatchEvent(new Event("input", { bubbles: true }));
+          nativeInput.dispatchEvent(new Event("change", { bubbles: true }));
+          
+          const inputKey = Object.keys(nativeInput).find((k) => k.startsWith("__reactProps"));
+          if (inputKey && nativeInput[inputKey]?.onChange) {
+            nativeInput[inputKey].onChange({ target: { value: "", name: nativeInput.name } });
+          }
+        }
+        
+        // Also trigger onChange on the combobox/select wrapper to update React state
+        const wrapper = select.closest(".MuiInputBase-root") || select;
+        const wrapperKey = Object.keys(wrapper).find((k) => k.startsWith("__reactProps"));
+        if (wrapperKey && wrapper[wrapperKey]?.onChange) {
+          wrapper[wrapperKey].onChange({ target: { value: "", name: nativeInput?.name || select.name } });
+        }
+        const selectKey = Object.keys(select).find((k) => k.startsWith("__reactProps"));
+        if (selectKey && select[selectKey]?.onChange) {
+          select[selectKey].onChange({ target: { value: "", name: nativeInput?.name || select.name } });
+        }
+
         const display = el.querySelector(".MuiSelect-select");
         if (display) {
           display.textContent = "";
@@ -104,9 +131,23 @@ export function clearAllFields(container = document) {
   });
 
   // Also click any delete buttons for sub-form items
-  const deleteButtons = Array.from(
-    container.querySelectorAll('[aria-label="delete item"]')
-  );
+  // Scoped strictly to the active container, and not the full document unless absolutely required.
+  const isDocument = container === document;
+  let deleteButtons = [];
+  if (!isDocument) {
+    deleteButtons = Array.from(
+      container.querySelectorAll('[aria-label="delete item"]')
+    );
+  } else {
+    // If it is document, let's scope to active dialog or form container rather than entire page
+    const activeForm = document.querySelector(".MuiDialog-paper") || document.querySelector("form");
+    if (activeForm) {
+      deleteButtons = Array.from(
+        activeForm.querySelectorAll('[aria-label="delete item"]')
+      );
+    }
+  }
+
   // Delete in reverse order so indices don't shift
   deleteButtons.reverse().forEach((btn) => {
     btn.click();

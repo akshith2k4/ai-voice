@@ -132,6 +132,7 @@ export default function IssueTracker() {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={openNewIssue}
+              data-agent-action="new-issue"
               sx={{
                 height: 40,
                 minWidth: 120,

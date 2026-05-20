@@ -151,6 +151,19 @@
         "add customer"
       ],
       "description": "Walkthrough for creating a new hotel or customer"
+    },
+    {
+      "id": "createIssue",
+      "name": "Create Issue",
+      "route": "/issue-tracker",
+      "aliases": [
+        "create issue",
+        "new issue",
+        "add issue",
+        "create an issue",
+        "report an issue"
+      ],
+      "description": "Walkthrough for creating a new issue"
     }
   ]
 }

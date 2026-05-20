@@ -19,7 +19,7 @@ export interface FieldSchema {
   autoFilled?: boolean;
   demoValue: unknown;
   options?: string[];
-  visibleWhen?: { field: string; value: string } | null;
+  visibleWhen?: { field: string; value: string } | Record<string, string> | null;
   conditionalOn?: { field: string; values: string[] } | null;
   explanation: string;
   tips?: string;
@@ -27,6 +27,16 @@ export interface FieldSchema {
   pauseAfterFill?: number;
   waitAfterFillMs?: number;
   commonQuestions?: Array<{ question: string; answer: string }>;
+  branching?: boolean;
+  exploration?: string;
+  affects?: string[];
+  dependsOn?: string;
+  explain?: {
+    full?: string;
+    delta?: Record<string, string>;
+  };
+  autoLoad?: boolean;
+  emptyMessage?: string;
 }
 
 export interface SubFormSchema {
@@ -140,7 +150,7 @@ export function loadAllSchemas(formsDir?: string): void {
       loaded++;
 
       console.log(
-        `[SchemaLoader] ✅ Loaded: ${schema.id} (${schema.fields.length} fields, ${schema.subForms.length} sub-forms)`
+        `[SchemaLoader] ✅ Loaded: ${schema.id} (${schema.fields.length} fields, ${(schema.subForms?.length || 0)} sub-forms)`
       );
     } catch (error) {
       failed++;

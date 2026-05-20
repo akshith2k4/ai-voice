@@ -1,4 +1,4 @@
-import { MESSAGE_TYPES, STATUS_EVENTS } from "./protocol";
+import { MESSAGE_TYPES, STATUS_EVENTS, TIMING } from "./protocol";
 
 let ws = null;
 let messageQueue = [];
@@ -18,6 +18,7 @@ export function connectWs(url, { onOpen, onMessage, onClose, onError }) {
     return ws;
   }
 
+  messageQueue = []; // Clear queue on connection attempt to ensure fresh slate
   emitStatus("connecting");
   try {
     ws = new WebSocket(url);
@@ -43,6 +44,7 @@ export function connectWs(url, { onOpen, onMessage, onClose, onError }) {
     ws.onclose = (event) => {
       console.log(`[wsConnection] WebSocket closed (code: ${event.code})`);
       ws = null;
+      messageQueue = []; // Clear queue to prevent flooding backend with stale events on reconnect
       emitStatus("disconnected");
       onClose?.(event);
     };
@@ -53,6 +55,7 @@ export function connectWs(url, { onOpen, onMessage, onClose, onError }) {
     };
   } catch (error) {
     console.error("[wsConnection] Failed to create WebSocket:", error);
+    messageQueue = [];
     emitStatus("disconnected");
     onClose?.({ code: 1006 });
   }
@@ -72,6 +75,9 @@ export function sendMessage(message) {
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(payload);
   } else {
+    if (messageQueue.length >= TIMING.MSG_QUEUE_MAX) {
+      messageQueue.shift(); // drop oldest
+    }
     messageQueue.push(payload);
   }
 }

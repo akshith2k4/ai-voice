@@ -16,7 +16,14 @@ export function useAgentForm(formId, formApi) {
   useEffect(() => {
     const proxy = {
       get fields() { return apiRef.current.fields; },
-      get subForms() { return apiRef.current.subForms; },
+      get subForms() {
+        if (!apiRef.current.subForms) return undefined;
+        return apiRef.current.subForms.map((sf) => ({
+          id: sf.id,
+          add: () => sf.add?.(),
+          fields: sf.fields ? sf.fields.map((f) => ({ ...f })) : [],
+        }));
+      },
       clearAll: () => apiRef.current.clearAll?.(),
     };
     agentFormRegistry.register(formId, proxy);

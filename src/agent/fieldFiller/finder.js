@@ -32,10 +32,10 @@ export function findField(fieldKey, label, subFormId, itemIndex, container = doc
 
 function findFieldByLabel(label, subFormId, itemIndex, container) {
   // Search inside .MuiDialog-paper (the actual content container)
-  // NOT [role="dialog"] which may be a wrapper
-  const root = container.querySelector(".MuiDialog-paper") || 
-               container.querySelector('[role="dialog"]') || 
-               container;
+  // ONLY if the container is document. Otherwise, search container directly.
+  const root = container === document
+    ? (container.querySelector(".MuiDialog-paper") || container.querySelector('[role="dialog"]') || container)
+    : container;
 
   if (subFormId !== undefined && subFormId !== null) {
     return findSubFormField(root, label, subFormId, itemIndex);
@@ -78,42 +78,15 @@ function findSubFormField(root, label, subFormId, itemIndex) {
 
   if (matches.length === 0) return null;
 
-  // Sub-form fields are repeated — the Nth match corresponds to the Nth item
-  // Group by vertical position (each item row is at a different Y)
-  const grouped = groupByPosition(matches);
-
-  const targetGroup = grouped[itemIndex] || grouped[0];
-  if (!targetGroup) return null;
+  // Sub-form fields are repeated — the Nth match corresponds to the Nth item (document order)
+  const targetLabel = matches[itemIndex] || matches[0];
+  if (!targetLabel) return null;
 
   return (
-    targetGroup.closest(".MuiFormControl-root") ||
-    targetGroup.closest(".MuiAutocomplete-root") ||
-    targetGroup.closest(".MuiFormControlLabel-root")
+    targetLabel.closest(".MuiFormControl-root") ||
+    targetLabel.closest(".MuiAutocomplete-root") ||
+    targetLabel.closest(".MuiFormControlLabel-root")
   );
-}
-
-function groupByPosition(labels) {
-  // Group labels that are in the same horizontal row (similar Y position)
-  const rows = [];
-  const tolerance = 20; // pixels
-
-  for (const label of labels) {
-    const rect = label.getBoundingClientRect();
-    const y = Math.round(rect.top);
-
-    let foundRow = rows.find((row) => Math.abs(row.y - y) < tolerance);
-    if (!foundRow) {
-      foundRow = { y, labels: [] };
-      rows.push(foundRow);
-    }
-    foundRow.labels.push(label);
-  }
-
-  // Sort rows by Y position
-  rows.sort((a, b) => a.y - b.y);
-
-  // Return the first label from each row
-  return rows.map((row) => row.labels[0]);
 }
 
 function scrollToElement(element) {

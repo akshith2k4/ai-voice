@@ -41,6 +41,9 @@ export function handleStatus(
     case "fields_cleared":
     case "checkbox_clicked":
     case "item_added":
+    case "form_registered":
+    case "walkthrough_begun":
+    case "explain_complete":
       // Acknowledge — will be used by walkthrough driver in later slices
       break;
 

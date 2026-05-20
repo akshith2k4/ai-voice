@@ -16,6 +16,7 @@ import { agentFormRegistry } from "./agentFormRegistry";
 import { executeTool } from "./toolRegistry";
 import { TOOL_TYPES } from "./protocol";
 import { SpotlightManager } from "./SpotlightManager";
+import { wait } from "./utils";
 import "./toolHandlers/index";
 
 
@@ -45,7 +46,7 @@ export default function WalkthroughHandler() {
     if (!pendingTool) return;
 
     // Deduplicate (React can re-fire effect with same value)
-    const toolId = JSON.stringify(pendingTool);
+    const toolId = pendingTool.uuid || pendingTool.type + JSON.stringify(pendingTool.args || {});
     if (toolId === lastEnqueuedRef.current) return;
     lastEnqueuedRef.current = toolId;
 
@@ -140,8 +141,4 @@ export default function WalkthroughHandler() {
   }
 
   return null;
-}
-
-function wait(ms) {
-  return new Promise((r) => setTimeout(r, ms));
 }

@@ -1,7 +1,5 @@
 import { setNativeValue } from "./nativeSetValue";
-
-const AUTOCOMPLETE_POLL_INTERVAL = 300;
-const AUTOCOMPLETE_POLL_TIMEOUT = 6000;
+import { TIMING } from "../protocol";
 
 export async function doFillAutocomplete(element, value) {
   const root = element.closest(".MuiAutocomplete-root") || element;
@@ -32,32 +30,12 @@ export async function doFillAutocomplete(element, value) {
     await new Promise(r => setTimeout(r, 80));
   }
 
-  // Also call React's onInputChange via fiber with a proper event
-  const fiberKey = Object.keys(root).find(k => k.startsWith("__reactFiber"));
-  if (fiberKey) {
-    let fiber = root[fiberKey];
-    let depth = 0;
-    while (fiber && depth < 25) {
-      const props = fiber.memoizedProps || fiber.pendingProps;
-      if (props?.onInputChange) {
-        const fakeEvent = { target: { value: str } };
-        props.onInputChange(fakeEvent, str, "input");
-        break;
-      }
-      fiber = fiber.return;
-      depth++;
-    }
-  }
-
   // Wait for options
   const option = await pollForAutocompleteOption(str);
   if (!option) {
-    console.warn(`[fieldFiller] Autocomplete poll timeout for "${value}". Attempting Enter fallback.`);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    await new Promise(r => setTimeout(r, 100));
+    console.error(`[fieldFiller] Autocomplete option not found for value "${value}".`);
     input.blur();
-    element.setAttribute("data-agent-filled", "autocomplete");
-    return { success: true };
+    return { success: false, reason: `Autocomplete option not found for value: ${value}` };
   }
 
   option.click();
@@ -69,8 +47,8 @@ async function pollForAutocompleteOption(searchValue) {
   const start = Date.now();
   const needle = searchValue.toLowerCase();
 
-  while (Date.now() - start < AUTOCOMPLETE_POLL_TIMEOUT) {
-    await new Promise(r => setTimeout(r, AUTOCOMPLETE_POLL_INTERVAL));
+  while (Date.now() - start < TIMING.AUTOCOMPLETE_TIMEOUT_MS) {
+    await new Promise(r => setTimeout(r, TIMING.AUTOCOMPLETE_POLL_MS));
 
     const listbox = document.querySelector('[role="listbox"]');
     if (!listbox) continue;

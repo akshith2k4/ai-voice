@@ -1,5 +1,46 @@
 import { TOOL_TYPES, STATUS_EVENTS, MESSAGE_TYPES } from "./protocol";
 
+const TOOL_HANDLERS = {
+  [TOOL_TYPES.RESPOND]: (args, { addMessage, setIsProcessing }) => {
+    const text = args?.message || "";
+    const tts = args?.tts !== false;
+
+    // "You said: ..." echoes go to the user bubble, not agent
+    if (text.startsWith("You said:")) {
+      const spoken = text.replace(/^You said:\s*"?/, "").replace(/"$/, "");
+      addMessage("user", spoken);
+    } else {
+      addMessage("agent", text);
+    }
+
+    // If no TTS follows, clear processing state now
+    if (!tts) {
+      setIsProcessing(false);
+    }
+  },
+  [TOOL_TYPES.NAVIGATE]: (args, { setPendingNavigation }) => {
+    const route = args?.route;
+    if (route) {
+      setPendingNavigation(route);
+    }
+  },
+  [TOOL_TYPES.START_WALKTHROUGH]: (args, { setPendingTool }) => {
+    const formId = args?.formId;
+    if (formId) {
+      setPendingTool({ type: TOOL_TYPES.START_WALKTHROUGH, formId, uuid: crypto.randomUUID() });
+    }
+  },
+  [TOOL_TYPES.RESUME_WALKTHROUGH]: (_, { setPendingTool }) => {
+    setPendingTool({ type: TOOL_TYPES.RESUME_WALKTHROUGH, uuid: crypto.randomUUID() });
+  },
+  [TOOL_TYPES.PAUSE_WALKTHROUGH]: (_, { setPendingTool }) => {
+    setPendingTool({ type: TOOL_TYPES.PAUSE_WALKTHROUGH, uuid: crypto.randomUUID() });
+  },
+  [TOOL_TYPES.CANCEL_WALKTHROUGH]: (_, { setPendingTool }) => {
+    setPendingTool({ type: TOOL_TYPES.CANCEL_WALKTHROUGH, uuid: crypto.randomUUID() });
+  },
+};
+
 export function routeIncomingMessage(
   data,
   {
@@ -13,45 +54,29 @@ export function routeIncomingMessage(
   try {
     const message = JSON.parse(data);
 
+    if (!message || typeof message.type !== "string") {
+      console.warn("[AgentBridge] Invalid message payload: missing or non-string 'type'.");
+      return;
+    }
+
     switch (message.type) {
       case MESSAGE_TYPES.TOOL: {
-        if (message.tool === TOOL_TYPES.RESPOND) {
-          const text = message.args?.message || "";
-          const tts = message.args?.tts !== false;
+        if (typeof message.tool !== "string") {
+          console.warn("[AgentBridge] Invalid tool message: 'tool' must be a string.");
+          break;
+        }
+        if (message.args !== undefined && (typeof message.args !== "object" || message.args === null)) {
+          console.warn("[AgentBridge] Invalid tool message: 'args' must be an object.");
+          break;
+        }
 
-          // "You said: ..." echoes go to the user bubble, not agent
-          if (text.startsWith("You said:")) {
-            const spoken = text.replace(/^You said:\s*"?/, "").replace(/"$/, "");
-            addMessage("user", spoken);
-          } else {
-            addMessage("agent", text);
-          }
+        const handler = TOOL_HANDLERS[message.tool];
+        const context = { addMessage, setIsProcessing, setPendingNavigation, setPendingTool };
 
-          // If no TTS follows, clear processing state now
-          if (!tts) {
-            setIsProcessing(false);
-          }
-          // If tts=true, processing clears when audio playback ends
-        } else if (message.tool === TOOL_TYPES.NAVIGATE) {
-          const route = message.args?.route;
-          if (route) {
-            setPendingNavigation(route);
-          }
-        } else if (message.tool === TOOL_TYPES.START_WALKTHROUGH) {
-          const formId = message.args?.formId;
-          if (formId) {
-            setPendingTool({ type: TOOL_TYPES.START_WALKTHROUGH, formId });
-          }
-        } else if (message.tool === TOOL_TYPES.RESUME_WALKTHROUGH) {
-          setPendingTool({ type: TOOL_TYPES.RESUME_WALKTHROUGH });
-        } else if (message.tool === TOOL_TYPES.PAUSE_WALKTHROUGH) {
-          setPendingTool({ type: TOOL_TYPES.PAUSE_WALKTHROUGH });
-        } else if (message.tool === TOOL_TYPES.CANCEL_WALKTHROUGH) {
-          setPendingTool({ type: TOOL_TYPES.CANCEL_WALKTHROUGH });
-        } else if (
-          Object.values(TOOL_TYPES).includes(message.tool)
-        ) {
-          setPendingTool({ type: message.tool, args: message.args });
+        if (handler) {
+          handler(message.args, context);
+        } else if (Object.values(TOOL_TYPES).includes(message.tool)) {
+          setPendingTool({ type: message.tool, args: message.args, uuid: crypto.randomUUID() });
         } else {
           console.log(`[AgentBridge] Unhandled tool: ${message.tool}`, message.args);
         }
@@ -60,9 +85,15 @@ export function routeIncomingMessage(
 
       case MESSAGE_TYPES.TTS_AUDIO: {
         const { audio, messageId } = message;
-        if (audio && messageId) {
-          audioQueue?.enqueue(audio, messageId);
+        if (typeof audio !== 'string' || audio.length === 0) {
+          console.warn("[AgentBridge] Invalid tts_audio message: 'audio' must be a non-empty string.");
+          break;
         }
+        if (typeof messageId !== 'string' && typeof messageId !== 'number') {
+          console.warn("[AgentBridge] Invalid tts_audio message: 'messageId' must be a string or number.");
+          break;
+        }
+        audioQueue?.enqueue(audio, messageId);
         break;
       }
 

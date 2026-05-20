@@ -10,6 +10,7 @@ import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import CloseIcon from "@mui/icons-material/Close";
+import { STATUS, TIMING } from "./protocol";
 import "./spotlight.css";
 
 // ============================================
@@ -17,12 +18,33 @@ import "./spotlight.css";
 // Bottom-right push-to-talk mic + text display
 // ============================================
 
-// Status display config
+// Status display config using shared protocol constants
 const STATUS_CONFIG = {
-  connecting:    { color: "#f59e0b", label: "Connecting..." },
-  connected:     { color: "#10b981", label: "Connected" },
-  disconnected:  { color: "#ef4444", label: "Disconnected" },
-  reconnecting:  { color: "#f59e0b", label: "Reconnecting..." },
+  [STATUS.CONNECTING]:    { color: "#f59e0b", label: "Connecting..." },
+  [STATUS.CONNECTED]:     { color: "#10b981", label: "Connected" },
+  [STATUS.DISCONNECTED]:  { color: "#ef4444", label: "Disconnected" },
+  [STATUS.RECONNECTING]:  { color: "#f59e0b", label: "Reconnecting..." },
+};
+
+const MIC_CONFIG = {
+  recording: {
+    bg: "#ef4444",
+    hoverBg: "#dc2626",
+    color: "#ef4444",
+    iconType: "mic",
+  },
+  ready: {
+    bg: "#1e40af",
+    hoverBg: "#1d4ed8",
+    color: "#64748b",
+    iconType: "mic",
+  },
+  disabled: {
+    bg: "#374151",
+    hoverBg: "#374151",
+    color: "#64748b",
+    iconType: "off",
+  },
 };
 
 export default function AgentOverlay() {
@@ -88,8 +110,8 @@ export default function AgentOverlay() {
         recordingActiveRef.current = false;
         setIsRecording(false);
 
-        // Don't send if blob is too small (< 1KB = likely just noise)
-        if (blob.size < 3072) return;
+        // Don't send if blob is too small (< MIN_AUDIO_BYTES = likely just noise)
+        if (blob.size < TIMING.MIN_AUDIO_BYTES) return;
 
         sendAudio(blob);
       };
@@ -166,6 +188,8 @@ export default function AgentOverlay() {
   const statusConfig = STATUS_CONFIG[connectionStatus] || STATUS_CONFIG.disconnected;
   const isConnected = connectionStatus === "connected";
   const canRecord = isConnected && !isProcessing;
+  const micState = isRecording ? "recording" : canRecord ? "ready" : "disabled";
+  const micConfig = MIC_CONFIG[micState];
 
   // ---- Collapsed state: floating orb ----
   if (!expanded) {
@@ -185,23 +209,16 @@ export default function AgentOverlay() {
       >
         {/* Status dot */}
         <Box
+          className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""}
           sx={{
             width: 10,
             height: 10,
             borderRadius: "50%",
             backgroundColor: statusConfig.color,
             boxShadow:
-              connectionStatus === "reconnecting"
+              connectionStatus === STATUS.RECONNECTING
                 ? `0 0 8px ${statusConfig.color}`
                 : "none",
-            animation:
-              connectionStatus === "reconnecting"
-                ? "pulse-dot 2s ease-in-out infinite"
-                : "none",
-            "@keyframes pulse-dot": {
-              "0%, 100%": { opacity: 1 },
-              "50%": { opacity: 0.4 },
-            },
           }}
         />
 
@@ -262,19 +279,12 @@ export default function AgentOverlay() {
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box
+            className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""}
             sx={{
               width: 8,
               height: 8,
               borderRadius: "50%",
               backgroundColor: isPaused ? "#f59e0b" : statusConfig.color,
-              animation:
-                connectionStatus === "reconnecting"
-                  ? "pulse-dot 2s ease-in-out infinite"
-                  : "none",
-              "@keyframes pulse-dot": {
-                "0%, 100%": { opacity: 1 },
-                "50%": { opacity: 0.4 },
-              },
             }}
           />
           <Typography variant="caption" sx={{ color: isPaused ? "#f59e0b" : isAgentSpeaking ? "#10b981" : "#94a3b8", fontSize: 12 }}>
@@ -512,44 +522,28 @@ export default function AgentOverlay() {
           </Typography>
         )}
 
-        <IconButton
+         <IconButton
           onMouseDown={handleMicDown}
           onMouseUp={handleMicUp}
           onMouseLeave={handleMouseLeave}
           onTouchStart={handleMicDown}
           onTouchEnd={handleMicUp}
           disabled={!canRecord}
+          className={isRecording ? "pulse-mic-animation" : ""}
           sx={{
             width: 56,
             height: 56,
             borderRadius: "50%",
-            backgroundColor: isRecording
-              ? "#ef4444"
-              : canRecord
-              ? "#1e40af"
-              : "#374151",
+            backgroundColor: micConfig.bg,
             color: "#fff",
             transition: "all 0.2s ease",
             "&:hover": {
-              backgroundColor: isRecording
-                ? "#dc2626"
-                : canRecord
-                ? "#1d4ed8"
-                : "#374151",
+              backgroundColor: micConfig.hoverBg,
             },
             "&:active": { transform: "scale(0.95)" },
-            ...(isRecording && {
-              animation: "pulse-mic 1.5s ease-in-out infinite",
-              "@keyframes pulse-mic": {
-                "0%, 100%": { boxShadow: "0 0 0 0 rgba(239,68,68,0.4)" },
-                "50%": { boxShadow: "0 0 0 12px rgba(239,68,68,0)" },
-              },
-            }),
           }}
         >
-          {isRecording ? (
-            <MicIcon sx={{ fontSize: 28 }} />
-          ) : canRecord ? (
+          {micConfig.iconType === "mic" ? (
             <MicIcon sx={{ fontSize: 28 }} />
           ) : (
             <MicOffIcon sx={{ fontSize: 28 }} />
@@ -559,7 +553,7 @@ export default function AgentOverlay() {
         <Typography
           variant="caption"
           sx={{
-            color: isRecording ? "#ef4444" : "#64748b",
+            color: micConfig.color,
             fontSize: 11,
             mt: 1,
           }}

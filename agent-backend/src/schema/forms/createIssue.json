@@ -1,0 +1,139 @@
+{
+  "id": "createIssue",
+  "name": "New Issue",
+  "route": "/issue-tracker",
+  "openAction": {
+    "type": "button",
+    "selector": "[data-agent-action='new-issue']",
+    "fallbackText": "New Issue"
+  },
+  "overview": "This form allows you to report a new issue, such as quality issues, missing linens, or heavy soilage. It dynamically branches depending on whether the source is a Customer or a Laundry vendor.",
+  "wrapUp": "Great! We have walked through reporting an issue for both Customer and Laundry branches, seeing how fields dynamically show up.",
+  "subForms": [],
+  "fields": [
+    {
+      "key": "issueDate",
+      "label": "Issue Date",
+      "type": "date",
+      "demoValue": "2026-05-18",
+      "explanation": "Select the date the issue was recorded."
+    },
+    {
+      "key": "sourceType",
+      "label": "Source Type",
+      "type": "select",
+      "branching": true,
+      "exploration": "full",
+      "options": ["CUSTOMER", "LAUNDRY"],
+      "affects": ["sourceName", "triggerEntity", "orderDate", "orders", "washDate"],
+      "demoValue": "CUSTOMER",
+      "explanation": "Source Type decides who the issue is about – a Customer hotel or a Laundry vendor.",
+      "explain": {
+        "full": "Source Type decides who the issue is about – a Customer hotel or a Laundry vendor. This controls what appears in Source Name and Trigger Entity."
+      }
+    },
+    {
+      "key": "sourceName",
+      "label": "Source Name",
+      "type": "autocomplete",
+      "dependsOn": "sourceType",
+      "demoValue": {
+        "CUSTOMER": "ARAMA SUITES",
+        "LAUNDRY": "Laundry Solutions"
+      },
+      "explanation": "Select the specific Customer or Laundry Vendor.",
+      "explain": {
+        "full": "Search and select the customer hotel or laundry vendor related to this issue.",
+        "delta": {
+          "CUSTOMER": "Now we select the customer hotel. Let's select Arama Suites.",
+          "LAUNDRY": "Now we select the laundry vendor. Let's select LinenCare Services."
+        }
+      }
+    },
+    {
+      "key": "triggerEntity",
+      "label": "Trigger Entity",
+      "type": "select",
+      "dependsOn": "sourceType",
+      "demoValue": {
+        "CUSTOMER": "ORDER",
+        "LAUNDRY": "WASH_FULFILLMENT"
+      },
+      "explanation": "Select the associated entity type.",
+      "explain": {
+        "full": "Select the entity that triggered this issue – either an Order or a Wash Fulfillment.",
+        "delta": {
+          "CUSTOMER": "Notice that Trigger Entity automatically changed to ORDER for the Customer.",
+          "LAUNDRY": "Notice that Trigger Entity automatically changed to WASH_FULFILLMENT for the Laundry."
+        }
+      }
+    },
+    {
+      "key": "orderDate",
+      "label": "Order Date",
+      "type": "date",
+      "visibleWhen": { "sourceType": "CUSTOMER" },
+      "demoValue": "2026-05-18",
+      "explanation": "Select the order date to filter orders.",
+      "explain": {
+        "full": "Select the Order Date. This will automatically load the customer's orders for that day."
+      }
+    },
+    {
+      "key": "orders",
+      "label": "Orders",
+      "type": "select",
+      "visibleWhen": { "sourceType": "CUSTOMER" },
+      "autoLoad": true,
+      "demoValue": "",
+      "emptyMessage": "No orders found for this selection. You can still continue without linking one.",
+      "explanation": "Link a specific order to this issue if applicable."
+    },
+    {
+      "key": "washDate",
+      "label": "Wash Date",
+      "type": "date",
+      "visibleWhen": { "sourceType": "LAUNDRY" },
+      "demoValue": "2026-05-18",
+      "explanation": "Select the wash date.",
+      "explain": {
+        "full": "Select the Wash Date to link this issue with laundry processing on that date."
+      }
+    },
+    {
+      "key": "issueType",
+      "label": "Issue Type",
+      "type": "select",
+      "demoValue": "QUALITY",
+      "explanation": "Select the category of the issue, like missing items or quality defects."
+    },
+    {
+      "key": "status",
+      "label": "Status",
+      "type": "select",
+      "demoValue": "OPEN",
+      "explanation": "Choose the initial status of the issue."
+    },
+    {
+      "key": "description",
+      "label": "Description",
+      "type": "text",
+      "demoValue": "Stained sheets observed in batch",
+      "explanation": "Enter details explaining the issue."
+    },
+    {
+      "key": "product",
+      "label": "Product",
+      "type": "autocomplete",
+      "demoValue": "Double Bed Sheet",
+      "explanation": "Optionally select the product affected by the issue."
+    },
+    {
+      "key": "quantity",
+      "label": "Quantity",
+      "type": "text",
+      "demoValue": "5",
+      "explanation": "Enter the quantity of items affected."
+    }
+  ]
+}

@@ -1,4 +1,7 @@
-export async function clickButton(text, timeout = 3000) {
+import { TIMING } from "../protocol";
+import { findCheckboxInput } from "../utils";
+
+export async function clickButton(text, timeout = TIMING.BUTTON_TIMEOUT_MS) {
   const start = Date.now();
 
   while (Date.now() - start < timeout) {
@@ -14,16 +17,23 @@ export async function clickButton(text, timeout = 3000) {
       return { success: true };
     }
     
-    // Fuzzy fallback
-    const fuzzy = Array.from(buttons).find(b =>
-      b.textContent.trim().toLowerCase().includes(search)
-    );
-    if (fuzzy) {
-      fuzzy.click();
+    // Fuzzy fallback with strict word boundaries
+    const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const fuzzyCandidates = Array.from(buttons).filter((b) => {
+      const content = b.textContent.trim().toLowerCase();
+      const regex = new RegExp("\\b" + escapeRegExp(search) + "\\b", "i");
+      return regex.test(content);
+    });
+    if (fuzzyCandidates.length > 0) {
+      // Sort to select the shortest text string (highest similarity)
+      fuzzyCandidates.sort((a, b) => a.textContent.trim().length - b.textContent.trim().length);
+      const chosen = fuzzyCandidates[0];
+      console.warn(`[fieldFiller] clickButton: Fuzzy match used instead of exact match for "${text}". Matched: "${chosen.textContent.trim()}"`);
+      chosen.click();
       return { success: true };
     }
 
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, TIMING.POLL_INTERVAL_MS));
   }
 
   return { success: false, reason: `Button not found: ${text}` };
@@ -38,10 +48,7 @@ export function clickCheckbox(labelText) {
     return { success: false, reason: `Checkbox not found: ${labelText}` };
   }
 
-  const formControlLabel = match.closest(".MuiFormControlLabel-root");
-  const checkbox = formControlLabel?.querySelector(
-    'input[type="checkbox"]'
-  );
+  const checkbox = findCheckboxInput(match);
   if (checkbox) {
     checkbox.click();
     return { success: true };

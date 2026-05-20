@@ -33,7 +33,7 @@ const TIMEOUTS = {
 
 const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
-const TTS_ENABLED = false; // flip to true when ElevenLabs TTS is wired up
+const TTS_ENABLED = true; // flip to true when ElevenLabs TTS is wired up
 
 // --- Errors ---
 class CancellationError extends Error {
@@ -60,6 +60,7 @@ class WalkthroughAbortError extends Error {
 // --- Session ---
 interface PendingStatus {
   expectedEvent: string;
+  matcher?: (data: any) => boolean;
   resolve: (data: any) => void;
   reject: (reason: any) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -74,6 +75,7 @@ interface WalkthroughSession {
   cancelled: boolean;
   errorCount: number;
   pendingStatus: PendingStatus | null;
+  isRegistered: boolean;
 }
 
 // --- Driver ---
@@ -127,6 +129,7 @@ class WalkthroughDriver {
       cancelled: false,
       errorCount: 0,
       pendingStatus: null,
+      isRegistered: false,
     };
 
     this.sessions.set(sessionId, session);
@@ -218,8 +221,16 @@ class WalkthroughDriver {
       return;
     }
 
+    if (event === "form_registered") {
+      session.isRegistered = true;
+    }
+
     // Expected confirmation → resolve pending wait
-    if (session.pendingStatus && session.pendingStatus.expectedEvent === event) {
+    if (
+      session.pendingStatus &&
+      session.pendingStatus.expectedEvent === event &&
+      (!session.pendingStatus.matcher || session.pendingStatus.matcher(data))
+    ) {
       clearTimeout(session.pendingStatus.timer);
       session.pendingStatus.resolve(data);
       session.pendingStatus = null;
@@ -289,10 +300,20 @@ class WalkthroughDriver {
     this.checkCancelled(session);
 
     // Step 3b: Wait for form registration as a tighter timing mechanism
-    try {
-      console.log(`[Driver] Waiting for form registration: ${schema.id}`);
-      await this.waitForStatus(session, "form_registered", 3000);
-    } catch {
+    let registered = session.isRegistered;
+    if (!registered) {
+      console.log(`[Driver] Waiting up to 1.5s for form registration: ${schema.id}`);
+      for (let attempt = 0; attempt < 15; attempt++) {
+        if (session.isRegistered) {
+          registered = true;
+          break;
+        }
+        await this.wait(100);
+      }
+    }
+    if (registered) {
+      console.log(`[Driver] Form is registered! Using registry-first mode.`);
+    } else {
       console.log(`[Driver] Form registration event not received — assuming unregistered/fallback mode`);
     }
 
@@ -311,34 +332,147 @@ class WalkthroughDriver {
     await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
     // Step 6: Walk through main fields
-    for (let i = 0; i < schema.fields.length; i++) {
-      this.checkCancelled(session);
-      const field = schema.fields[i];
+    const hasBranching = schema.fields.some(f => f.branching);
+    if (hasBranching) {
+      console.log(`[Driver] Form has branching fields — generating walkthrough steps using WalkthroughPlanner`);
+      const { WalkthroughPlanner } = await import("./planner.js");
+      const planner = new WalkthroughPlanner(schema);
+      const plannedSteps = planner.build();
+      console.log(`[Driver] Planned steps count: ${plannedSteps.length}`);
 
-      // Check visibility
-      if (!this.isFieldVisible(session, field)) {
-        console.log(`[Driver] Skipping field "${field.key}" — not visible`);
-        continue;
+      for (let sIdx = 0; sIdx < plannedSteps.length; sIdx++) {
+        this.checkCancelled(session);
+        const step = plannedSteps[sIdx];
+        const field = schema.fields.find(f => f.key === step.key);
+        if (!field) continue;
+
+        console.log(`[Driver] Planned step ${sIdx + 1}/${plannedSteps.length}: cmd=${step.cmd}, key=${step.key}`);
+
+        switch (step.cmd) {
+          case 'go_to_field': {
+            await this.retryOperation(
+              session,
+              async () => {
+                await this.sendTool(
+                  session,
+                  "go_to_field",
+                  { fieldKey: field.key, label: field.label },
+                  "field_reached",
+                  TIMEOUTS.GO_TO_FIELD
+                );
+              },
+              field.key
+            );
+            break;
+          }
+          case 'explain_field': {
+            await this.sendTool(
+              session,
+              "explain_field",
+              { fieldKey: field.key, text: step.text || field.explanation || '', tts: TTS_ENABLED },
+              null,
+              0
+            );
+            await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+            break;
+          }
+          case 'fill_field': {
+            const val = step.value;
+            if (val !== undefined && val !== null) {
+              await this.retryOperation(
+                session,
+                async () => {
+                  await this.sendTool(
+                    session,
+                    "fill_field",
+                    { fieldKey: field.key, label: field.label, type: field.type, value: String(val) },
+                    "field_filled",
+                    TIMEOUTS.FILL_FIELD
+                  );
+                },
+                field.key
+              );
+              session.filledValues.set(field.key, val);
+              stateMachine.transition("FIELD_COMPLETE");
+
+              const pauseAfterFill = field.pauseAfterFill || 800;
+              await this.wait(pauseAfterFill);
+
+              if (field.waitAfterFillMs) {
+                await this.wait(field.waitAfterFillMs);
+              }
+
+              // Check conditional auto-load
+              if (field.autoLoad) {
+                console.log(`[Driver] Field "${field.key}" has autoLoad — waiting for loading to trigger...`);
+                await this.wait(1000); // Allow API response to load
+                try {
+                  const res = await this.sendTool(
+                    session,
+                    "get_options_count",
+                    { fieldKey: field.key, label: field.label },
+                    "options_count_retrieved",
+                    3000
+                  );
+                  if (res && typeof res.count === "number") {
+                    console.log(`[Driver] Options count retrieved for "${field.key}": ${res.count}`);
+                    if (res.count === 0 && field.emptyMessage) {
+                      console.log(`[Driver] Options count is 0 — speaking emptyMessage: "${field.emptyMessage}"`);
+                      await this.sendTool(
+                        session,
+                        "respond",
+                        { message: field.emptyMessage, tts: TTS_ENABLED },
+                        null,
+                        0
+                      );
+                      await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+                    }
+                  }
+                } catch (e) {
+                  console.warn(`[Driver] Failed to retrieve options count for "${field.key}":`, e);
+                }
+              }
+            }
+            break;
+          }
+          case 'wait': {
+            if (step.ms) {
+              await this.wait(step.ms);
+            }
+            break;
+          }
+        }
       }
+    } else {
+      for (let i = 0; i < schema.fields.length; i++) {
+        this.checkCancelled(session);
+        const field = schema.fields[i];
 
-      // Check condition
-      if (!this.isConditionMet(session, field)) {
-        console.log(`[Driver] Skipping field "${field.key}" — condition not met`);
-        continue;
-      }
-
-      console.log(`[Driver] Processing field ${i + 1}/${schema.fields.length}: "${field.key}"`);
-      try {
-        await this.processField(session, field);
-        stateMachine.transition("FIELD_COMPLETE");
-        session.filledValues.set(field.key, field.demoValue);
-      } catch (error) {
-        if (error instanceof FieldSkipError) {
-          console.log(`[Driver] Skipping field "${field.key}" — fill failed`);
-          stateMachine.transition("FIELD_COMPLETE");
+        // Check visibility
+        if (!this.isFieldVisible(session, field)) {
+          console.log(`[Driver] Skipping field "${field.key}" — not visible`);
           continue;
         }
-        throw error;
+
+        // Check condition
+        if (!this.isConditionMet(session, field)) {
+          console.log(`[Driver] Skipping field "${field.key}" — condition not met`);
+          continue;
+        }
+
+        console.log(`[Driver] Processing field ${i + 1}/${schema.fields.length}: "${field.key}"`);
+        try {
+          await this.processField(session, field);
+          stateMachine.transition("FIELD_COMPLETE");
+          session.filledValues.set(field.key, field.demoValue);
+        } catch (error) {
+          if (error instanceof FieldSkipError) {
+            console.log(`[Driver] Skipping field "${field.key}" — fill failed`);
+            stateMachine.transition("FIELD_COMPLETE");
+            continue;
+          }
+          throw error;
+        }
       }
     }
 
@@ -823,7 +957,7 @@ class WalkthroughDriver {
       session,
       "respond",
       {
-        message: subForm.copyExplanation || `These items can be copied from ${subForm.copyFrom?.subFormId}.`,
+        message: subForm.copyFrom?.copyExplanation || `These items can be copied from ${subForm.copyFrom?.subFormId}.`,
         tts: TTS_ENABLED,
       },
       null,
@@ -896,9 +1030,30 @@ class WalkthroughDriver {
     timeout: number
   ): Promise<any> {
     this.checkCancelled(session);
+
+    let messageId: string | null = null;
+    if (args.tts === true) {
+      messageId = String(args.messageId || crypto.randomUUID());
+      args.messageId = messageId;
+    }
+
     console.log(`[Driver] → ${tool}(${Object.entries(args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")})`);
 
     this.send(session.sessionId, { type: "tool", tool, args });
+
+    // If TTS is enabled, we wait for TTS playback complete first
+    if (args.tts === true && messageId) {
+      try {
+        await this.waitForStatus(
+          session,
+          "tts_playback_complete",
+          15000,
+          (data) => data.messageId === messageId
+        );
+      } catch (err) {
+        console.warn(`[Driver] TTS playback timeout for ${messageId}, continuing...`);
+      }
+    }
 
     if (!expectedEvent || timeout === 0) return null;
 
@@ -908,7 +1063,8 @@ class WalkthroughDriver {
   private waitForStatus(
     session: WalkthroughSession,
     expectedEvent: string,
-    timeout: number
+    timeout: number,
+    matcher?: (data: any) => boolean
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -918,6 +1074,7 @@ class WalkthroughDriver {
 
       session.pendingStatus = {
         expectedEvent,
+        matcher,
         resolve: (data) => {
           session.pendingStatus = null;
           resolve(data);
@@ -933,8 +1090,6 @@ class WalkthroughDriver {
 
   // ========================================
   // ERROR HANDLING WITH RETRY
-  // ========================================
-
   private async retryOperation(
     session: WalkthroughSession,
     operation: () => Promise<void>,
@@ -994,6 +1149,30 @@ class WalkthroughDriver {
   }
 
   private send(sessionId: string, message: OutgoingMessage): void {
+    // If this is a tool message requiring TTS, we should synthesize and send the audio alongside it!
+    if (message.type === "tool" && message.args?.tts === true) {
+      const textToSpeak = String(message.args.message || message.args.text || "");
+      if (textToSpeak) {
+        const messageId = String(message.args.messageId || crypto.randomUUID());
+        message.args.messageId = messageId; // Ensure it is attached so frontend matches it
+
+        // Run synthesis in the background
+        import("../services/elevenLabsTTS.js")
+          .then(({ synthesize }) => synthesize(textToSpeak, "en"))
+          .then((audioDataUrl) => {
+            const base64 = audioDataUrl.split(",")[1];
+            connectionManager.send(sessionId, {
+              type: "tts_audio",
+              audio: base64,
+              messageId,
+            });
+          })
+          .catch((err) => {
+            console.error("[Driver TTS] Automatic synthesis failed:", err);
+          });
+      }
+    }
+
     connectionManager.send(sessionId, message);
   }
 }

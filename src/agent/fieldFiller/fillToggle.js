@@ -1,18 +1,8 @@
-export function fillToggleField(element, value) {
-  // The element might be .MuiFormControlLabel-root
-  // The switch/checkbox input is inside it
-  
-  let switchInput = element.querySelector(
-    'input[type="checkbox"], [role="switch"], .MuiSwitch-input'
-  );
+import { findCheckboxInput, isChecked, isTruthyValue } from "../utils";
 
-  // If not found directly, look in the broader parent
-  if (!switchInput) {
-    const formControlLabel = element.closest(".MuiFormControlLabel-root") || element;
-    switchInput = formControlLabel.querySelector(
-      'input[type="checkbox"], [role="switch"], .MuiSwitch-input'
-    );
-  }
+export function fillToggleField(element, value) {
+  // Use shared helper to find input
+  const switchInput = findCheckboxInput(element);
 
   // Last resort: find the MuiSwitch-root and click it
   if (!switchInput) {
@@ -29,10 +19,8 @@ export function fillToggleField(element, value) {
     return { success: false, reason: "Toggle input not found" };
   }
 
-  const currentChecked =
-    switchInput.checked ||
-    switchInput.getAttribute("aria-checked") === "true";
-  const wantChecked = value === true || value === "true";
+  const currentChecked = isChecked(switchInput);
+  const wantChecked = isTruthyValue(value);
 
   if (currentChecked !== wantChecked) {
     switchInput.click();
@@ -44,13 +32,13 @@ export function fillToggleField(element, value) {
 }
 
 export function fillCheckboxField(element, value) {
-  const checkbox = element.querySelector('input[type="checkbox"]');
+  const checkbox = findCheckboxInput(element);
   if (!checkbox) {
     return { success: false, reason: "Checkbox not found" };
   }
 
-  const currentChecked = checkbox.checked;
-  const wantChecked = value === true || value === "true";
+  const currentChecked = isChecked(checkbox);
+  const wantChecked = isTruthyValue(value);
 
   if (currentChecked !== wantChecked) {
     checkbox.click();

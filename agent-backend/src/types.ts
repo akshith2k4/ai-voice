@@ -38,6 +38,7 @@ export const TOOL_TYPES = {
   CANCEL_WALKTHROUGH: "cancel_walkthrough",
   SELECT_ITEM: "select_item",
   CLICK_ELEMENT: "click_element",
+  GET_OPTIONS_COUNT: "get_options_count",
 };
 
 // --- Incoming Messages (Frontend → Backend) ---

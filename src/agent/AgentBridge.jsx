@@ -2,6 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { AudioQueue } from "./AudioQueue";
 import { routeIncomingMessage } from "./messageRouter";
 import { connectWs, disconnectWs, sendMessage as wsSendMessage, onStatusChange } from "./wsConnection";
+import { STATUS, TIMING } from "./protocol";
+
+export { AgentErrorBoundary } from "./AgentErrorBoundary";
 
 // ============================================
 // Agent Bridge — WebSocket client + context provider
@@ -28,16 +31,6 @@ const AgentContext = createContext({
 });
 
 export const useAgent = () => useContext(AgentContext);
-
-const STATUS = {
-  CONNECTING: "connecting",
-  CONNECTED: "connected",
-  DISCONNECTED: "disconnected",
-  RECONNECTING: "reconnecting",
-};
-
-const RECONNECT_BASE_DELAY = 1000;
-const RECONNECT_MAX_DELAY = 30000;
 
 // ============================================
 // AgentBridge Provider
@@ -113,6 +106,17 @@ export function AgentBridgeProvider({ children }) {
     [addMessage]
   );
 
+  // Stable refs for connection event listeners to avoid infinite loops and stale state
+  const onMessageRef = useRef(null);
+  onMessageRef.current = handleIncomingMessage;
+
+  const onCloseRef = useRef(null);
+  onCloseRef.current = () => {
+    if (!intentionalCloseRef.current) {
+      scheduleReconnect();
+    }
+  };
+
   // ---- WebSocket connection ----
   const connect = useCallback(() => {
     const wsUrl = import.meta.env.VITE_AGENT_WS_URL || "ws://localhost:3001";
@@ -134,22 +138,18 @@ export function AgentBridgeProvider({ children }) {
         }
         reconnectAttemptsRef.current = 0;
       },
-      onMessage: handleIncomingMessage,
-      onClose: () => {
-        if (!intentionalCloseRef.current) {
-          scheduleReconnect();
-        }
-      }
+      onMessage: (data) => onMessageRef.current?.(data),
+      onClose: () => onCloseRef.current?.()
     });
-  }, [handleIncomingMessage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Reconnection with exponential backoff ----
   const scheduleReconnect = useCallback(() => {
     if (intentionalCloseRef.current) return;
     const attempts = reconnectAttemptsRef.current;
     const delay = Math.min(
-      RECONNECT_BASE_DELAY * Math.pow(2, attempts),
-      RECONNECT_MAX_DELAY
+      TIMING.RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
+      TIMING.RECONNECT_MAX_DELAY_MS
     );
     console.log(`[AgentBridge] Reconnecting in ${delay}ms (attempt ${attempts + 1})`);
     setConnectionStatus(STATUS.RECONNECTING);

@@ -1,3 +1,24 @@
+export const STATUS = {
+  CONNECTING: "connecting",
+  CONNECTED: "connected",
+  DISCONNECTED: "disconnected",
+  RECONNECTING: "reconnecting",
+};
+
+export const TIMING = {
+  DIALOG_ANIMATION_MS: 1000,
+  FIELD_RENDER_MS: 500,
+  POLL_INTERVAL_MS: 200,
+  AUTOCOMPLETE_POLL_MS: 300,
+  BUTTON_TIMEOUT_MS: 3000,
+  SELECT_TIMEOUT_MS: 3000,
+  AUTOCOMPLETE_TIMEOUT_MS: 6000,
+  MIN_AUDIO_BYTES: 3072,
+  MSG_QUEUE_MAX: 50,
+  RECONNECT_BASE_DELAY_MS: 1000,
+  RECONNECT_MAX_DELAY_MS: 30000,
+};
+
 export const MESSAGE_TYPES = {
   TOOL: "tool",
   TTS_AUDIO: "tts_audio",
@@ -42,4 +63,5 @@ export const TOOL_TYPES = {
   CANCEL_WALKTHROUGH: "cancel_walkthrough",
   SELECT_ITEM: "select_item",
   CLICK_ELEMENT: "click_element",
+  GET_OPTIONS_COUNT: "get_options_count",
 };

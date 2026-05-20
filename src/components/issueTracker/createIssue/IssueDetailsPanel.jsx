@@ -17,6 +17,10 @@ export default function IssueDetailsPanel({
   sourceLoading = false,
   onChangeSourceType,
   onSelectSourceId,
+  entityOptions: propEntityOptions,
+  setEntityOptions: propSetEntityOptions,
+  entityLoading: propEntityLoading,
+  setEntityLoading: propSetSetEntityLoading,
 }) {
   const triggerOptions = useMemo(() => {
     if (form.sourceType === 'CUSTOMER') return ['ORDER'];
@@ -28,8 +32,13 @@ export default function IssueDetailsPanel({
   const getSourceName = (o) => o?.name || o?.customerName || o?.laundryName || o?.companyName || '';
 
   // Local state for dependent list (Orders or Wash Fulfillments)
-  const [entityOptions, setEntityOptions] = useState([]);
-  const [entityLoading, setEntityLoading] = useState(false);
+  const [localEntityOptions, localSetEntityOptions] = useState([]);
+  const [localEntityLoading, localSetEntityLoading] = useState(false);
+
+  const entityOptions = propEntityOptions !== undefined ? propEntityOptions : localEntityOptions;
+  const setEntityOptions = propSetEntityOptions !== undefined ? propSetEntityOptions : localSetEntityOptions;
+  const entityLoading = propEntityLoading !== undefined ? propEntityLoading : localEntityLoading;
+  const setEntityLoading = propSetSetEntityLoading !== undefined ? propSetSetEntityLoading : localSetEntityLoading;
 
   // Helpers
   // Format local date without timezone (avoid UTC shift to 'yesterday')
