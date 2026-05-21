@@ -4,15 +4,16 @@
 // Sends tool calls → waits for frontend confirmations
 // ============================================
 
-import { WalkthroughStateMachine } from "../state/stateMachine.js";
 import {
-  getSchema,
-  getAvailableForms,
-  type FormSchema,
+  SessionManager,
+  type WalkthroughSession,
   type FieldSchema,
   type SubFormSchema,
-} from "../schema/loader.js";
-import { connectionManager } from "../connectionManager.js";
+  type FormSchema,
+} from "./sessionManager.js";
+import { StatusAwaiter, CancellationError } from "./statusAwaiter.js";
+import { ToolMessenger } from "./toolMessenger.js";
+import { NarrationService } from "./narrationService.js";
 import type { OutgoingMessage } from "../types.js";
 
 // --- Constants ---
@@ -33,16 +34,9 @@ const TIMEOUTS = {
 
 const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
-const TTS_ENABLED = true; // flip to true when ElevenLabs TTS is wired up
+const TTS_ENABLED = true;
 
 // --- Errors ---
-class CancellationError extends Error {
-  constructor() {
-    super("Walkthrough cancelled");
-    this.name = "CancellationError";
-  }
-}
-
 class FieldSkipError extends Error {
   constructor(public fieldKey: string) {
     super(`Field skipped: ${fieldKey}`);
@@ -57,38 +51,15 @@ class WalkthroughAbortError extends Error {
   }
 }
 
-// --- Session ---
-interface PendingStatus {
-  expectedEvent: string;
-  matcher?: (data: any) => boolean;
-  resolve: (data: any) => void;
-  reject: (reason: any) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-interface WalkthroughSession {
-  sessionId: string;
-  formId: string;
-  schema: FormSchema;
-  stateMachine: WalkthroughStateMachine;
-  filledValues: Map<string, unknown>;
-  cancelled: boolean;
-  errorCount: number;
-  pendingStatus: PendingStatus | null;
-  isRegistered: boolean;
-}
-
 // --- Driver ---
 class WalkthroughDriver {
-  private sessions: Map<string, WalkthroughSession> = new Map();
+  private sessionManager = new SessionManager();
+  private statusAwaiter = new StatusAwaiter();
+  private toolMessenger = new ToolMessenger();
+  private narrationService = new NarrationService(this.statusAwaiter);
 
-  /**
-   * Start a walkthrough for a form.
-   * Non-blocking — runs in the background.
-   */
   async start(formId: string, sessionId: string): Promise<void> {
-    // Already in a walkthrough?
-    if (this.sessions.has(sessionId)) {
+    if (this.sessionManager.has(sessionId)) {
       this.send(sessionId, {
         type: "tool",
         tool: "respond",
@@ -100,11 +71,11 @@ class WalkthroughDriver {
       return;
     }
 
-    // Load schema
-    let schema: FormSchema;
+    let session: WalkthroughSession;
     try {
-      schema = getSchema(formId);
+      session = this.sessionManager.create(sessionId, formId);
     } catch {
+      const { getAvailableForms } = await import("./sessionManager.js");
       const available = getAvailableForms()
         .map((f) => f.name)
         .join(", ");
@@ -119,23 +90,8 @@ class WalkthroughDriver {
       return;
     }
 
-    // Create session
-    const session: WalkthroughSession = {
-      sessionId,
-      formId,
-      schema,
-      stateMachine: new WalkthroughStateMachine(),
-      filledValues: new Map(),
-      cancelled: false,
-      errorCount: 0,
-      pendingStatus: null,
-      isRegistered: false,
-    };
-
-    this.sessions.set(sessionId, session);
     console.log(`[Driver] Session created: ${sessionId} → form: ${formId}`);
 
-    // Run walkthrough in background
     this.run(session)
       .catch((error) => {
         if (error instanceof CancellationError) {
@@ -155,7 +111,6 @@ class WalkthroughDriver {
         }
       })
       .finally(() => {
-        // Always clean up
         const sm = session.stateMachine;
         if (
           sm.currentState !== "IDLE" &&
@@ -167,74 +122,24 @@ class WalkthroughDriver {
         if (sm.currentState !== "IDLE") {
           try { sm.transition("RESET"); } catch { /* ignore */ }
         }
-        this.sessions.delete(sessionId);
+        this.sessionManager.delete(sessionId);
         console.log(`[Driver] Session cleaned up: ${sessionId}`);
       });
   }
 
-  /**
-   * Cancel an active walkthrough.
-   */
   cancel(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
+    const session = this.sessionManager.get(sessionId);
     if (!session) return;
 
     session.cancelled = true;
     console.log(`[Driver] Cancel requested: ${sessionId}`);
-
-    // Reject any pending wait
-    if (session.pendingStatus) {
-      clearTimeout(session.pendingStatus.timer);
-      session.pendingStatus.reject(new CancellationError());
-      session.pendingStatus = null;
-    }
+    this.statusAwaiter.rejectPending(session, new CancellationError());
   }
 
-  /**
-   * Handle a status event from the frontend.
-   * Called by the message router when a status message arrives.
-   */
   handleStatus(sessionId: string, event: string, data?: any): void {
-    const session = this.sessions.get(sessionId);
+    const session = this.sessionManager.get(sessionId);
     if (!session) return;
-
-    // User-initiated interruptions → cancel immediately
-    if (event === "dialog_closed_by_user" || event === "page_changed") {
-      console.log(`[Driver] User interruption: ${event} — cancelling ${sessionId}`);
-      session.cancelled = true;
-      if (session.pendingStatus) {
-        clearTimeout(session.pendingStatus.timer);
-        session.pendingStatus.reject(new CancellationError());
-        session.pendingStatus = null;
-      }
-      return;
-    }
-
-    // Frontend error → reject pending wait (triggers retry)
-    if (event === "error") {
-      console.warn(`[Driver] Frontend error: ${data?.tool} / ${data?.fieldKey} — ${data?.reason}`);
-      if (session.pendingStatus) {
-        clearTimeout(session.pendingStatus.timer);
-        session.pendingStatus.reject(new Error(`Frontend error: ${data?.reason || "unknown"}`));
-        session.pendingStatus = null;
-      }
-      return;
-    }
-
-    if (event === "form_registered") {
-      session.isRegistered = true;
-    }
-
-    // Expected confirmation → resolve pending wait
-    if (
-      session.pendingStatus &&
-      session.pendingStatus.expectedEvent === event &&
-      (!session.pendingStatus.matcher || session.pendingStatus.matcher(data))
-    ) {
-      clearTimeout(session.pendingStatus.timer);
-      session.pendingStatus.resolve(data);
-      session.pendingStatus = null;
-    }
+    this.statusAwaiter.handleIncomingStatus(session, event, data);
   }
 
   // ========================================
@@ -244,10 +149,8 @@ class WalkthroughDriver {
   private async run(session: WalkthroughSession): Promise<void> {
     const { schema, stateMachine, sessionId } = session;
 
-    // Step 1: Start
     stateMachine.transition("START_WALKTHROUGH", { formId: schema.id });
 
-    // Tell frontend which form we're walking through
     this.send(sessionId, {
       type: "tool",
       tool: "begin_walkthrough",
@@ -256,7 +159,6 @@ class WalkthroughDriver {
 
     console.log(`[Driver] ▶ Starting walkthrough: ${schema.id}`);
 
-    // Step 2: Navigate to the form's page
     console.log(`[Driver] Navigating to ${schema.route}`);
     await this.sendTool(
       session,
@@ -266,9 +168,8 @@ class WalkthroughDriver {
       TIMEOUTS.NAVIGATE
     );
     this.checkCancelled(session);
-    await this.wait(500); // Let React mount the page before interacting
+    await this.wait(500);
 
-    // Step 2b: Select an item (e.g. click a hotel row) if the schema requires it
     if (schema.selectItem) {
       console.log(`[Driver] Selecting item: ${schema.selectItem.label || schema.selectItem.selector}`);
       await this.sendTool(
@@ -282,10 +183,9 @@ class WalkthroughDriver {
         TIMEOUTS.NAVIGATE
       );
       this.checkCancelled(session);
-      await this.wait(1000); // Let sidebar / detail panel open
+      await this.wait(1000);
     }
 
-    // Step 3: Open the dialog
     console.log(`[Driver] Opening dialog: ${schema.openAction.fallbackText}`);
     await this.sendTool(
       session,
@@ -299,7 +199,6 @@ class WalkthroughDriver {
     );
     this.checkCancelled(session);
 
-    // Step 3b: Wait for form registration as a tighter timing mechanism
     let registered = session.isRegistered;
     if (!registered) {
       console.log(`[Driver] Waiting up to 1.5s for form registration: ${schema.id}`);
@@ -317,10 +216,8 @@ class WalkthroughDriver {
       console.log(`[Driver] Form registration event not received — assuming unregistered/fallback mode`);
     }
 
-    // Step 4: Form ready
     stateMachine.transition("FORM_READY");
 
-    // Step 5: Overview message
     console.log(`[Driver] Sending overview`);
     await this.sendTool(
       session,
@@ -331,7 +228,6 @@ class WalkthroughDriver {
     );
     await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-    // Step 6: Walk through main fields
     const hasBranching = schema.fields.some(f => f.branching);
     if (hasBranching) {
       console.log(`[Driver] Form has branching fields — generating walkthrough steps using WalkthroughPlanner`);
@@ -402,10 +298,9 @@ class WalkthroughDriver {
                 await this.wait(field.waitAfterFillMs);
               }
 
-              // Check conditional auto-load
               if (field.autoLoad) {
                 console.log(`[Driver] Field "${field.key}" has autoLoad — waiting for loading to trigger...`);
-                await this.wait(1000); // Allow API response to load
+                await this.wait(1000);
                 try {
                   const res = await this.sendTool(
                     session,
@@ -448,13 +343,11 @@ class WalkthroughDriver {
         this.checkCancelled(session);
         const field = schema.fields[i];
 
-        // Check visibility
         if (!this.isFieldVisible(session, field)) {
           console.log(`[Driver] Skipping field "${field.key}" — not visible`);
           continue;
         }
 
-        // Check condition
         if (!this.isConditionMet(session, field)) {
           console.log(`[Driver] Skipping field "${field.key}" — condition not met`);
           continue;
@@ -476,17 +369,14 @@ class WalkthroughDriver {
       }
     }
 
-    // Step 7: Walk through sub-forms
     for (const subForm of schema.subForms) {
       this.checkCancelled(session);
 
-      // Check visibility
       if (!this.isFieldVisible(session, subForm)) {
         console.log(`[Driver] Skipping sub-form "${subForm.id}" — not visible`);
         continue;
       }
 
-      // Check condition
       if (!this.isConditionMet(session, subForm)) {
         console.log(`[Driver] Skipping sub-form "${subForm.id}" — condition not met`);
         continue;
@@ -496,11 +386,9 @@ class WalkthroughDriver {
       await this.processSubForm(session, subForm);
     }
 
-    // Step 8: Completion
     stateMachine.transition("ALL_FIELDS_DONE");
     console.log(`[Driver] All fields done — completing`);
 
-    // Wrap-up message
     await this.sendTool(
       session,
       "respond",
@@ -510,7 +398,6 @@ class WalkthroughDriver {
     );
     await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-    // 5-second pause — let user see the completed form
     await this.sendTool(
       session,
       "respond",
@@ -520,7 +407,6 @@ class WalkthroughDriver {
     );
     await this.wait(TIMEOUTS.COMPLETION_PAUSE);
 
-    // Clear all fields
     console.log(`[Driver] Clearing demo data`);
     await this.sendTool(
       session,
@@ -530,7 +416,6 @@ class WalkthroughDriver {
       TIMEOUTS.CLEAR_FIELDS
     );
 
-    // Close dialog
     console.log(`[Driver] Closing dialog`);
     this.sendTool(
       session,
@@ -541,7 +426,6 @@ class WalkthroughDriver {
     );
     await this.wait(500);
 
-    // Done
     stateMachine.transition("RESET");
     console.log(`[Driver] ✅ Walkthrough complete: ${schema.id}`);
   }
@@ -556,7 +440,6 @@ class WalkthroughDriver {
   ): Promise<void> {
     const { key, label, type, explanation, demoValue, readOnly, autoFilled } = field;
 
-    // 1. Go to field (scroll + spotlight)
     await this.retryOperation(
       session,
       async () => {
@@ -571,7 +454,6 @@ class WalkthroughDriver {
       key
     );
 
-    // 2. Explain field
     await this.sendTool(
       session,
       "explain_field",
@@ -581,7 +463,6 @@ class WalkthroughDriver {
     );
     await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-    // 3. Handle read-only fields
     if (readOnly) {
       await this.sendTool(
         session,
@@ -597,7 +478,6 @@ class WalkthroughDriver {
       return;
     }
 
-    // 4. Handle auto-filled fields
     if (autoFilled) {
       await this.sendTool(
         session,
@@ -613,7 +493,6 @@ class WalkthroughDriver {
       return;
     }
 
-    // 5. Skip if no demo value
     if (demoValue === undefined || demoValue === null) {
       await this.sendTool(
         session,
@@ -629,7 +508,6 @@ class WalkthroughDriver {
       return;
     }
 
-    // 6. Fill the field with retry
     await this.retryOperation(
       session,
       async () => {
@@ -644,11 +522,9 @@ class WalkthroughDriver {
       key
     );
 
-    // 7. Pause after fill
     const pauseAfterFill = field.pauseAfterFill || 800;
     await this.wait(pauseAfterFill);
 
-    // 8. If field has a wait, pause
     if (field.waitAfterFillMs) {
       console.log(`[Driver] Waiting ${field.waitAfterFillMs}ms after filling ${key}`);
       await this.wait(field.waitAfterFillMs);
@@ -666,7 +542,6 @@ class WalkthroughDriver {
     const { stateMachine } = session;
     stateMachine.transition("SUB_FORM_START", { subFormId: subForm.id });
 
-    // Explain the sub-form
     if (subForm.explanation) {
       await this.sendTool(
         session,
@@ -736,7 +611,6 @@ class WalkthroughDriver {
         this.checkCancelled(session);
 
         try {
-          // Go to field with sub-form context
           await this.retryOperation(
             session,
             async () => {
@@ -756,7 +630,6 @@ class WalkthroughDriver {
             field.key
           );
 
-          // Explain field
           await this.sendTool(
             session,
             "explain_field",
@@ -770,7 +643,6 @@ class WalkthroughDriver {
           );
           await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-          // Skip auto-filled fields
           if (field.autoFilled) {
             await this.sendTool(
               session,
@@ -787,7 +659,6 @@ class WalkthroughDriver {
             continue;
           }
 
-          // Fill field with sub-form context
           await this.retryOperation(
             session,
             async () => {
@@ -870,7 +741,6 @@ class WalkthroughDriver {
         this.checkCancelled(session);
 
         try {
-          // Go to field with sub-form context
           await this.retryOperation(
             session,
             async () => {
@@ -890,7 +760,6 @@ class WalkthroughDriver {
             field.key
           );
 
-          // Explain field
           await this.sendTool(
             session,
             "explain_field",
@@ -904,7 +773,6 @@ class WalkthroughDriver {
           );
           await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
 
-          // Fill field with sub-form context
           await this.retryOperation(
             session,
             async () => {
@@ -971,7 +839,7 @@ class WalkthroughDriver {
           session,
           "click_checkbox",
           {
-            fieldKey: `copy_${subForm.copyFrom?.subFormId}`, // fallback logic mostly replaced by generic checkbox match on labelText
+            fieldKey: `copy_${subForm.copyFrom?.subFormId}`,
             labelText: checkboxLabel,
           },
           "checkbox_clicked",
@@ -1019,7 +887,7 @@ class WalkthroughDriver {
   }
 
   // ========================================
-  // TOOL SENDING & STATUS WAITING
+  // TOOL SENDING
   // ========================================
 
   private async sendTool(
@@ -1031,65 +899,31 @@ class WalkthroughDriver {
   ): Promise<any> {
     this.checkCancelled(session);
 
-    let messageId: string | null = null;
     if (args.tts === true) {
-      messageId = String(args.messageId || crypto.randomUUID());
-      args.messageId = messageId;
+      const textToSpeak = String(args.message || args.text || "");
+      if (textToSpeak) {
+        const messageId = String(args.messageId || crypto.randomUUID());
+        args.messageId = messageId;
+
+        this.narrationService.speak(session, textToSpeak, "en", messageId).catch((err) => {
+          console.error("[Driver TTS] Background synthesis failed:", err);
+        });
+      }
     }
 
     console.log(`[Driver] → ${tool}(${Object.entries(args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")})`);
 
     this.send(session.sessionId, { type: "tool", tool, args });
 
-    // If TTS is enabled, we wait for TTS playback complete first
-    if (args.tts === true && messageId) {
-      try {
-        await this.waitForStatus(
-          session,
-          "tts_playback_complete",
-          15000,
-          (data) => data.messageId === messageId
-        );
-      } catch (err) {
-        console.warn(`[Driver] TTS playback timeout for ${messageId}, continuing...`);
-      }
-    }
-
     if (!expectedEvent || timeout === 0) return null;
 
-    return this.waitForStatus(session, expectedEvent, timeout);
-  }
-
-  private waitForStatus(
-    session: WalkthroughSession,
-    expectedEvent: string,
-    timeout: number,
-    matcher?: (data: any) => boolean
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        session.pendingStatus = null;
-        reject(new Error(`Timeout waiting for "${expectedEvent}" (${timeout}ms)`));
-      }, timeout);
-
-      session.pendingStatus = {
-        expectedEvent,
-        matcher,
-        resolve: (data) => {
-          session.pendingStatus = null;
-          resolve(data);
-        },
-        reject: (reason) => {
-          session.pendingStatus = null;
-          reject(reason);
-        },
-        timer,
-      };
-    });
+    return this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
   }
 
   // ========================================
   // ERROR HANDLING WITH RETRY
+  // ========================================
+
   private async retryOperation(
     session: WalkthroughSession,
     operation: () => Promise<void>,
@@ -1149,31 +983,7 @@ class WalkthroughDriver {
   }
 
   private send(sessionId: string, message: OutgoingMessage): void {
-    // If this is a tool message requiring TTS, we should synthesize and send the audio alongside it!
-    if (message.type === "tool" && message.args?.tts === true) {
-      const textToSpeak = String(message.args.message || message.args.text || "");
-      if (textToSpeak) {
-        const messageId = String(message.args.messageId || crypto.randomUUID());
-        message.args.messageId = messageId; // Ensure it is attached so frontend matches it
-
-        // Run synthesis in the background
-        import("../services/elevenLabsTTS.js")
-          .then(({ synthesize }) => synthesize(textToSpeak, "en"))
-          .then((audioDataUrl) => {
-            const base64 = audioDataUrl.split(",")[1];
-            connectionManager.send(sessionId, {
-              type: "tts_audio",
-              audio: base64,
-              messageId,
-            });
-          })
-          .catch((err) => {
-            console.error("[Driver TTS] Automatic synthesis failed:", err);
-          });
-      }
-    }
-
-    connectionManager.send(sessionId, message);
+    this.toolMessenger.send(sessionId, message);
   }
 }
 

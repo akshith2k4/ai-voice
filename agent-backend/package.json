@@ -4,7 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch server.ts",
-    "start": "bun run server.ts"
+    "start": "bun run server.ts",
+    "test": "bun test tests/voiceHandler.acceptance.test.ts && bun test tests/walkthroughDriver.acceptance.test.ts",
+    "test:voice": "bun test tests/voiceHandler.acceptance.test.ts",
+    "test:driver": "bun test tests/walkthroughDriver.acceptance.test.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.47.0",
