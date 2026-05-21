@@ -34,7 +34,6 @@ const TIMEOUTS = {
 
 const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
-const TTS_ENABLED = true;
 
 // --- Errors ---
 class FieldSkipError extends Error {
@@ -58,7 +57,11 @@ class WalkthroughDriver {
   private toolMessenger = new ToolMessenger();
   private narrationService = new NarrationService(this.statusAwaiter);
 
-  async start(formId: string, sessionId: string): Promise<void> {
+  async start(
+    formId: string,
+    sessionId: string,
+    ttsEnabled: boolean = true
+  ): Promise<void> {
     if (this.sessionManager.has(sessionId)) {
       this.send(sessionId, {
         type: "tool",
@@ -73,7 +76,7 @@ class WalkthroughDriver {
 
     let session: WalkthroughSession;
     try {
-      session = this.sessionManager.create(sessionId, formId);
+      session = this.sessionManager.create(sessionId, formId, ttsEnabled);
     } catch {
       const { getAvailableForms } = await import("./sessionManager.js");
       const available = getAvailableForms()
@@ -222,7 +225,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "respond",
-      { message: schema.overview, tts: TTS_ENABLED },
+      { message: schema.overview, tts: session.ttsEnabled },
       null,
       0
     );
@@ -265,7 +268,7 @@ class WalkthroughDriver {
             await this.sendTool(
               session,
               "explain_field",
-              { fieldKey: field.key, text: step.text || field.explanation || '', tts: TTS_ENABLED },
+              { fieldKey: field.key, text: step.text || field.explanation || '', tts: session.ttsEnabled },
               null,
               0
             );
@@ -316,7 +319,7 @@ class WalkthroughDriver {
                       await this.sendTool(
                         session,
                         "respond",
-                        { message: field.emptyMessage, tts: TTS_ENABLED },
+                        { message: field.emptyMessage, tts: session.ttsEnabled },
                         null,
                         0
                       );
@@ -392,7 +395,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "respond",
-      { message: schema.wrapUp, tts: TTS_ENABLED },
+      { message: schema.wrapUp, tts: session.ttsEnabled },
       null,
       0
     );
@@ -401,7 +404,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "respond",
-      { message: "I'll clear the demo data now.", tts: TTS_ENABLED },
+      { message: "I'll clear the demo data now.", tts: session.ttsEnabled },
       null,
       0
     );
@@ -457,7 +460,7 @@ class WalkthroughDriver {
     await this.sendTool(
       session,
       "explain_field",
-      { fieldKey: key, text: explanation, tts: TTS_ENABLED },
+      { fieldKey: key, text: explanation, tts: session.ttsEnabled },
       null,
       0
     );
@@ -469,7 +472,7 @@ class WalkthroughDriver {
         "respond",
         {
           message: "This field is read-only. It gets filled automatically when you save.",
-          tts: TTS_ENABLED,
+          tts: session.ttsEnabled,
         },
         null,
         0
@@ -484,7 +487,7 @@ class WalkthroughDriver {
         "respond",
         {
           message: "This field was already filled automatically for you.",
-          tts: TTS_ENABLED,
+          tts: session.ttsEnabled,
         },
         null,
         0
@@ -499,7 +502,7 @@ class WalkthroughDriver {
         "respond",
         {
           message: "I'll skip filling this field — no demo value is configured.",
-          tts: TTS_ENABLED,
+          tts: session.ttsEnabled,
         },
         null,
         0
@@ -546,7 +549,7 @@ class WalkthroughDriver {
       await this.sendTool(
         session,
         "respond",
-        { message: subForm.explanation, tts: TTS_ENABLED },
+        { message: subForm.explanation, tts: session.ttsEnabled },
         null,
         0
       );
@@ -584,7 +587,7 @@ class WalkthroughDriver {
       "respond",
       {
         message: "The products have been loaded automatically based on the customer's agreement.",
-        tts: TTS_ENABLED,
+        tts: session.ttsEnabled,
       },
       null,
       0
@@ -598,7 +601,7 @@ class WalkthroughDriver {
           await this.sendTool(
             session,
             "respond",
-            { message: subForm.explanationForMultiple, tts: TTS_ENABLED },
+            { message: subForm.explanationForMultiple, tts: session.ttsEnabled },
             null,
             0
           );
@@ -636,7 +639,7 @@ class WalkthroughDriver {
             {
               fieldKey: field.key,
               text: field.explanation,
-              tts: TTS_ENABLED,
+              tts: session.ttsEnabled,
             },
             null,
             0
@@ -649,7 +652,7 @@ class WalkthroughDriver {
               "respond",
               {
                 message: "This field was already filled automatically for you.",
-                tts: TTS_ENABLED,
+                tts: session.ttsEnabled,
               },
               null,
               0
@@ -729,7 +732,7 @@ class WalkthroughDriver {
         await this.sendTool(
           session,
           "respond",
-          { message: subForm.explanationForMultiple, tts: TTS_ENABLED },
+          { message: subForm.explanationForMultiple, tts: session.ttsEnabled },
           null,
           0
         );
@@ -766,7 +769,7 @@ class WalkthroughDriver {
             {
               fieldKey: field.key,
               text: field.explanation,
-              tts: TTS_ENABLED,
+              tts: session.ttsEnabled,
             },
             null,
             0
@@ -826,7 +829,7 @@ class WalkthroughDriver {
       "respond",
       {
         message: subForm.copyFrom?.copyExplanation || `These items can be copied from ${subForm.copyFrom?.subFormId}.`,
-        tts: TTS_ENABLED,
+        tts: session.ttsEnabled,
       },
       null,
       0
@@ -854,7 +857,7 @@ class WalkthroughDriver {
       "respond",
       {
         message: "I've checked the copy option to automatically copy items.",
-        tts: TTS_ENABLED,
+        tts: session.ttsEnabled,
       },
       null,
       0
@@ -899,15 +902,14 @@ class WalkthroughDriver {
   ): Promise<any> {
     this.checkCancelled(session);
 
+    let ttsPromise: Promise<string> | null = null;
     if (args.tts === true) {
       const textToSpeak = String(args.message || args.text || "");
       if (textToSpeak) {
         const messageId = String(args.messageId || crypto.randomUUID());
         args.messageId = messageId;
 
-        this.narrationService.speak(session, textToSpeak, "en", messageId).catch((err) => {
-          console.error("[Driver TTS] Background synthesis failed:", err);
-        });
+        ttsPromise = this.narrationService.speakAndWait(session, textToSpeak, "en", messageId);
       }
     }
 
@@ -915,9 +917,23 @@ class WalkthroughDriver {
 
     this.send(session.sessionId, { type: "tool", tool, args });
 
-    if (!expectedEvent || timeout === 0) return null;
+    let eventResult = null;
+    if (expectedEvent && timeout > 0) {
+      eventResult = await this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
+    }
 
-    return this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
+    if (ttsPromise) {
+      try {
+        await ttsPromise;
+      } catch (err) {
+        if (err instanceof CancellationError || (err && (err as any).name === "CancellationError")) {
+          throw err;
+        }
+        console.warn("[Driver TTS] speakAndWait failed or timed out:", err);
+      }
+    }
+
+    return eventResult;
   }
 
   // ========================================
@@ -947,7 +963,7 @@ class WalkthroughDriver {
             "respond",
             {
               message: `I had trouble with the ${fieldKey} field. I'll skip it and continue.`,
-              tts: TTS_ENABLED,
+              tts: session.ttsEnabled,
             },
             null,
             0
@@ -960,7 +976,7 @@ class WalkthroughDriver {
               "respond",
               {
                 message: "I'm having trouble with this form. The walkthrough will stop now. Please try again later.",
-                tts: TTS_ENABLED,
+                tts: session.ttsEnabled,
               },
               null,
               0

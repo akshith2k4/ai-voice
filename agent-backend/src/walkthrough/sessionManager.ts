@@ -25,6 +25,7 @@ export interface WalkthroughSession {
   errorCount: number;
   pendingStatus: PendingStatus | null;
   isRegistered: boolean;
+  ttsEnabled: boolean;
 }
 
 export class SessionManager {
@@ -38,7 +39,7 @@ export class SessionManager {
     return this.sessions.get(sessionId);
   }
 
-  create(sessionId: string, formId: string): WalkthroughSession {
+  create(sessionId: string, formId: string, ttsEnabled: boolean = true): WalkthroughSession {
     const schema = getSchema(formId);
     const session: WalkthroughSession = {
       sessionId,
@@ -50,6 +51,7 @@ export class SessionManager {
       errorCount: 0,
       pendingStatus: null,
       isRegistered: false,
+      ttsEnabled,
     };
     this.sessions.set(sessionId, session);
     return session;

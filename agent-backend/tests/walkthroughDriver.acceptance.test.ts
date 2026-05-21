@@ -2,7 +2,14 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 
 // --- Mock setup (before imports) ---
 
-const mockConnectionSend = mock((sessionId: string, msg: any) => true);
+const mockConnectionSend = mock((sessionId: string, msg: any) => {
+  if (msg && msg.type === "tts_audio") {
+    setTimeout(() => {
+      walkthroughDriver.handleStatus(sessionId, "tts_playback_complete", { messageId: msg.messageId });
+    }, 10);
+  }
+  return true;
+});
 
 mock.module("../src/connectionManager.js", () => ({
   connectionManager: {
@@ -77,7 +84,14 @@ function sentMessages(sessionId: string): any[] {
 function resetAllMocks() {
   mockConnectionSend.mockReset();
   mockSynthesize.mockReset();
-  mockConnectionSend.mockImplementation(() => true);
+  mockConnectionSend.mockImplementation((sessionId: string, msg: any) => {
+    if (msg && msg.type === "tts_audio") {
+      setTimeout(() => {
+        walkthroughDriver.handleStatus(sessionId, "tts_playback_complete", { messageId: msg.messageId });
+      }, 10);
+    }
+    return true;
+  });
   mockSynthesize.mockImplementation(async () => "data:audio/mpeg;base64,aGVsbG8=");
 }
 
@@ -421,11 +435,8 @@ describe("WalkthroughDriver — acceptance tests", () => {
       const goToFieldMsg = msgs.find(
         (m: any) => m.type === "tool" && m.tool === "go_to_field"
       );
-      // The walkthrough might still be waiting for field_reached
-      // but go_to_field should eventually be sent
-      if (goToFieldMsg) {
-        expect(goToFieldMsg.args.fieldKey).toBe("customer");
-      }
+      expect(goToFieldMsg).toBeDefined();
+      expect(goToFieldMsg.args.fieldKey).toBe("customer");
     });
   });
 });

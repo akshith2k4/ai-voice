@@ -26,11 +26,11 @@ export class NarrationService {
         audio: base64,
         messageId: id,
       });
+      return id;
     } catch (err) {
       console.error("[NarrationService] TTS synthesis failed:", err);
+      throw err;
     }
-
-    return id;
   }
 
   async speakAndWait(
@@ -39,7 +39,14 @@ export class NarrationService {
     languageCode: string = "en",
     messageId?: string
   ): Promise<string> {
-    const id = await this.speak(session, text, languageCode, messageId);
+    let id: string;
+    try {
+      id = await this.speak(session, text, languageCode, messageId);
+    } catch (err) {
+      // Synthesis failed (e.g. ElevenLabs API key not configured or rate-limited).
+      // Return ID immediately without waiting for playback.
+      return messageId || crypto.randomUUID();
+    }
 
     try {
       await this.statusAwaiter.waitForStatus(

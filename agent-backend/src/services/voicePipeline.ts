@@ -14,7 +14,7 @@ export async function handleVoiceMessage(
   // Test command fast path
   if (message.text && message.text.startsWith("test:")) {
     const formId = message.text.slice(5).trim();
-    walkthroughDriver.start(formId, sessionId);
+    walkthroughDriver.start(formId, sessionId, false);
     return;
   }
 

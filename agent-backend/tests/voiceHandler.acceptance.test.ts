@@ -112,7 +112,7 @@ describe("VoiceHandler — acceptance tests", () => {
       await handleVoice({ type: "voice", text: "test:createOrder" }, ctx as any);
 
       expect(mockDriverStart).toHaveBeenCalledTimes(1);
-      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1");
+      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", false);
     });
 
     test("test: path does not call transcribe or orchestrate", async () => {
@@ -127,7 +127,7 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "test:  createHotel  " }, ctx as any);
 
-      expect(mockDriverStart).toHaveBeenCalledWith("createHotel", "test-session-1");
+      expect(mockDriverStart).toHaveBeenCalledWith("createHotel", "test-session-1", false);
     });
   });
 
