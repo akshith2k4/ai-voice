@@ -147,6 +147,7 @@ export class WalkthroughStateMachine {
       case "DETOUR_QA":
         // Bug 6 fix: return to originating state
         if (event === "DETOUR_COMPLETE") return this.context.detourOrigin?.state ?? "WALKING_THROUGH";
+        if (event === "DETOUR") return "DETOUR_QA";
         if (event === "PAUSE") return "PAUSED";                     // Bug 5 fix
         if (event === "CANCEL") return "CANCELLED";
         break;
@@ -218,13 +219,15 @@ export class WalkthroughStateMachine {
         break;
 
       case "DETOUR":
-        ctx.detourOrigin = {
-          state: this.state,           // stores the exact state we were in (PAUSED, WALKING, etc.)
-          fieldIndex: ctx.fieldIndex,
-          subFormId: ctx.subFormId,
-          subFormItemIndex: ctx.subFormItemIndex,
-          subFormFieldIndex: ctx.subFormFieldIndex,
-        };
+        if (this.state !== "DETOUR_QA") {
+          ctx.detourOrigin = {
+            state: this.state,           // stores the exact state we were in (PAUSED, WALKING, etc.)
+            fieldIndex: ctx.fieldIndex,
+            subFormId: ctx.subFormId,
+            subFormItemIndex: ctx.subFormItemIndex,
+            subFormFieldIndex: ctx.subFormFieldIndex,
+          };
+        }
         break;
 
       case "DETOUR_COMPLETE":

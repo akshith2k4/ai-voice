@@ -1,4 +1,6 @@
 import type { HandlerContext, StatusMessage } from "../types.js";
+import { executeAutoResume } from "../services/voicePipeline.js";
+
 
 // ============================================
 // Status Handler
@@ -20,6 +22,15 @@ export function handleStatus(
   );
 
   switch (event) {
+    case "resume_walkthrough":
+      console.log(
+        `[StatusHandler] Resuming walkthrough for ${context.sessionId}`
+      );
+      executeAutoResume(context).catch((err) => {
+        console.error("[StatusHandler] Failed to auto-resume:", err);
+      });
+      break;
+
     case "tts_playback_complete":
       console.log(
         `[StatusHandler] TTS playback complete for ${context.sessionId}`

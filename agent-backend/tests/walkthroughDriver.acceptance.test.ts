@@ -440,3 +440,38 @@ describe("WalkthroughDriver — acceptance tests", () => {
     });
   });
 });
+
+describe("WalkthroughStateMachine — detour transitions", () => {
+  test("allows DETOUR event from DETOUR_QA and retains original context", async () => {
+    const { WalkthroughStateMachine } = await import("../src/state/stateMachine.js");
+    const sm = new WalkthroughStateMachine();
+    sm.reset("WALKING_THROUGH", {
+      formId: "createOrder",
+      fieldIndex: 1,
+    });
+
+    // 1. Transition to DETOUR
+    sm.transition("DETOUR");
+    expect(sm.currentState).toBe("DETOUR_QA");
+    expect(sm.currentContext.detourOrigin).toBeDefined();
+    expect(sm.currentContext.detourOrigin?.state).toBe("WALKING_THROUGH");
+    expect(sm.currentContext.detourOrigin?.fieldIndex).toBe(1);
+
+    // 2. Transition to DETOUR again (multi-hop detour)
+    // Modify index to simulate looking at another field
+    const ctx = sm.currentContext as any;
+    ctx.fieldIndex = 5; // Simulates looking at another field key
+    
+    sm.transition("DETOUR");
+    expect(sm.currentState).toBe("DETOUR_QA");
+    // Ensure detourOrigin is NOT overwritten (it should still point to WALKING_THROUGH at fieldIndex 1)
+    expect(sm.currentContext.detourOrigin?.state).toBe("WALKING_THROUGH");
+    expect(sm.currentContext.detourOrigin?.fieldIndex).toBe(1);
+
+    // 3. Complete detour
+    sm.transition("DETOUR_COMPLETE");
+    expect(sm.currentState).toBe("WALKING_THROUGH");
+    expect(sm.currentContext.fieldIndex).toBe(1);
+    expect(sm.currentContext.detourOrigin).toBeNull();
+  });
+});

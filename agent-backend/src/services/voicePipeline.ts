@@ -66,10 +66,10 @@ async function handleText(
   languageCode: string | undefined,
   context: HandlerContext
 ): Promise<void> {
-  const { send } = context;
+  const { send, sessionId } = context;
   const lang = languageCode || "en";
 
-  const { toolCalls, rawContent } = await orchestrate(text, languageCode);
+  const { toolCalls, rawContent } = await orchestrate(text, sessionId, languageCode);
 
   for (const tc of toolCalls) {
     switch (tc.name) {
@@ -86,6 +86,35 @@ async function handleText(
       }
       case "answer_question": {
         await speakAndSend(send, String(tc.args.response), lang);
+        break;
+      }
+      case "detour_to_field": {
+        const session = walkthroughDriver.getSession(sessionId);
+        if (session) {
+          session.stateMachine.transition("DETOUR");
+          const targetFieldKey = String(tc.args.fieldKey);
+          let matchedField = session.schema.fields.find(f => f.key === targetFieldKey);
+          if (!matchedField) {
+            for (const subForm of session.schema.subForms) {
+              const f = subForm.fields.find(field => field.key === targetFieldKey);
+              if (f) {
+                matchedField = f;
+                break;
+              }
+            }
+          }
+
+          // Move visual spotlight overlay on the client app immediately
+          context.send({ type: "tool", tool: "detour_start", args: { fieldKey: targetFieldKey } });
+          context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetFieldKey, label: matchedField?.label } });
+
+          const narrationText = matchedField?.explanation || "Let me highlight that field on your form.";
+          await speakAndSend(send, narrationText, lang);
+        }
+        break;
+      }
+      case "resume_walkthrough": {
+        await executeAutoResume(context);
         break;
       }
       case "ask_clarification": {
@@ -112,5 +141,45 @@ async function speakAndSend(
     responseSender.sendTtsAudio(send, base64, messageId);
   } catch (e) {
     console.error("[VoiceHandler] TTS failed:", e);
+  }
+}
+
+/**
+ * Recovers execution states back down to original tracking coordinates seamlessly.
+ */
+export async function executeAutoResume(context: HandlerContext): Promise<void> {
+  const session = walkthroughDriver.getSession(context.sessionId);
+  if (session && session.stateMachine.currentState === "DETOUR_QA") {
+    session.stateMachine.transition("DETOUR_COMPLETE");
+    context.send({ type: "tool", tool: "detour_end", args: {} });
+
+    const originalCtx = session.stateMachine.currentContext;
+    let targetField = session.schema.fields[originalCtx.fieldIndex];
+
+    if (originalCtx.subFormId) {
+      const subForm = session.schema.subForms.find(sf => sf.id === originalCtx.subFormId);
+      if (subForm) {
+        targetField = subForm.fields[originalCtx.subFormFieldIndex];
+        if (targetField) {
+          context.send({
+            type: "tool",
+            tool: "go_to_field",
+            args: {
+              fieldKey: targetField.key,
+              label: targetField.label,
+              subFormId: originalCtx.subFormId,
+              itemIndex: originalCtx.subFormItemIndex,
+            },
+          });
+          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en");
+          return;
+        }
+      }
+    }
+
+    if (targetField) {
+      context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetField.key, label: targetField.label } });
+      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en");
+    }
   }
 }

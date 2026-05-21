@@ -6,7 +6,8 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { allTools } from "./tools.js";
-import { buildIdlePrompt } from "./prompts.js";
+import { buildIdlePrompt, buildWalkthroughPrompt } from "./prompts.js";
+import { walkthroughDriver } from "../src/walkthrough/driver.js";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "";
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL || "gemini-2.5-flash";
@@ -46,9 +47,20 @@ export interface LLMResult {
  */
 export async function orchestrate(
   userText: string,
+  sessionId: string,
   languageCode?: string
 ): Promise<LLMResult> {
-  const systemPrompt = buildIdlePrompt();
+  let systemPrompt = buildIdlePrompt();
+
+  // Dynamically inject layout context frames if a session is currently active
+  const activeSession = walkthroughDriver.getSession(sessionId);
+  if (activeSession) {
+    const ctx = activeSession.stateMachine.currentContext;
+    const currentField = activeSession.schema.fields[ctx.fieldIndex];
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
+  }
+
   const languageHint = languageCode
     ? `\n\nThe user's speech was detected as language code: ${languageCode}. Respond in that language.`
     : "";
