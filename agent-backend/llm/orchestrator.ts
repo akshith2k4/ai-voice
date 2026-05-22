@@ -52,7 +52,6 @@ export async function orchestrate(
 ): Promise<LLMResult> {
   let systemPrompt = buildIdlePrompt();
 
-  // Dynamically inject layout context frames if a session is currently active
   const activeSession = walkthroughDriver.getSession(sessionId);
   if (activeSession) {
     const ctx = activeSession.stateMachine.currentContext;
@@ -73,7 +72,6 @@ export async function orchestrate(
 
     const toolCalls: LLMToolCall[] = [];
 
-    // Format 1: LangChain normalized .tool_calls (works across all providers)
     const normalizedCalls = (result as { tool_calls?: unknown[] }).tool_calls;
     if (Array.isArray(normalizedCalls) && normalizedCalls.length > 0) {
       for (const call of normalizedCalls) {
@@ -87,7 +85,6 @@ export async function orchestrate(
       }
     }
 
-    // Format 2: additional_kwargs.tool_calls (raw OpenAI-style fallback)
     if (toolCalls.length === 0 && result.additional_kwargs?.tool_calls) {
       const rawCalls = result.additional_kwargs.tool_calls as Array<{
         function?: { name?: string; arguments?: string };
@@ -106,7 +103,6 @@ export async function orchestrate(
       }
     }
 
-    // Format 3: Gemini content array with tool_use blocks
     if (toolCalls.length === 0 && Array.isArray(result.content)) {
       for (const block of result.content) {
         if (
@@ -126,7 +122,6 @@ export async function orchestrate(
       }
     }
 
-    // Extract raw text content (fallback when no tool was called)
     let rawContent: string | null = null;
     if (typeof result.content === "string" && result.content.trim()) {
       rawContent = result.content;

@@ -58,7 +58,7 @@ export function AgentBridgeProvider({ children }) {
   }, [connectionStatus]);
 
   // ---- Message handling ----
-  const addMessage = useCallback((role, text) => {
+  const addMessage = useCallback((role, text, latency) => {
     setAgentMessages((prev) => [
       ...prev,
       {
@@ -66,6 +66,7 @@ export function AgentBridgeProvider({ children }) {
         role,
         text,
         timestamp: Date.now(),
+        latency,
       },
     ]);
   }, []);

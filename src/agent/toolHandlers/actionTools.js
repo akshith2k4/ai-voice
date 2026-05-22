@@ -4,6 +4,7 @@ import * as filler from "../fieldFiller/index";
 import { agentFormRegistry } from "../agentFormRegistry";
 import { sendStatus, sendError } from "../wsConnection";
 import { wait } from "../utils";
+import { CursorManager } from "../CursorManager";
 
 registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
   let success = false;
@@ -11,6 +12,7 @@ registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
   if (args.selector) {
     const el = document.querySelector(args.selector);
     if (el) {
+      await CursorManager.animateToAndClick(el);
       el.click();
       success = true;
     }
@@ -46,7 +48,7 @@ registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
 registerTool(TOOL_TYPES.CLOSE_DIALOG, async (args, { send }) => {
   sendStatus(STATUS_EVENTS.DIALOG_CLOSED);
   await wait(TIMING.POLL_INTERVAL_MS);
-  filler.closeDialog();
+  await filler.closeDialog();
 });
 
 registerTool(TOOL_TYPES.SELECT_ITEM, async (args, { send }) => {
@@ -55,6 +57,7 @@ registerTool(TOOL_TYPES.SELECT_ITEM, async (args, { send }) => {
   if (args.selector) {
     const el = document.querySelector(args.selector);
     if (el) {
+      await CursorManager.animateToAndClick(el);
       el.click();
       success = true;
     }
@@ -64,6 +67,7 @@ registerTool(TOOL_TYPES.SELECT_ITEM, async (args, { send }) => {
     const rows = document.querySelectorAll("tr, [role='row'], [data-agent-row]");
     for (const row of rows) {
       if (row.textContent && row.textContent.includes(args.label)) {
+        await CursorManager.animateToAndClick(row);
         row.click();
         success = true;
         break;
@@ -85,6 +89,7 @@ registerTool(TOOL_TYPES.CLICK_ELEMENT, async (args, { send }) => {
   if (args.selector) {
     const el = document.querySelector(args.selector);
     if (el) {
+      await CursorManager.animateToAndClick(el);
       el.click();
       clicked = true;
     }
@@ -124,7 +129,7 @@ registerTool(TOOL_TYPES.ADD_ITEM, async (args, { send, formId }) => {
 });
 
 registerTool(TOOL_TYPES.CLICK_CHECKBOX, async (args, { send }) => {
-  const result = filler.clickCheckbox(args.labelText);
+  const result = await filler.clickCheckbox(args.labelText);
   if (result.success) {
     sendStatus(STATUS_EVENTS.CHECKBOX_CLICKED);
   } else {

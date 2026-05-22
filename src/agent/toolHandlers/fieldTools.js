@@ -5,6 +5,7 @@ import { agentFormRegistry } from "../agentFormRegistry";
 import { fillRegistryField, findRegistryField } from "../formExecutor";
 import { SpotlightManager } from "../SpotlightManager";
 import { sendStatus, sendError } from "../wsConnection";
+import { CursorManager } from "../CursorManager";
 
 function getActiveContainer() {
   const dialogs = document.querySelectorAll(".MuiDialog-paper");
@@ -48,6 +49,7 @@ registerTool(TOOL_TYPES.GO_TO_FIELD, async (args, { send, formId }) => {
   }
 
   if (element) {
+    await CursorManager.animateToAndClick(element);
     SpotlightManager.setSpotlight(element);
   }
 
@@ -62,6 +64,30 @@ registerTool(TOOL_TYPES.GO_TO_FIELD, async (args, { send, formId }) => {
 
 registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
   const { fieldKey, label, type, value, subFormId, itemIndex } = args;
+
+  let element = null;
+  if (formId && agentFormRegistry.has(formId)) {
+    try {
+      const form = agentFormRegistry.get(formId);
+      if (form) {
+        const field = findRegistryField(form, fieldKey);
+        if (field?.getElement) {
+          element = field.getElement(itemIndex);
+        }
+      }
+    } catch (e) {
+      console.warn("[WalkthroughHandler] Registry findField failed, falling back to DOM search:", e);
+    }
+  }
+
+  if (!element) {
+    const container = getActiveContainer();
+    element = filler.findField(fieldKey, label, subFormId, itemIndex, container);
+  }
+
+  if (element) {
+    await CursorManager.animateToAndClick(element);
+  }
 
   try {
     if (formId && agentFormRegistry.has(formId)) {

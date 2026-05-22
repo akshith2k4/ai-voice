@@ -16,7 +16,6 @@ import { ToolMessenger } from "./toolMessenger.js";
 import { NarrationService } from "./narrationService.js";
 import type { OutgoingMessage } from "../types.js";
 
-// --- Constants ---
 const TIMEOUTS = {
   NAVIGATE: 5000,
   OPEN_DIALOG: 3000,
@@ -63,7 +62,7 @@ class WalkthroughDriver {
 
   private async yieldToInterrupts(session: WalkthroughSession): Promise<void> {
     while (
-      session.stateMachine.currentState === "PAUSED" || 
+      session.stateMachine.currentState === "PAUSED" ||
       session.stateMachine.currentState === "DETOUR_QA"
     ) {
       this.checkCancelled(session);
@@ -581,7 +580,7 @@ class WalkthroughDriver {
       await this.processAutoPopulatedSubForm(session, subForm);
     } else if (subForm.copyFrom) {
       const { subFormId, whenFieldEquals, checkboxLabel } = subForm.copyFrom;
-      const shouldCopy = !whenFieldEquals || 
+      const shouldCopy = !whenFieldEquals ||
         session.filledValues.get(whenFieldEquals.field) === whenFieldEquals.value;
 
       if (shouldCopy) {
