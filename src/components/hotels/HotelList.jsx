@@ -508,7 +508,7 @@ function HotelList() {
             },
         ],
         clearAll: resetAgreementForm,
-    });
+    }, isAgreementDialogOpen);
 
     // Removed unused renderAgreementFormFields
 

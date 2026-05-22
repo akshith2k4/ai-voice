@@ -73,14 +73,20 @@ export class AudioQueue {
   clear() {
     this.queue = [];
     if (this.currentAudio) {
+      const audio = this.currentAudio;
+      audio.onended = null;
+      audio.onerror = null;
       try {
-        this.currentAudio.pause();
-        this.currentAudio.src = "";
-        this.currentAudio.load();
+        audio.pause();
+        audio.src = "";
+        audio.load();
       } catch (e) {
         console.error("[AudioQueue] Error pausing active audio:", e);
       }
       this.currentAudio = null;
+    }
+    if (this.currentMessageId) {
+      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: this.currentMessageId });
     }
     this.isPlaying = false;
     this.currentMessageId = null;

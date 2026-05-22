@@ -399,7 +399,7 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
       }
     ],
     clearAll: resetState,
-  });
+  }, open);
 
   return (
   <Dialog open={open} onClose={clearAndClose} maxWidth="lg" fullWidth>

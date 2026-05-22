@@ -9,11 +9,13 @@ import { agentFormRegistry } from "./agentFormRegistry";
 import { sendStatus } from "./wsConnection";
 import { STATUS_EVENTS } from "./protocol";
 
-export function useAgentForm(formId, formApi) {
+export function useAgentForm(formId, formApi, enabled = true) {
   const apiRef = useRef(formApi);
   apiRef.current = formApi;
 
   useEffect(() => {
+    if (!enabled) return;
+
     const proxy = {
       get fields() { return apiRef.current.fields; },
       get subForms() {
@@ -29,5 +31,5 @@ export function useAgentForm(formId, formApi) {
     agentFormRegistry.register(formId, proxy);
     sendStatus(STATUS_EVENTS.FORM_REGISTERED, { formId });
     return () => agentFormRegistry.unregister(formId);
-  }, [formId]);
+  }, [formId, enabled]);
 }

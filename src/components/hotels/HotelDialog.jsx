@@ -215,7 +215,7 @@ function HotelDialog({ open, onClose, onSave, hotel }) {
       },
     ],
     clearAll: resetForm,
-  });
+  }, open);
 
   const handleSubmit = () => {
     onSave(hotelFormData);

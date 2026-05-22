@@ -740,7 +740,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
       },
     ],
     clearAll: resetForm,
-  });
+  }, open);
 
   const handleClose = () => {
     resetForm();
