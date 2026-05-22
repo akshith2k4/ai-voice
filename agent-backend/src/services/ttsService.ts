@@ -1,4 +1,6 @@
-import { synthesize } from "./elevenLabsTTS.js";
+import { synthesize, synthesizeStream } from "./elevenLabsTTS.js";
+
+export { synthesizeStream };
 
 export async function synthesizeToBase64(
   text: string,

@@ -29,8 +29,14 @@ const mockSynthesize = mock(async (text: string, lang: string) => {
   return "data:audio/mpeg;base64,aGVsbG8=";
 });
 
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (chunk: string, isFinal: boolean) => void) => {
+  onChunk("aGVsbG8=", false);
+  onChunk("", true);
+});
+
 mock.module("../src/services/elevenLabsTTS.js", () => ({
   synthesize: mockSynthesize,
+  synthesizeStream: mockSynthesizeStream,
 }));
 
 const ORDER_SCHEMA = {
@@ -84,6 +90,7 @@ function sentMessages(sessionId: string): any[] {
 function resetAllMocks() {
   mockConnectionSend.mockReset();
   mockSynthesize.mockReset();
+  mockSynthesizeStream.mockReset();
   mockConnectionSend.mockImplementation((sessionId: string, msg: any) => {
     if (msg && msg.type === "tts_audio") {
       setTimeout(() => {
@@ -93,6 +100,10 @@ function resetAllMocks() {
     return true;
   });
   mockSynthesize.mockImplementation(async () => "data:audio/mpeg;base64,aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: any) => {
+    onChunk("aGVsbG8=", false);
+    onChunk("", true);
+  });
 }
 
 /**
@@ -302,7 +313,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
 
       // Wait for background TTS synthesis
       await delay(500);
-      expect(mockSynthesize.mock.calls.length).toBeGreaterThan(0);
+      expect(mockSynthesizeStream.mock.calls.length).toBeGreaterThan(0);
     });
 
     test("tts_audio messages are sent with matching messageId", async () => {

@@ -31,7 +31,8 @@ export function sendNavigate(
 export function sendTtsAudio(
   send: HandlerContext["send"],
   base64: string,
-  messageId: string
+  messageId: string,
+  isFinal?: boolean
 ): void {
-  send({ type: "tts_audio", audio: base64, messageId });
+  send({ type: "tts_audio", audio: base64, messageId, isFinal });
 }

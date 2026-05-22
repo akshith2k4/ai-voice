@@ -59,9 +59,9 @@ RESPONSE RULES:
 - Keep responses concise — this is a voice interaction, not a chat
 - For navigation requests: use the navigate tool
 - For walkthrough requests: use the start_walkthrough tool
-- For questions about forms/workflows: use the answer_question tool
+- For questions about forms/workflows: reply directly in plain text
 - For unclear requests: use the ask_clarification tool
-- Always include a message in your tool call — this is what the user hears via TTS`;
+- If using a tool, always include a concise explanation message in the tool's 'message' argument.`;
 }
 
 /**

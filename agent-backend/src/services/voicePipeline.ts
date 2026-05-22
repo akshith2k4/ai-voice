@@ -1,9 +1,77 @@
 import type { VoiceMessage, HandlerContext } from "../types.js";
-import { orchestrate } from "../../llm/orchestrator.js";
+import { orchestrate, orchestrateStream } from "../../llm/orchestrator.js";
 import { walkthroughDriver } from "../walkthrough/driver.js";
 import * as sttService from "./sttService.js";
 import * as ttsService from "./ttsService.js";
 import * as responseSender from "./responseSender.js";
+
+class SentenceStreamer {
+  private buffer: string = "";
+
+  public feed(chunk: string): string[] {
+    this.buffer += chunk;
+    const sentences: string[] = [];
+
+    while (true) {
+      let foundIdx = -1;
+      let foundPuncLen = 1;
+
+      for (let i = 0; i < this.buffer.length; i++) {
+        const char = this.buffer[i];
+        if (char === '\n') {
+          foundIdx = i;
+          foundPuncLen = 1;
+          break;
+        }
+        if (char === '.' || char === '?' || char === '!') {
+          const nextChar = this.buffer[i + 1];
+          if (!nextChar || /\s/.test(nextChar)) {
+            const prevText = this.buffer.slice(0, i);
+            const words = prevText.trim().split(/\s+/);
+            const lastWord = words[words.length - 1]?.toLowerCase()?.replace(/[^a-z]/g, "");
+            
+            const abbreviations = ["mr", "ms", "mrs", "dr", "st", "eg", "ie", "vs"];
+            if (char === '.' && lastWord && abbreviations.includes(lastWord)) {
+              if (nextChar === '\n') {
+                foundIdx = i;
+                foundPuncLen = 1;
+                break;
+              }
+              continue;
+            }
+
+            foundIdx = i;
+            foundPuncLen = 1;
+            break;
+          }
+        }
+      }
+
+      if (foundIdx === -1) {
+        break;
+      }
+
+      const sentence = this.buffer.slice(0, foundIdx + foundPuncLen).trim();
+      this.buffer = this.buffer.slice(foundIdx + foundPuncLen);
+
+      if (sentence.length > 0) {
+        sentences.push(sentence);
+      }
+    }
+
+    return sentences;
+  }
+
+  public flush(): string[] {
+    const sentences: string[] = [];
+    const remaining = this.buffer.trim();
+    if (remaining.length > 0) {
+      sentences.push(remaining);
+    }
+    this.buffer = "";
+    return sentences;
+  }
+}
 
 export async function handleVoiceMessage(
   message: VoiceMessage,
@@ -104,13 +172,96 @@ async function handleText(
   const lang = languageCode || "en";
 
   const llmStart = Date.now();
-  const { toolCalls, rawContent } = await orchestrate(text, sessionId, languageCode);
-  if (tracker) {
-    tracker.llmDuration = Date.now() - llmStart;
+  const responseMessageId = crypto.randomUUID();
+  const sentenceStreamer = new SentenceStreamer();
+
+  let accumulatedText = "";
+  const ttsPromises: Promise<void>[] = [];
+  let isFirstSentence = true;
+  const ttsStart = Date.now();
+
+  const handleCompletedSentence = (sentence: string) => {
+    if (accumulatedText) {
+      accumulatedText += " " + sentence;
+    } else {
+      accumulatedText = sentence;
+    }
+
+    const currentAccumulated = accumulatedText;
+
+    const p = new Promise<void>((resolve, reject) => {
+      let isFirstChunk = true;
+      ttsService.synthesizeStream(sentence, lang, (chunkBase64, isFinal) => {
+        if (isFirstChunk) {
+          isFirstChunk = false;
+          if (isFirstSentence) {
+            isFirstSentence = false;
+            if (tracker) {
+              tracker.ttsDuration = Date.now() - ttsStart;
+            }
+            const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+            const latency = tracker ? {
+              stt: tracker.sttDuration,
+              llm: tracker.llmDuration,
+              tts: tracker.ttsDuration,
+              total: totalDuration,
+            } : undefined;
+
+            responseSender.sendRespond(send, currentAccumulated, true, responseMessageId, latency);
+
+            if (tracker) {
+              console.log(
+                `[Latency Breakdown] 🔊 Speech Response (Stream Started): "${sentence}"
+-----------------------------------------
+🎙️ STT:   ${tracker.sttDuration}ms
+🧠 LLM:   ${tracker.llmDuration}ms
+🔊 TTS (TTFB): ${tracker.ttsDuration}ms
+⏱️ Total: ${totalDuration}ms
+-----------------------------------------`
+              );
+            }
+          } else {
+            responseSender.sendRespond(send, currentAccumulated, true, responseMessageId);
+          }
+        }
+
+        if (chunkBase64) {
+          responseSender.sendTtsAudio(send, chunkBase64, responseMessageId, false);
+        }
+      }, sessionId).then(resolve).catch(reject); // Session ID isolated
+    });
+
+    ttsPromises.push(p);
+  };
+
+  const { toolCalls, rawContent } = await orchestrateStream(
+    text,
+    sessionId,
+    languageCode,
+    (chunk) => {
+      if (tracker && tracker.llmDuration === 0) {
+        tracker.llmDuration = Date.now() - llmStart;
+      }
+
+      const sentences = sentenceStreamer.feed(chunk);
+      for (const sentence of sentences) {
+        handleCompletedSentence(sentence);
+      }
+    }
+  );
+
+  const finalSentences = sentenceStreamer.flush();
+  for (const sentence of finalSentences) {
+    handleCompletedSentence(sentence);
+  }
+
+  await Promise.all(ttsPromises);
+
+  if (ttsPromises.length > 0) {
+    responseSender.sendTtsAudio(send, "", responseMessageId, true);
   }
 
   let spoke = false;
-
   for (const tc of toolCalls) {
     switch (tc.name) {
       case "navigate": {
@@ -133,18 +284,27 @@ async function handleText(
         const msg = String(tc.args.message || "Starting walkthrough");
         const formId = String(tc.args.formId);
         spoke = true;
-        await speakAndSend(send, msg, lang, tracker);
+        // Suppress static speech synthesis if dynamic content was already streamed
+        if (!accumulatedText) {
+          await speakAndSend(send, msg, lang, tracker);
+        }
         walkthroughDriver.start(formId, context.sessionId);
         break;
       }
       case "answer_question": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.response), lang, tracker);
+        // Suppress redundancy: do not re-speak if dynamic content was already streamed
+        if (!accumulatedText) {
+          await speakAndSend(send, String(tc.args.response), lang, tracker);
+        }
         break;
       }
       case "detour_to_field": {
         const session = walkthroughDriver.getSession(sessionId);
         if (session) {
+          // Interrupt any active wait in status awaiter so driver thread pauses instantly
+          walkthroughDriver.interrupt(sessionId);
+
           session.stateMachine.transition("DETOUR");
           const targetFieldKey = String(tc.args.fieldKey);
           let matchedField = session.schema.fields.find(f => f.key === targetFieldKey);
@@ -162,24 +322,33 @@ async function handleText(
 
           const narrationText = matchedField?.explanation || "Let me highlight that field on your form.";
           spoke = true;
-          await speakAndSend(send, narrationText, lang, tracker);
+          // Only speak static narration if dynamic explanation wasn't already streamed
+          if (!accumulatedText) {
+            await speakAndSend(send, narrationText, lang, tracker);
+          }
         }
         break;
       }
       case "resume_walkthrough": {
+        const session = walkthroughDriver.getSession(sessionId);
+        if (session) {
+          walkthroughDriver.interrupt(sessionId);
+        }
         spoke = true;
         await executeAutoResume(context, tracker);
         break;
       }
       case "ask_clarification": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.message), lang, tracker);
+        if (!accumulatedText) {
+          await speakAndSend(send, String(tc.args.message), lang, tracker);
+        }
         break;
       }
     }
   }
 
-  if (toolCalls.length === 0 && rawContent) {
+  if (toolCalls.length === 0 && rawContent && ttsPromises.length === 0) {
     spoke = true;
     await speakAndSend(send, rawContent, lang, tracker);
   }
@@ -197,40 +366,55 @@ async function speakAndSend(
   }
 ): Promise<void> {
   const ttsStart = Date.now();
-  let base64 = "";
+  let messageId: string | undefined = undefined;
+  let isFirstChunk = true;
+
   try {
-    base64 = await ttsService.synthesizeToBase64(text, languageCode);
-    if (tracker) {
-      tracker.ttsDuration = Date.now() - ttsStart;
-    }
-  } catch (e) {
-    console.error("[VoiceHandler] TTS failed:", e);
-  }
+    await ttsService.synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
+      if (isFirstChunk) {
+        isFirstChunk = false;
+        if (tracker) {
+          tracker.ttsDuration = Date.now() - ttsStart;
+        }
+        const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+        const latency = tracker ? {
+          stt: tracker.sttDuration,
+          llm: tracker.llmDuration,
+          tts: tracker.ttsDuration,
+          total: totalDuration,
+        } : undefined;
 
-  const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
-  const latency = tracker ? {
-    stt: tracker.sttDuration,
-    llm: tracker.llmDuration,
-    tts: tracker.ttsDuration,
-    total: totalDuration,
-  } : undefined;
+        messageId = responseSender.sendRespond(send, text, true, undefined, latency);
 
-  const messageId = responseSender.sendRespond(send, text, !!base64, undefined, latency);
-
-  if (base64) {
-    responseSender.sendTtsAudio(send, base64, messageId);
-  }
-
-  if (tracker) {
-    console.log(
-      `[Latency Breakdown] 🔊 Speech Response: "${text}"
+        if (tracker) {
+          console.log(
+            `[Latency Breakdown] 🔊 Speech Response (Stream Started): "${text}"
 -----------------------------------------
 🎙️ STT:   ${tracker.sttDuration}ms
 🧠 LLM:   ${tracker.llmDuration}ms
-🔊 TTS:   ${tracker.ttsDuration}ms
+🔊 TTS (TTFB): ${tracker.ttsDuration}ms
 ⏱️ Total: ${totalDuration}ms
 -----------------------------------------`
-    );
+          );
+        }
+      }
+
+      if (messageId) {
+        responseSender.sendTtsAudio(send, chunkBase64, messageId, isFinal);
+      }
+    });
+  } catch (e) {
+    console.error("[VoiceHandler] TTS stream failed:", e);
+    if (isFirstChunk) {
+      const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+      const latency = tracker ? {
+        stt: tracker.sttDuration,
+        llm: tracker.llmDuration,
+        tts: Date.now() - ttsStart,
+        total: totalDuration,
+      } : undefined;
+      responseSender.sendRespond(send, text, false, undefined, latency);
+    }
   }
 }
 

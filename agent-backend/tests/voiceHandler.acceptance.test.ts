@@ -12,13 +12,32 @@ const mockSynthesizeToBase64 = mock(async (text: string, lang: string) => {
   return "aGVsbG8=";
 });
 
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (chunk: string, isFinal: boolean) => void) => {
+  onChunk("aGVsbG8=", false);
+  onChunk("", true);
+});
+
 const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: string) => ({
   toolCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   rawContent: null as string | null,
 }));
 
+const mockOrchestrateStream = mock(async (
+  text: string,
+  sessionId: string,
+  lang: string | undefined,
+  onChunk: (chunk: string) => void
+) => {
+  const res = await mockOrchestrate(text, sessionId, lang);
+  if (res.rawContent) {
+    onChunk(res.rawContent);
+  }
+  return res;
+});
+
 const mockDriverStart = mock((formId: string, sessionId: string) => {});
 const mockGetSession = mock((sessionId: string) => null as any);
+const mockInterrupt = mock((sessionId: string) => {});
 
 // Mock the service modules that voicePipeline imports
 mock.module("../src/services/sttService.js", () => ({
@@ -31,16 +50,19 @@ mock.module("../src/services/sttService.js", () => ({
 
 mock.module("../src/services/ttsService.js", () => ({
   synthesizeToBase64: mockSynthesizeToBase64,
+  synthesizeStream: mockSynthesizeStream,
 }));
 
 mock.module("../llm/orchestrator.js", () => ({
   orchestrate: mockOrchestrate,
+  orchestrateStream: mockOrchestrateStream,
 }));
 
 mock.module("../src/walkthrough/driver.js", () => ({
   walkthroughDriver: {
     start: mockDriverStart,
     getSession: mockGetSession,
+    interrupt: mockInterrupt,
   },
 }));
 
@@ -61,9 +83,12 @@ function createCtx(overrides?: Record<string, unknown>) {
 function resetAllMocks() {
   mockTranscribeAudio.mockReset();
   mockSynthesizeToBase64.mockReset();
+  mockSynthesizeStream.mockReset();
   mockOrchestrate.mockReset();
+  mockOrchestrateStream.mockReset();
   mockDriverStart.mockReset();
   mockGetSession.mockReset();
+  mockInterrupt.mockReset();
 
   mockTranscribeAudio.mockImplementation(async () => ({
     text: "hello world",
@@ -71,10 +96,26 @@ function resetAllMocks() {
     confidence: 0.95,
   }));
   mockSynthesizeToBase64.mockImplementation(async () => "aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: any) => {
+    onChunk("aGVsbG8=", false);
+    onChunk("", true);
+  });
   mockOrchestrate.mockImplementation(async () => ({
     toolCalls: [],
     rawContent: null,
   }));
+  mockOrchestrateStream.mockImplementation(async (
+    text: string,
+    sessionId: string,
+    lang: string | undefined,
+    onChunk: (chunk: string) => void
+  ) => {
+    const res = await mockOrchestrate(text, sessionId, lang);
+    if (res.rawContent) {
+      onChunk(res.rawContent);
+    }
+    return res;
+  });
 
   // Reset the real sttService retry counts by re-importing (sttService is already mocked)
   // We need to track retry behavior through the mocked sttService
@@ -456,7 +497,6 @@ describe("VoiceHandler — acceptance tests", () => {
         ],
         rawContent: null,
       }));
-      mockSynthesizeToBase64.mockImplementation(async () => "dGVzdA==");
 
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "test?" }, ctx as any);
@@ -466,10 +506,10 @@ describe("VoiceHandler — acceptance tests", () => {
       );
       const ttsMsgs = ctx.sent.filter((m: any) => m.type === "tts_audio");
 
-      expect(respondMsgs.length).toBe(ttsMsgs.length);
+      expect(ttsMsgs.length).toBeGreaterThanOrEqual(1);
       for (const rm of respondMsgs) {
-        const matching = ttsMsgs.find((t: any) => t.messageId === rm.args.messageId);
-        expect(matching).toBeDefined();
+        const matching = ttsMsgs.filter((t: any) => t.messageId === rm.args.messageId);
+        expect(matching.length).toBeGreaterThanOrEqual(1);
       }
     });
   });
@@ -485,7 +525,7 @@ describe("VoiceHandler — acceptance tests", () => {
         ],
         rawContent: null,
       }));
-      mockSynthesizeToBase64.mockRejectedValue(new Error("TTS API down"));
+      mockSynthesizeStream.mockRejectedValue(new Error("TTS API down"));
 
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "test?" }, ctx as any);

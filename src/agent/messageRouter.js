@@ -5,13 +5,14 @@ const TOOL_HANDLERS = {
     const text = args?.message || "";
     const tts = args?.tts !== false;
     const latency = args?.latency;
+    const messageId = args?.messageId;
 
     // "You said: ..." echoes go to the user bubble, not agent
     if (text.startsWith("You said:")) {
       const spoken = text.replace(/^You said:\s*"?/, "").replace(/"$/, "");
       addMessage("user", spoken);
     } else {
-      addMessage("agent", text, latency);
+      addMessage("agent", text, latency, messageId);
     }
 
     // If no TTS follows, clear processing state now
@@ -85,16 +86,16 @@ export function routeIncomingMessage(
       }
 
       case MESSAGE_TYPES.TTS_AUDIO: {
-        const { audio, messageId } = message;
-        if (typeof audio !== 'string' || audio.length === 0) {
-          console.warn("[AgentBridge] Invalid tts_audio message: 'audio' must be a non-empty string.");
+        const { audio, messageId, isFinal } = message;
+        if (typeof audio !== 'string') {
+          console.warn("[AgentBridge] Invalid tts_audio message: 'audio' must be a string.");
           break;
         }
         if (typeof messageId !== 'string' && typeof messageId !== 'number') {
           console.warn("[AgentBridge] Invalid tts_audio message: 'messageId' must be a string or number.");
           break;
         }
-        audioQueue?.enqueue(audio, messageId);
+        audioQueue?.enqueue(audio, messageId, isFinal);
         break;
       }
 
