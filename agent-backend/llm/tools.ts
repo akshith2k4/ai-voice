@@ -90,9 +90,37 @@ export const askClarificationTool = new DynamicStructuredTool({
   },
 });
 
+export const detourToFieldTool = new DynamicStructuredTool({
+  name: "detour_to_field",
+  description:
+    "Detour to explain a specific field on the active form without filling it. Use this when the user asks a question about what a field means, what data goes into it, how to use it, etc. Do NOT answer inline with text.",
+  schema: z.object({
+    fieldKey: z
+      .string()
+      .describe(
+        "The exact field key from the critical field directory map."
+      ),
+  }),
+  func: async (input) => {
+    return JSON.stringify(input);
+  },
+});
+
+export const resumeWalkthroughTool = new DynamicStructuredTool({
+  name: "resume_walkthrough",
+  description:
+    "Resume the walkthrough sequence. Use this when the user says 'continue', 'next', or indicates they are ready to proceed.",
+  schema: z.object({}),
+  func: async (input) => {
+    return JSON.stringify(input);
+  },
+});
+
 export const allTools = [
   navigateTool,
   startWalkthroughTool,
   answerQuestionTool,
   askClarificationTool,
+  detourToFieldTool,
+  resumeWalkthroughTool,
 ];

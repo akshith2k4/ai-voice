@@ -21,7 +21,7 @@ import "./toolHandlers/index";
 
 
 export default function WalkthroughHandler() {
-  const { pendingTool, sendMessage, clearPendingTool, addMessage, setIsPaused, clearMessages, stopAudio } = useAgent();
+  const { pendingTool, sendMessage, clearPendingTool, addMessage, setIsPaused, clearMessages, stopAudio, audioQueueFinishedEvent } = useAgent();
 
   // Stable refs — always current, never stale in async closures
   const sendRef = useRef(sendMessage);
@@ -40,6 +40,14 @@ export default function WalkthroughHandler() {
   // Control flow state
   const isPausedRef = useRef(false);
   const isDetourActiveRef = useRef(false);
+
+  // AUTOMATIC RECOVERY HOOK: Snaps back the split second audio finishing playing
+  useEffect(() => {
+    if (audioQueueFinishedEvent && isDetourActiveRef.current) {
+      console.log("[WalkthroughHandler] Detour speech concluded. Emitting automatic resumption frame.");
+      sendMessage({ type: "status", event: "resume_walkthrough" });
+    }
+  }, [audioQueueFinishedEvent, sendMessage]);
 
   // ---- Enqueue incoming tools ----
   useEffect(() => {
@@ -102,7 +110,7 @@ export default function WalkthroughHandler() {
 
   function drain() {
     if (executingRef.current || queueRef.current.length === 0) return;
-    if (isPausedRef.current || isDetourActiveRef.current) return;
+    if (isPausedRef.current) return;
 
     executingRef.current = true;
 

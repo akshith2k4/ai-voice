@@ -403,6 +403,85 @@ export default function AgentOverlay() {
                 {msg.text}
               </Typography>
             </Box>
+            {msg.latency && (
+              <Box
+                sx={{
+                  mt: 0.5,
+                  px: 1,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 0.8,
+                  opacity: 0.85,
+                }}
+              >
+                <Box
+                  sx={{
+                    px: 0.8,
+                    py: 0.2,
+                    borderRadius: 1,
+                    backgroundColor: "rgba(16, 185, 129, 0.15)",
+                    border: "1px solid rgba(16, 185, 129, 0.25)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "#34d399", fontSize: 9, fontWeight: "bold" }}>
+                    Total: {msg.latency.total}ms
+                  </Typography>
+                </Box>
+                {msg.latency.stt > 0 && (
+                  <Box
+                    sx={{
+                      px: 0.8,
+                      py: 0.2,
+                      borderRadius: 1,
+                      backgroundColor: "rgba(255, 255, 255, 0.05)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: "#94a3b8", fontSize: 9 }}>
+                      STT: {msg.latency.stt}ms
+                    </Typography>
+                  </Box>
+                )}
+                {msg.latency.llm > 0 && (
+                  <Box
+                    sx={{
+                      px: 0.8,
+                      py: 0.2,
+                      borderRadius: 1,
+                      backgroundColor: "rgba(255, 255, 255, 0.05)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: "#94a3b8", fontSize: 9 }}>
+                      LLM: {msg.latency.llm}ms
+                    </Typography>
+                  </Box>
+                )}
+                {msg.latency.tts > 0 && (
+                  <Box
+                    sx={{
+                      px: 0.8,
+                      py: 0.2,
+                      borderRadius: 1,
+                      backgroundColor: "rgba(255, 255, 255, 0.05)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: "#94a3b8", fontSize: 9 }}>
+                      TTS: {msg.latency.tts}ms
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
           </Box>
         ))}
 

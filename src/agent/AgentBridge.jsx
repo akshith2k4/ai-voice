@@ -28,6 +28,7 @@ const AgentContext = createContext({
   isPaused: false,
   setIsPaused: () => {},
   stopAudio: () => {},
+  audioQueueFinishedEvent: 0,
 });
 
 export const useAgent = () => useContext(AgentContext);
@@ -44,6 +45,7 @@ export function AgentBridgeProvider({ children }) {
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [pendingTool, setPendingTool] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [audioQueueFinishedEvent, setAudioQueueFinishedEvent] = useState(0);
 
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef(null);
@@ -56,7 +58,7 @@ export function AgentBridgeProvider({ children }) {
   }, [connectionStatus]);
 
   // ---- Message handling ----
-  const addMessage = useCallback((role, text) => {
+  const addMessage = useCallback((role, text, latency) => {
     setAgentMessages((prev) => [
       ...prev,
       {
@@ -64,6 +66,7 @@ export function AgentBridgeProvider({ children }) {
         role,
         text,
         timestamp: Date.now(),
+        latency,
       },
     ]);
   }, []);
@@ -133,6 +136,7 @@ export function AgentBridgeProvider({ children }) {
             setIsAgentSpeaking(speaking);
             if (!speaking) {
               setIsProcessing(false);
+              setAudioQueueFinishedEvent((prev) => prev + 1);
             }
           };
         }
@@ -212,6 +216,7 @@ export function AgentBridgeProvider({ children }) {
     isPaused,
     setIsPaused,
     stopAudio,
+    audioQueueFinishedEvent,
   };
 
   return (

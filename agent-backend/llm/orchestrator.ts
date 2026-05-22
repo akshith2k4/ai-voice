@@ -6,7 +6,8 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { allTools } from "./tools.js";
-import { buildIdlePrompt } from "./prompts.js";
+import { buildIdlePrompt, buildWalkthroughPrompt } from "./prompts.js";
+import { walkthroughDriver } from "../src/walkthrough/driver.js";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "";
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL || "gemini-2.5-flash";
@@ -46,9 +47,19 @@ export interface LLMResult {
  */
 export async function orchestrate(
   userText: string,
+  sessionId: string,
   languageCode?: string
 ): Promise<LLMResult> {
-  const systemPrompt = buildIdlePrompt();
+  let systemPrompt = buildIdlePrompt();
+
+  const activeSession = walkthroughDriver.getSession(sessionId);
+  if (activeSession) {
+    const ctx = activeSession.stateMachine.currentContext;
+    const currentField = activeSession.schema.fields[ctx.fieldIndex];
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
+  }
+
   const languageHint = languageCode
     ? `\n\nThe user's speech was detected as language code: ${languageCode}. Respond in that language.`
     : "";
@@ -61,7 +72,6 @@ export async function orchestrate(
 
     const toolCalls: LLMToolCall[] = [];
 
-    // Format 1: LangChain normalized .tool_calls (works across all providers)
     const normalizedCalls = (result as { tool_calls?: unknown[] }).tool_calls;
     if (Array.isArray(normalizedCalls) && normalizedCalls.length > 0) {
       for (const call of normalizedCalls) {
@@ -75,7 +85,6 @@ export async function orchestrate(
       }
     }
 
-    // Format 2: additional_kwargs.tool_calls (raw OpenAI-style fallback)
     if (toolCalls.length === 0 && result.additional_kwargs?.tool_calls) {
       const rawCalls = result.additional_kwargs.tool_calls as Array<{
         function?: { name?: string; arguments?: string };
@@ -94,7 +103,6 @@ export async function orchestrate(
       }
     }
 
-    // Format 3: Gemini content array with tool_use blocks
     if (toolCalls.length === 0 && Array.isArray(result.content)) {
       for (const block of result.content) {
         if (
@@ -114,7 +122,6 @@ export async function orchestrate(
       }
     }
 
-    // Extract raw text content (fallback when no tool was called)
     let rawContent: string | null = null;
     if (typeof result.content === "string" && result.content.trim()) {
       rawContent = result.content;

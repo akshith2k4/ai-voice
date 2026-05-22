@@ -4,13 +4,19 @@ export function sendRespond(
   send: HandlerContext["send"],
   message: string,
   tts: boolean,
-  messageId?: string
+  messageId?: string,
+  latency?: {
+    stt: number;
+    llm: number;
+    tts: number;
+    total: number;
+  }
 ): string {
   const id = messageId || crypto.randomUUID();
   send({
     type: "tool",
     tool: "respond",
-    args: { message, tts, messageId: id },
+    args: { message, tts, messageId: id, latency },
   });
   return id;
 }

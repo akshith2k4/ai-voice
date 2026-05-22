@@ -12,12 +12,13 @@ const mockSynthesizeToBase64 = mock(async (text: string, lang: string) => {
   return "aGVsbG8=";
 });
 
-const mockOrchestrate = mock(async (text: string, lang?: string) => ({
+const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: string) => ({
   toolCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   rawContent: null as string | null,
 }));
 
 const mockDriverStart = mock((formId: string, sessionId: string) => {});
+const mockGetSession = mock((sessionId: string) => null as any);
 
 // Mock the service modules that voicePipeline imports
 mock.module("../src/services/sttService.js", () => ({
@@ -37,7 +38,10 @@ mock.module("../llm/orchestrator.js", () => ({
 }));
 
 mock.module("../src/walkthrough/driver.js", () => ({
-  walkthroughDriver: { start: mockDriverStart },
+  walkthroughDriver: {
+    start: mockDriverStart,
+    getSession: mockGetSession,
+  },
 }));
 
 // --- Import after mocks ---
@@ -59,6 +63,7 @@ function resetAllMocks() {
   mockSynthesizeToBase64.mockReset();
   mockOrchestrate.mockReset();
   mockDriverStart.mockReset();
+  mockGetSession.mockReset();
 
   mockTranscribeAudio.mockImplementation(async () => ({
     text: "hello world",
@@ -146,7 +151,7 @@ describe("VoiceHandler — acceptance tests", () => {
       await handleVoice({ type: "voice", text: "navigate to orders" }, ctx as any);
 
       expect(mockTranscribeAudio).not.toHaveBeenCalled();
-      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", undefined);
+      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", "test-session-1", undefined);
     });
 
     test("text path sends rawContent as respond with TTS when no tool calls", async () => {
@@ -202,7 +207,7 @@ describe("VoiceHandler — acceptance tests", () => {
       expect(echoMsg.args.message).toBe('You said: "show me the orders"');
 
       // Orchestrator called with transcribed text and language code
-      expect(mockOrchestrate).toHaveBeenCalledWith("show me the orders", "en");
+      expect(mockOrchestrate).toHaveBeenCalledWith("show me the orders", "test-session-1", "en");
     });
 
     test("silence when no audio and no text", async () => {
@@ -515,4 +520,111 @@ describe("VoiceHandler — acceptance tests", () => {
       expect(ctx.sent[0].args.tts).toBe(true);
     });
   });
+
+  // =============================================
+  // CONTRACT 9: Detours & Resumption
+  // =============================================
+  describe("Detours and Resumption", () => {
+    test("detour_to_field transitions state and sends tool calls", async () => {
+      const mockSMTransition = mock((state: string) => {});
+      const mockSession = {
+        sessionId: "test-session-1",
+        schema: {
+          fields: [
+            { key: "customer", label: "Customer", explanation: "Select the customer name" },
+          ],
+          subForms: [],
+        },
+        stateMachine: {
+          currentState: "FIELD_EXPLAIN",
+          currentContext: { fieldIndex: 0 },
+          transition: mockSMTransition,
+        },
+      };
+      mockGetSession.mockReturnValue(mockSession);
+
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "detour_to_field", args: { fieldKey: "customer" } },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "ZGV0b3Vy");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "what is customer field?" }, ctx as any);
+
+      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR");
+
+      const detourStartMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "detour_start"
+      );
+      expect(detourStartMsg).toBeDefined();
+      expect(detourStartMsg.args.fieldKey).toBe("customer");
+
+      const goToFieldMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+      expect(goToFieldMsg).toBeDefined();
+      expect(goToFieldMsg.args.fieldKey).toBe("customer");
+      expect(goToFieldMsg.args.label).toBe("Customer");
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("Select the customer name");
+      expect(respondMsg.args.tts).toBe(true);
+    });
+
+    test("resume_walkthrough transitions state and returns to original field", async () => {
+      const mockSMTransition = mock((state: string) => {});
+      const mockSession = {
+        sessionId: "test-session-1",
+        schema: {
+          fields: [
+            { key: "customer", label: "Customer", explanation: "Select the customer name" },
+          ],
+          subForms: [],
+        },
+        stateMachine: {
+          currentState: "DETOUR_QA",
+          currentContext: { fieldIndex: 0 },
+          transition: mockSMTransition,
+        },
+      };
+      mockGetSession.mockReturnValue(mockSession);
+
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "resume_walkthrough", args: {} },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "cmVzdW1l");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "continue" }, ctx as any);
+
+      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR_COMPLETE");
+
+      const detourEndMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "detour_end"
+      );
+      expect(detourEndMsg).toBeDefined();
+
+      const goToFieldMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+      expect(goToFieldMsg).toBeDefined();
+      expect(goToFieldMsg.args.fieldKey).toBe("customer");
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toContain("Returning to our walkthrough");
+    });
+  });
 });
+

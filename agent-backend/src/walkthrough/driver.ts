@@ -16,7 +16,6 @@ import { ToolMessenger } from "./toolMessenger.js";
 import { NarrationService } from "./narrationService.js";
 import type { OutgoingMessage } from "../types.js";
 
-// --- Constants ---
 const TIMEOUTS = {
   NAVIGATE: 5000,
   OPEN_DIALOG: 3000,
@@ -56,6 +55,20 @@ class WalkthroughDriver {
   private statusAwaiter = new StatusAwaiter();
   private toolMessenger = new ToolMessenger();
   private narrationService = new NarrationService(this.statusAwaiter);
+
+  public getSession(sessionId: string): WalkthroughSession | undefined {
+    return this.sessionManager.get(sessionId);
+  }
+
+  private async yieldToInterrupts(session: WalkthroughSession): Promise<void> {
+    while (
+      session.stateMachine.currentState === "PAUSED" ||
+      session.stateMachine.currentState === "DETOUR_QA"
+    ) {
+      this.checkCancelled(session);
+      await this.wait(200); // Poll state trees smoothly
+    }
+  }
 
   async start(
     formId: string,
@@ -241,6 +254,7 @@ class WalkthroughDriver {
 
       for (let sIdx = 0; sIdx < plannedSteps.length; sIdx++) {
         this.checkCancelled(session);
+        await this.yieldToInterrupts(session);
         const step = plannedSteps[sIdx];
         const field = schema.fields.find(f => f.key === step.key);
         if (!field) continue;
@@ -278,6 +292,7 @@ class WalkthroughDriver {
           case 'fill_field': {
             const val = step.value;
             if (val !== undefined && val !== null) {
+              await this.yieldToInterrupts(session);
               await this.retryOperation(
                 session,
                 async () => {
@@ -344,6 +359,7 @@ class WalkthroughDriver {
     } else {
       for (let i = 0; i < schema.fields.length; i++) {
         this.checkCancelled(session);
+        await this.yieldToInterrupts(session);
         const field = schema.fields[i];
 
         if (!this.isFieldVisible(session, field)) {
@@ -359,6 +375,7 @@ class WalkthroughDriver {
         console.log(`[Driver] Processing field ${i + 1}/${schema.fields.length}: "${field.key}"`);
         try {
           await this.processField(session, field);
+          await this.yieldToInterrupts(session);
           stateMachine.transition("FIELD_COMPLETE");
           session.filledValues.set(field.key, field.demoValue);
         } catch (error) {
@@ -374,6 +391,7 @@ class WalkthroughDriver {
 
     for (const subForm of schema.subForms) {
       this.checkCancelled(session);
+      await this.yieldToInterrupts(session);
 
       if (!this.isFieldVisible(session, subForm)) {
         console.log(`[Driver] Skipping sub-form "${subForm.id}" — not visible`);
@@ -511,6 +529,8 @@ class WalkthroughDriver {
       return;
     }
 
+    await this.yieldToInterrupts(session);
+
     await this.retryOperation(
       session,
       async () => {
@@ -560,7 +580,7 @@ class WalkthroughDriver {
       await this.processAutoPopulatedSubForm(session, subForm);
     } else if (subForm.copyFrom) {
       const { subFormId, whenFieldEquals, checkboxLabel } = subForm.copyFrom;
-      const shouldCopy = !whenFieldEquals || 
+      const shouldCopy = !whenFieldEquals ||
         session.filledValues.get(whenFieldEquals.field) === whenFieldEquals.value;
 
       if (shouldCopy) {
@@ -596,6 +616,7 @@ class WalkthroughDriver {
 
     for (let itemIndex = 0; itemIndex < subForm.demoItemCount; itemIndex++) {
       this.checkCancelled(session);
+      await this.yieldToInterrupts(session);
       if (itemIndex > 0) {
         if (subForm.explanationForMultiple) {
           await this.sendTool(
@@ -612,6 +633,7 @@ class WalkthroughDriver {
 
       for (const field of subForm.fields) {
         this.checkCancelled(session);
+        await this.yieldToInterrupts(session);
 
         try {
           await this.retryOperation(
@@ -661,6 +683,8 @@ class WalkthroughDriver {
             stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
             continue;
           }
+
+          await this.yieldToInterrupts(session);
 
           await this.retryOperation(
             session,
@@ -712,6 +736,7 @@ class WalkthroughDriver {
 
     for (let itemIndex = 0; itemIndex < subForm.demoItemCount; itemIndex++) {
       this.checkCancelled(session);
+      await this.yieldToInterrupts(session);
       await this.retryOperation(
         session,
         async () => {
@@ -742,6 +767,7 @@ class WalkthroughDriver {
 
       for (const field of subForm.fields) {
         this.checkCancelled(session);
+        await this.yieldToInterrupts(session);
 
         try {
           await this.retryOperation(
@@ -775,6 +801,8 @@ class WalkthroughDriver {
             0
           );
           await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+
+          await this.yieldToInterrupts(session);
 
           await this.retryOperation(
             session,

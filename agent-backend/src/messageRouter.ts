@@ -12,7 +12,6 @@ export function routeMessage(
       handleVoice(message, context);
       break;
     case "status":
-      // Route status to both the handler AND the walkthrough driver
       handleStatus(message, context);
       walkthroughDriver.handleStatus(
         context.sessionId,

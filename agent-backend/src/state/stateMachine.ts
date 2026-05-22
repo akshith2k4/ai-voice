@@ -126,7 +126,7 @@ export class WalkthroughStateMachine {
         break;
 
       case "FORM_SELECTED":
-        if (event === "FORM_READY") return "WALKING_THROUGH";        // Bug 1 fix
+        if (event === "FORM_READY") return "WALKING_THROUGH";     
         break;
 
       case "WALKING_THROUGH":
@@ -140,15 +140,15 @@ export class WalkthroughStateMachine {
 
       case "PAUSED":
         if (event === "RESUME") return "WALKING_THROUGH";
-        if (event === "DETOUR") return "DETOUR_QA";                 // Bug 4 fix
+        if (event === "DETOUR") return "DETOUR_QA";             
         if (event === "CANCEL") return "CANCELLED";
         break;
 
       case "DETOUR_QA":
-        // Bug 6 fix: return to originating state
         if (event === "DETOUR_COMPLETE") return this.context.detourOrigin?.state ?? "WALKING_THROUGH";
+        if (event === "DETOUR") return "DETOUR_QA";
         if (event === "PAUSE") return "PAUSED";                     // Bug 5 fix
-        if (event === "CANCEL") return "CANCELLED";
+        if (event === "CANCEL") return "CANCELLED"; 
         break;
 
       case "SUB_FORM":
@@ -178,7 +178,6 @@ export class WalkthroughStateMachine {
 
     switch (event) {
       case "START_WALKTHROUGH":
-        // Bug 2 fix: set formId from payload
         if (payload?.formId) ctx.formId = payload.formId;
         ctx.fieldIndex = 0;
         ctx.subFormId = null;
@@ -188,7 +187,6 @@ export class WalkthroughStateMachine {
         break;
 
       case "FORM_READY":
-        // Bug 1 fix: no fieldIndex increment — we start at field 0
         break;
 
       case "FIELD_COMPLETE":
@@ -196,7 +194,6 @@ export class WalkthroughStateMachine {
         break;
 
       case "SUB_FORM_START":
-        // Bug 3 fix: set subFormId from payload
         if (payload?.subFormId) ctx.subFormId = payload.subFormId;
         ctx.subFormItemIndex = 0;
         ctx.subFormFieldIndex = 0;
@@ -218,13 +215,15 @@ export class WalkthroughStateMachine {
         break;
 
       case "DETOUR":
-        ctx.detourOrigin = {
-          state: this.state,           // stores the exact state we were in (PAUSED, WALKING, etc.)
-          fieldIndex: ctx.fieldIndex,
-          subFormId: ctx.subFormId,
-          subFormItemIndex: ctx.subFormItemIndex,
-          subFormFieldIndex: ctx.subFormFieldIndex,
-        };
+        if (this.state !== "DETOUR_QA") {
+          ctx.detourOrigin = {
+            state: this.state,           
+            fieldIndex: ctx.fieldIndex,
+            subFormId: ctx.subFormId,
+            subFormItemIndex: ctx.subFormItemIndex,
+            subFormFieldIndex: ctx.subFormFieldIndex,
+          };
+        }
         break;
 
       case "DETOUR_COMPLETE":
@@ -238,7 +237,6 @@ export class WalkthroughStateMachine {
         break;
 
       case "RESET":
-        // Bug 7 fix: clear all context
         ctx.formId = "";
         ctx.fieldIndex = 0;
         ctx.subFormId = null;
