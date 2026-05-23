@@ -9,53 +9,44 @@ interface TTSJob {
   reject: (err: any) => void;
 }
 
-interface SessionQueueState {
-  queue: TTSJob[];
-  busy: boolean;
-  currentDelay: number;
-}
+const ttsQueue: TTSJob[] = [];
+let ttsBusy = false;
 
-// Session-specific queues to prevent multi-user bottlenecks
-const sessionQueues = new Map<string, SessionQueueState>();
-
+let currentDelay = 50;
 const BASELINE_DELAY = 50;
 const BACKOFF_DELAY = 1000;
 
-async function processSessionQueue(sessionId: string) {
-  const state = sessionQueues.get(sessionId);
-  if (!state || state.busy) return;
-  state.busy = true;
+async function processQueue() {
+  if (ttsBusy) return;
+  ttsBusy = true;
 
-  while (state.queue.length > 0) {
-    const job = state.queue.shift()!;
+  while (ttsQueue.length > 0) {
+    const job = ttsQueue.shift()!;
     try {
-      await synthesizeStreamDirect(job.text, job.languageCode, job.onChunk, state);
+      await synthesizeStreamDirect(job.text, job.languageCode, job.onChunk);
       job.resolve();
-      // On success, scale back down to baseline delay
-      if (state.currentDelay > BASELINE_DELAY) {
-        state.currentDelay = Math.max(BASELINE_DELAY, state.currentDelay - 250);
+      // On success, dynamically scale back down to baseline delay
+      if (currentDelay > BASELINE_DELAY) {
+        currentDelay = Math.max(BASELINE_DELAY, currentDelay - 250);
       }
     } catch (err) {
+      // If error is related to 429, ensure we trigger backoff
       if (err instanceof Error && err.message.includes("429")) {
-        state.currentDelay = BACKOFF_DELAY;
+        currentDelay = BACKOFF_DELAY;
       }
       job.reject(err);
     }
-    // Adaptive delay per session
-    await new Promise((r) => setTimeout(r, state.currentDelay));
+    // Adaptive delay between requests
+    await new Promise((r) => setTimeout(r, currentDelay));
   }
 
-  state.busy = false;
-  if (state.queue.length === 0) {
-    sessionQueues.delete(sessionId);
-  }
+  ttsBusy = false;
 }
 
 async function synthesizeStreamDirect(
   text: string,
   languageCode: string,
   onChunk: (chunkBase64: string, isFinal: boolean) => void,
-  state?: { currentDelay: number },
   attempt = 1
 ): Promise<void> {
   if (!ELEVENLABS_API_KEY) {
@@ -67,6 +58,7 @@ async function synthesizeStreamDirect(
 
   const voiceId = ELEVENLABS_VOICE_ID;
 
+  // Use /stream endpoint
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
     method: "POST",
     headers: {
@@ -81,17 +73,17 @@ async function synthesizeStreamDirect(
     }),
   });
 
-  // If rate limited, retry with delay
+  // If rate limited or concurrency limit reached, retry with delay and set backoff
   if (res.status === 429 && attempt <= 2) {
-    if (state) state.currentDelay = BACKOFF_DELAY;
+    currentDelay = BACKOFF_DELAY;
     console.warn(
       `[TTS] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
     );
     await new Promise((r) => setTimeout(r, 1000));
-    return synthesizeStreamDirect(text, languageCode, onChunk, state, attempt + 1);
+    return synthesizeStreamDirect(text, languageCode, onChunk, attempt + 1);
   }
-  if (res.status === 429 && state) {
-    state.currentDelay = BACKOFF_DELAY;
+  if (res.status === 429) {
+    currentDelay = BACKOFF_DELAY;
   }
 
   if (!res.ok) {
@@ -108,6 +100,7 @@ async function synthesizeStreamDirect(
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
+        // Send final chunk signal
         onChunk("", true);
         break;
       }
@@ -124,25 +117,15 @@ async function synthesizeStreamDirect(
 export function synthesizeStream(
   text: string,
   languageCode: string,
-  onChunk: (chunkBase64: string, isFinal: boolean) => void,
-  sessionId?: string
+  onChunk: (chunkBase64: string, isFinal: boolean) => void
 ): Promise<void> {
-  if (!sessionId) {
-    return synthesizeStreamDirect(text, languageCode, onChunk);
-  }
-
   return new Promise((resolve, reject) => {
-    let state = sessionQueues.get(sessionId);
-    if (!state) {
-      state = { queue: [], busy: false, currentDelay: BASELINE_DELAY };
-      sessionQueues.set(sessionId, state);
-    }
-    state.queue.push({ text, languageCode, onChunk, resolve, reject });
-    processSessionQueue(sessionId);
+    ttsQueue.push({ text, languageCode, onChunk, resolve, reject });
+    processQueue();
   });
 }
 
-export function synthesize(text: string, languageCode: string, sessionId?: string): Promise<string> {
+export function synthesize(text: string, languageCode: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let accumulatedBase64 = "";
     synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
@@ -152,6 +135,6 @@ export function synthesize(text: string, languageCode: string, sessionId?: strin
       if (isFinal) {
         resolve(`data:audio/mpeg;base64,${accumulatedBase64}`);
       }
-    }, sessionId).catch(reject);
+    }).catch(reject);
   });
 }

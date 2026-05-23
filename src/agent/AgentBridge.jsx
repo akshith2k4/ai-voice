@@ -58,30 +58,17 @@ export function AgentBridgeProvider({ children }) {
   }, [connectionStatus]);
 
   // ---- Message handling ----
-  const addMessage = useCallback((role, text, latency, messageId) => {
-    setAgentMessages((prev) => {
-      const id = messageId || crypto.randomUUID();
-      const existingIdx = prev.findIndex((m) => m.id === id);
-      if (existingIdx !== -1) {
-        const updated = [...prev];
-        updated[existingIdx] = {
-          ...updated[existingIdx],
-          text,
-          latency: latency || updated[existingIdx].latency,
-        };
-        return updated;
-      }
-      return [
-        ...prev,
-        {
-          id,
-          role,
-          text,
-          timestamp: Date.now(),
-          latency,
-        },
-      ];
-    });
+  const addMessage = useCallback((role, text, latency) => {
+    setAgentMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role,
+        text,
+        timestamp: Date.now(),
+        latency,
+      },
+    ]);
   }, []);
 
   const clearMessages = useCallback(() => {

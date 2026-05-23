@@ -27,7 +27,7 @@ export class NarrationService {
             messageId: id,
             isFinal,
           });
-        }, session.sessionId).then(resolve).catch(reject);
+        }).then(resolve).catch(reject);
       });
       return id;
     } catch (err) {

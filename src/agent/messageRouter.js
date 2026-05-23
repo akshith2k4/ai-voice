@@ -5,14 +5,13 @@ const TOOL_HANDLERS = {
     const text = args?.message || "";
     const tts = args?.tts !== false;
     const latency = args?.latency;
-    const messageId = args?.messageId;
 
     // "You said: ..." echoes go to the user bubble, not agent
     if (text.startsWith("You said:")) {
       const spoken = text.replace(/^You said:\s*"?/, "").replace(/"$/, "");
       addMessage("user", spoken);
     } else {
-      addMessage("agent", text, latency, messageId);
+      addMessage("agent", text, latency);
     }
 
     // If no TTS follows, clear processing state now

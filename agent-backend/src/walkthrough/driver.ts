@@ -35,13 +35,6 @@ const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
 
 // --- Errors ---
-export class InterruptError extends Error {
-  constructor() {
-    super("Operation interrupted by detour or pause");
-    this.name = "InterruptError";
-  }
-}
-
 class FieldSkipError extends Error {
   constructor(public fieldKey: string) {
     super(`Field skipped: ${fieldKey}`);
@@ -159,14 +152,6 @@ class WalkthroughDriver {
     this.statusAwaiter.rejectPending(session, new CancellationError());
   }
 
-  // Abort and unblock any active waitForStatus promise, forcing immediate state yields
-  interrupt(sessionId: string): void {
-    const session = this.sessionManager.get(sessionId);
-    if (!session) return;
-    console.log(`[Driver] Interrupt requested: ${sessionId}`);
-    this.statusAwaiter.rejectPending(session, new InterruptError());
-  }
-
   handleStatus(sessionId: string, event: string, data?: any): void {
     const session = this.sessionManager.get(sessionId);
     if (!session) return;
@@ -203,42 +188,30 @@ class WalkthroughDriver {
 
     if (schema.selectItem) {
       console.log(`[Driver] Selecting item: ${schema.selectItem.label || schema.selectItem.selector}`);
-      await this.retryOperation(
+      await this.sendTool(
         session,
-        async () => {
-          await this.sendTool(
-            session,
-            "select_item",
-            {
-              label: schema.selectItem.label,
-              selector: schema.selectItem.selector,
-            },
-            "item_selected",
-            TIMEOUTS.NAVIGATE
-          );
+        "select_item",
+        {
+          label: schema.selectItem.label,
+          selector: schema.selectItem.selector,
         },
-        "select_item"
+        "item_selected",
+        TIMEOUTS.NAVIGATE
       );
       this.checkCancelled(session);
       await this.wait(1000);
     }
 
     console.log(`[Driver] Opening dialog: ${schema.openAction.fallbackText}`);
-    await this.retryOperation(
+    await this.sendTool(
       session,
-      async () => {
-        await this.sendTool(
-          session,
-          "open_dialog",
-          {
-            selector: schema.openAction.selector,
-            fallbackText: schema.openAction.fallbackText,
-          },
-          "dialog_opened",
-          TIMEOUTS.OPEN_DIALOG
-        );
+      "open_dialog",
+      {
+        selector: schema.openAction.selector,
+        fallbackText: schema.openAction.fallbackText,
       },
-      "open_dialog"
+      "dialog_opened",
+      TIMEOUTS.OPEN_DIALOG
     );
     this.checkCancelled(session);
 
@@ -456,17 +429,13 @@ class WalkthroughDriver {
     await this.wait(TIMEOUTS.COMPLETION_PAUSE);
 
     console.log(`[Driver] Clearing demo data`);
-    try {
-      await this.sendTool(
-        session,
-        "clear_all_fields",
-        {},
-        "fields_cleared",
-        TIMEOUTS.CLEAR_FIELDS
-      );
-    } catch (e) {
-      console.warn("[Driver] Cleanup of demo fields timed out, continuing wrap-up:", e);
-    }
+    await this.sendTool(
+      session,
+      "clear_all_fields",
+      {},
+      "fields_cleared",
+      TIMEOUTS.CLEAR_FIELDS
+    );
 
     console.log(`[Driver] Closing dialog`);
     this.sendTool(
@@ -978,17 +947,7 @@ class WalkthroughDriver {
 
     let eventResult = null;
     if (expectedEvent && timeout > 0) {
-      try {
-        eventResult = await this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
-      } catch (err) {
-        if (err instanceof InterruptError) {
-          console.log(`[Driver] sendTool interrupted for: ${tool}. Yielding to detour/pause.`);
-          await this.yieldToInterrupts(session);
-          console.log(`[Driver] Detour/pause finished. Re-evaluating tool: ${tool}`);
-          return this.sendTool(session, tool, { ...args, tts: false }, expectedEvent, timeout);
-        }
-        throw err;
-      }
+      eventResult = await this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
     }
 
     if (ttsPromise) {

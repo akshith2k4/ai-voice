@@ -1,5 +1,35 @@
 
 ================================================================================
+File: agent-backend/tsconfig.json
+================================================================================
+
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun-types"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
+
+
+================================================================================
 File: agent-backend/server.ts
 ================================================================================
 
@@ -177,7 +207,6 @@ console.log(`   Allowed origin: ${CORS_ORIGIN}`);
 console.log(`   Press Ctrl+C to stop\n`);
 
 
-
 ================================================================================
 File: agent-backend/llm/orchestrator.ts
 ================================================================================
@@ -189,16 +218,32 @@ File: agent-backend/llm/orchestrator.ts
 
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { allTools } from "./tools.js";
+import {
+  allTools,
+  navigateTool,
+  startWalkthroughTool,
+  askClarificationTool,
+  detourToFieldTool,
+  resumeWalkthroughTool,
+} from "./tools.js";
 import { buildIdlePrompt, buildWalkthroughPrompt } from "./prompts.js";
 import { walkthroughDriver } from "../src/walkthrough/driver.js";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "";
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL || "gemini-2.5-flash";
 
-let model: ReturnType<typeof createModel> | null = null;
+const streamingTools = [
+  navigateTool,
+  startWalkthroughTool,
+  askClarificationTool,
+  detourToFieldTool,
+  resumeWalkthroughTool,
+];
 
-function createModel() {
+let modelWithAllTools: ReturnType<typeof createModelRaw> | null = null;
+let modelWithStreamingTools: ReturnType<typeof createModelRaw> | null = null;
+
+function createModelRaw(tools: any[]) {
   if (!GOOGLE_API_KEY) {
     throw new Error("GOOGLE_API_KEY not configured");
   }
@@ -206,14 +251,21 @@ function createModel() {
     model: GOOGLE_MODEL,
     temperature: 0,
     apiKey: GOOGLE_API_KEY,
-  }).bindTools(allTools);
+  }).bindTools(tools);
 }
 
 function getModel() {
-  if (!model) {
-    model = createModel();
+  if (!modelWithAllTools) {
+    modelWithAllTools = createModelRaw(allTools);
   }
-  return model;
+  return modelWithAllTools;
+}
+
+function getStreamingModel() {
+  if (!modelWithStreamingTools) {
+    modelWithStreamingTools = createModelRaw(streamingTools);
+  }
+  return modelWithStreamingTools;
 }
 
 export interface LLMToolCall {
@@ -227,6 +279,29 @@ export interface LLMResult {
 }
 
 /**
+ * Validates if a streaming tool call has received its required arguments on-the-fly.
+ */
+function isToolCallComplete(tc: any): boolean {
+  if (!tc || !tc.name) return false;
+  const args = tc.args || {};
+
+  switch (tc.name) {
+    case "resume_walkthrough":
+      return true; // No arguments required
+    case "detour_to_field":
+      return typeof args.fieldKey === "string" && args.fieldKey.length > 0;
+    case "start_walkthrough":
+      return typeof args.formId === "string" && args.formId.length > 0;
+    case "navigate":
+      return typeof args.route === "string" && args.route.length > 0;
+    case "ask_clarification":
+      return typeof args.message === "string" && args.message.length > 0;
+    default:
+      return false;
+  }
+}
+
+/**
  * Send user text to the LLM and get tool calls back
  */
 export async function orchestrate(
@@ -236,7 +311,6 @@ export async function orchestrate(
 ): Promise<LLMResult> {
   let systemPrompt = buildIdlePrompt();
 
-  // Dynamically inject layout context frames if a session is currently active
   const activeSession = walkthroughDriver.getSession(sessionId);
   if (activeSession) {
     const ctx = activeSession.stateMachine.currentContext;
@@ -257,7 +331,6 @@ export async function orchestrate(
 
     const toolCalls: LLMToolCall[] = [];
 
-    // Format 1: LangChain normalized .tool_calls (works across all providers)
     const normalizedCalls = (result as { tool_calls?: unknown[] }).tool_calls;
     if (Array.isArray(normalizedCalls) && normalizedCalls.length > 0) {
       for (const call of normalizedCalls) {
@@ -271,7 +344,6 @@ export async function orchestrate(
       }
     }
 
-    // Format 2: additional_kwargs.tool_calls (raw OpenAI-style fallback)
     if (toolCalls.length === 0 && result.additional_kwargs?.tool_calls) {
       const rawCalls = result.additional_kwargs.tool_calls as Array<{
         function?: { name?: string; arguments?: string };
@@ -290,7 +362,6 @@ export async function orchestrate(
       }
     }
 
-    // Format 3: Gemini content array with tool_use blocks
     if (toolCalls.length === 0 && Array.isArray(result.content)) {
       for (const block of result.content) {
         if (
@@ -310,7 +381,6 @@ export async function orchestrate(
       }
     }
 
-    // Extract raw text content (fallback when no tool was called)
     let rawContent: string | null = null;
     if (typeof result.content === "string" && result.content.trim()) {
       rawContent = result.content;
@@ -345,6 +415,136 @@ export async function orchestrate(
     return { toolCalls, rawContent };
   } catch (error) {
     console.error("[LLM] Orchestration failed:", error);
+    return {
+      toolCalls: [],
+      rawContent: "I'm having trouble understanding. Could you try again?",
+    };
+  }
+}
+
+/**
+ * Stream user text to the LLM and get tool calls back while notifying on text chunks
+ */
+export async function orchestrateStream(
+  userText: string,
+  sessionId: string,
+  languageCode: string | undefined,
+  onTextChunk: (chunk: string) => void
+): Promise<LLMResult> {
+  let systemPrompt = buildIdlePrompt();
+
+  const activeSession = walkthroughDriver.getSession(sessionId);
+  if (activeSession) {
+    const ctx = activeSession.stateMachine.currentContext;
+    const currentField = activeSession.schema.fields[ctx.fieldIndex];
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
+  }
+
+  const languageHint = languageCode
+    ? `\n\nThe user's speech was detected as language code: ${languageCode}. Respond in that language.`
+    : "";
+
+  try {
+    const stream = await getStreamingModel().stream([
+      new SystemMessage(systemPrompt + languageHint),
+      new HumanMessage(userText),
+    ]);
+
+    let finalMessage: any = null;
+    let earlyExitTriggered = false;
+
+    for await (const chunk of stream) {
+      if (!finalMessage) {
+        finalMessage = chunk;
+      } else {
+        finalMessage = finalMessage.concat(chunk);
+      }
+
+      // Check content chunk
+      if (typeof chunk.content === "string" && chunk.content) {
+        onTextChunk(chunk.content);
+      } else if (Array.isArray(chunk.content)) {
+        for (const block of chunk.content) {
+          if (typeof block === "string" && block) {
+            onTextChunk(block);
+          } else if (
+            block &&
+            typeof block === "object" &&
+            "type" in block &&
+            block.type === "text" &&
+            "text" in block &&
+            typeof block.text === "string"
+          ) {
+            onTextChunk(block.text);
+          }
+        }
+      }
+
+      // Early-exit check: halt LLM stream immediately if any tool call becomes fully formed
+      if (finalMessage && Array.isArray(finalMessage.tool_calls) && finalMessage.tool_calls.length > 0) {
+        const completeCall = finalMessage.tool_calls.find(isToolCallComplete);
+        if (completeCall) {
+          console.log(`[Orchestrator] ⚡ Early-exit triggered: tool call "${completeCall.name}" is fully formed.`);
+          earlyExitTriggered = true;
+          break; // Stop listening to stream chunk tokens
+        }
+      }
+    }
+
+    const toolCalls: LLMToolCall[] = [];
+    if (finalMessage) {
+      const normalizedCalls = finalMessage.tool_calls;
+      if (Array.isArray(normalizedCalls) && normalizedCalls.length > 0) {
+        for (const call of normalizedCalls) {
+          const c = call as { name?: unknown; args?: unknown };
+          if (typeof c.name === "string" && c.args && typeof c.args === "object") {
+            toolCalls.push({
+              name: c.name,
+              args: c.args as Record<string, unknown>,
+            });
+          }
+        }
+      }
+    }
+
+    let rawContent: string | null = null;
+    if (finalMessage) {
+      if (typeof finalMessage.content === "string" && finalMessage.content.trim()) {
+        rawContent = finalMessage.content;
+      } else if (Array.isArray(finalMessage.content)) {
+        for (const block of finalMessage.content) {
+          if (typeof block === "string") {
+            rawContent = block;
+            break;
+          }
+          if (
+            typeof block === "object" &&
+            block !== null &&
+            "type" in block &&
+            block.type === "text" &&
+            "text" in block &&
+            typeof block.text === "string"
+          ) {
+            rawContent = block.text;
+            break;
+          }
+        }
+      }
+    }
+
+    console.log(
+      `[LLM Stream] ${toolCalls.length} tool call(s)` +
+        (toolCalls.length > 0
+          ? ` — [${toolCalls.map((tc) => tc.name).join(", ")}]`
+          : "") +
+        (rawContent ? ` | text: "${rawContent.substring(0, 80)}"` : "") +
+        (earlyExitTriggered ? " | Early Exit: active" : "")
+    );
+
+    return { toolCalls, rawContent };
+  } catch (error) {
+    console.error("[LLM Stream] Orchestration failed:", error);
     return {
       toolCalls: [],
       rawContent: "I'm having trouble understanding. Could you try again?",
@@ -418,9 +618,9 @@ RESPONSE RULES:
 - Keep responses concise — this is a voice interaction, not a chat
 - For navigation requests: use the navigate tool
 - For walkthrough requests: use the start_walkthrough tool
-- For questions about forms/workflows: use the answer_question tool
+- For questions about forms/workflows: reply directly in plain text
 - For unclear requests: use the ask_clarification tool
-- Always include a message in your tool call — this is what the user hears via TTS`;
+- If using a tool, always include a concise explanation message in the tool's 'message' argument.`;
 }
 
 /**
@@ -584,6 +784,1174 @@ export const allTools = [
 ];
 
 
+================================================================================
+File: agent-backend/tests/voiceHandler.acceptance.test.ts
+================================================================================
+
+import { describe, test, expect, mock, beforeEach } from "bun:test";
+
+// --- Mock setup (before imports) ---
+
+const mockTranscribeAudio = mock(async (audio: string) => ({
+  text: "hello world",
+  languageCode: "en",
+  confidence: 0.95,
+}));
+
+const mockSynthesizeToBase64 = mock(async (text: string, lang: string) => {
+  return "aGVsbG8=";
+});
+
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (chunk: string, isFinal: boolean) => void) => {
+  onChunk("aGVsbG8=", false);
+  onChunk("", true);
+});
+
+const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: string) => ({
+  toolCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
+  rawContent: null as string | null,
+}));
+
+const mockOrchestrateStream = mock(async (
+  text: string,
+  sessionId: string,
+  lang: string | undefined,
+  onChunk: (chunk: string) => void
+) => {
+  const res = await mockOrchestrate(text, sessionId, lang);
+  if (res.rawContent) {
+    onChunk(res.rawContent);
+  }
+  return res;
+});
+
+const mockDriverStart = mock((formId: string, sessionId: string) => {});
+const mockGetSession = mock((sessionId: string) => null as any);
+const mockInterrupt = mock((sessionId: string) => {});
+
+// Mock the service modules that voicePipeline imports
+mock.module("../src/services/sttService.js", () => ({
+  transcribeAudio: mockTranscribeAudio,
+  getRetryCount: mock(() => 0),
+  incrementRetry: mock((sid: string) => 1),
+  resetRetry: mock(() => {}),
+  getMaxRetries: mock(() => 2),
+}));
+
+mock.module("../src/services/ttsService.js", () => ({
+  synthesizeToBase64: mockSynthesizeToBase64,
+  synthesizeStream: mockSynthesizeStream,
+}));
+
+mock.module("../llm/orchestrator.js", () => ({
+  orchestrate: mockOrchestrate,
+  orchestrateStream: mockOrchestrateStream,
+}));
+
+mock.module("../src/walkthrough/driver.js", () => ({
+  walkthroughDriver: {
+    start: mockDriverStart,
+    getSession: mockGetSession,
+    interrupt: mockInterrupt,
+  },
+}));
+
+// --- Import after mocks ---
+const { handleVoice } = await import("../src/handlers/voiceHandler.js");
+const sttService = await import("../src/services/sttService.js");
+
+function createCtx(overrides?: Record<string, unknown>) {
+  const sent: any[] = [];
+  return {
+    sessionId: "test-session-1",
+    send: (msg: any) => sent.push(msg),
+    sent,
+    ...overrides,
+  };
+}
+
+function resetAllMocks() {
+  mockTranscribeAudio.mockReset();
+  mockSynthesizeToBase64.mockReset();
+  mockSynthesizeStream.mockReset();
+  mockOrchestrate.mockReset();
+  mockOrchestrateStream.mockReset();
+  mockDriverStart.mockReset();
+  mockGetSession.mockReset();
+  mockInterrupt.mockReset();
+
+  mockTranscribeAudio.mockImplementation(async () => ({
+    text: "hello world",
+    languageCode: "en",
+    confidence: 0.95,
+  }));
+  mockSynthesizeToBase64.mockImplementation(async () => "aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: any) => {
+    onChunk("aGVsbG8=", false);
+    onChunk("", true);
+  });
+  mockOrchestrate.mockImplementation(async () => ({
+    toolCalls: [],
+    rawContent: null,
+  }));
+  mockOrchestrateStream.mockImplementation(async (
+    text: string,
+    sessionId: string,
+    lang: string | undefined,
+    onChunk: (chunk: string) => void
+  ) => {
+    const res = await mockOrchestrate(text, sessionId, lang);
+    if (res.rawContent) {
+      onChunk(res.rawContent);
+    }
+    return res;
+  });
+
+  // Reset the real sttService retry counts by re-importing (sttService is already mocked)
+  // We need to track retry behavior through the mocked sttService
+}
+
+// Track retry counts per session since sttService is mocked
+const sessionRetries = new Map<string, number>();
+
+function makeRetryMock() {
+  sessionRetries.clear();
+
+  // Override the mocked sttService functions for retry tests
+  const mod = sttService as any;
+  mod.incrementRetry.mockImplementation((sid: string) => {
+    const count = (sessionRetries.get(sid) || 0) + 1;
+    sessionRetries.set(sid, count);
+    return count;
+  });
+  mod.getRetryCount.mockImplementation((sid: string) => {
+    return sessionRetries.get(sid) || 0;
+  });
+  mod.resetRetry.mockImplementation((sid: string) => {
+    sessionRetries.set(sid, 0);
+  });
+  mod.getMaxRetries.mockImplementation(() => 2);
+}
+
+describe("VoiceHandler — acceptance tests", () => {
+  beforeEach(() => {
+    resetAllMocks();
+    makeRetryMock();
+  });
+
+  // =============================================
+  // CONTRACT 1: test: fast path
+  // =============================================
+  describe("test: fast path", () => {
+    test("text starting with 'test:' calls walkthroughDriver.start directly", async () => {
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "test:createOrder" }, ctx as any);
+
+      expect(mockDriverStart).toHaveBeenCalledTimes(1);
+      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", false);
+    });
+
+    test("test: path does not call transcribe or orchestrate", async () => {
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "test:myForm" }, ctx as any);
+
+      expect(mockTranscribeAudio).not.toHaveBeenCalled();
+      expect(mockOrchestrate).not.toHaveBeenCalled();
+    });
+
+    test("test: trims whitespace from formId", async () => {
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "test:  createHotel  " }, ctx as any);
+
+      expect(mockDriverStart).toHaveBeenCalledWith("createHotel", "test-session-1", false);
+    });
+  });
+
+  // =============================================
+  // CONTRACT 2: text path
+  // =============================================
+  describe("text path (no audio)", () => {
+    test("plain text goes to orchestrate without STT", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [],
+        rawContent: "Hello there!",
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "dGVzdA==");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "navigate to orders" }, ctx as any);
+
+      expect(mockTranscribeAudio).not.toHaveBeenCalled();
+      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", "test-session-1", undefined);
+    });
+
+    test("text path sends rawContent as respond with TTS when no tool calls", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [],
+        rawContent: "I can help with that.",
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "dGVzdA==");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "help" }, ctx as any);
+
+      const respondMsgs = ctx.sent.filter(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsgs.length).toBeGreaterThanOrEqual(1);
+      const last = respondMsgs[respondMsgs.length - 1];
+      expect(last.args.message).toBe("I can help with that.");
+      expect(last.args.tts).toBe(true);
+      expect(last.args.messageId).toBeDefined();
+    });
+  });
+
+  // =============================================
+  // CONTRACT 3: audio path → STT → echo → handleText
+  // =============================================
+  describe("audio path", () => {
+    test("audio is transcribed, echoed with tts:false, then orchestrated", async () => {
+      mockTranscribeAudio.mockImplementation(async () => ({
+        text: "show me the orders",
+        languageCode: "en",
+        confidence: 0.9,
+      }));
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [{ name: "navigate", args: { route: "/orders" } }],
+        rawContent: null,
+      }));
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", audio: "base64audio" }, ctx as any);
+
+      expect(mockTranscribeAudio).toHaveBeenCalledWith("base64audio");
+
+      // Echo message
+      const echoMsg = ctx.sent.find(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args.message?.startsWith('You said:')
+      );
+      expect(echoMsg).toBeDefined();
+      expect(echoMsg.args.tts).toBe(false);
+      expect(echoMsg.args.message).toBe('You said: "show me the orders"');
+
+      // Orchestrator called with transcribed text and language code
+      expect(mockOrchestrate).toHaveBeenCalledWith("show me the orders", "test-session-1", "en");
+    });
+
+    test("silence when no audio and no text", async () => {
+      const ctx = createCtx();
+      await handleVoice({ type: "voice" }, ctx as any);
+
+      expect(mockTranscribeAudio).not.toHaveBeenCalled();
+      expect(mockOrchestrate).not.toHaveBeenCalled();
+      expect(ctx.sent).toHaveLength(0);
+    });
+  });
+
+  // =============================================
+  // CONTRACT 4: empty STT retry logic
+  // =============================================
+  describe("empty STT retry", () => {
+    test("sends 'I didn't catch that' on first empty transcription", async () => {
+      mockTranscribeAudio.mockImplementation(async () => ({
+        text: "",
+        languageCode: "en",
+        confidence: 0,
+      }));
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", audio: "base64audio" }, ctx as any);
+
+      expect(ctx.sent).toHaveLength(1);
+      expect(ctx.sent[0].args.message).toBe("I didn't catch that, could you repeat?");
+      expect(ctx.sent[0].args.tts).toBe(true);
+    });
+
+    test("sends retry prompt on second empty transcription", async () => {
+      mockTranscribeAudio.mockImplementation(async () => ({
+        text: "",
+        languageCode: "en",
+        confidence: 0,
+      }));
+
+      const sid = "retry-session";
+      const ctx1 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a1" }, ctx1 as any);
+      expect(ctx1.sent).toHaveLength(1);
+
+      const ctx2 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a2" }, ctx2 as any);
+      expect(ctx2.sent).toHaveLength(1);
+      expect(ctx2.sent[0].args.message).toBe("I didn't catch that, could you repeat?");
+    });
+
+    test("stops retrying after MAX_EMPTY_RETRIES (2) and resets", async () => {
+      mockTranscribeAudio.mockImplementation(async () => ({
+        text: "",
+        languageCode: "en",
+        confidence: 0,
+      }));
+
+      const sid = "max-retry-session";
+
+      const ctx1 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a1" }, ctx1 as any);
+      expect(ctx1.sent).toHaveLength(1);
+
+      const ctx2 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a2" }, ctx2 as any);
+      expect(ctx2.sent).toHaveLength(1);
+
+      // Third empty — should NOT send anything (resets counter silently)
+      const ctx3 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a3" }, ctx3 as any);
+      expect(ctx3.sent).toHaveLength(0);
+    });
+
+    test("retry count resets on successful transcription", async () => {
+      const sid = "reset-retry-session";
+
+      // First call: empty
+      mockTranscribeAudio.mockImplementationOnce(async () => ({
+        text: "",
+        languageCode: "en",
+        confidence: 0,
+      }));
+      const ctx1 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a1" }, ctx1 as any);
+      expect(ctx1.sent).toHaveLength(1);
+
+      // Second call: success — resets counter
+      mockTranscribeAudio.mockImplementationOnce(async () => ({
+        text: "hello",
+        languageCode: "en",
+        confidence: 0.9,
+      }));
+      mockOrchestrate.mockImplementationOnce(async () => ({
+        toolCalls: [],
+        rawContent: "Hi!",
+      }));
+      const ctx2 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a2" }, ctx2 as any);
+      expect(ctx2.sent.length).toBeGreaterThanOrEqual(1);
+
+      // Third call: empty again — counter should be at 1 (not 3)
+      mockTranscribeAudio.mockImplementationOnce(async () => ({
+        text: "",
+        languageCode: "en",
+        confidence: 0,
+      }));
+      const ctx3 = createCtx({ sessionId: sid });
+      await handleVoice({ type: "voice", audio: "a3" }, ctx3 as any);
+      expect(ctx3.sent).toHaveLength(1);
+      expect(ctx3.sent[0].args.message).toBe("I didn't catch that, could you repeat?");
+    });
+  });
+
+  // =============================================
+  // CONTRACT 5: tool call dispatch
+  // =============================================
+  describe("tool call dispatch", () => {
+    test("navigate tool sends navigate message", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [{ name: "navigate", args: { route: "/orders" } }],
+        rawContent: null,
+      }));
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "go to orders" }, ctx as any);
+
+      const navMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "navigate"
+      );
+      expect(navMsg).toBeDefined();
+      expect(navMsg.args.route).toBe("/orders");
+    });
+
+    test("start_walkthrough sends spoken intro with TTS before starting driver", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          {
+            name: "start_walkthrough",
+            args: { formId: "createOrder", message: "Let me show you the order form." },
+          },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "aW50cm8=");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "show me orders" }, ctx as any);
+
+      // Should have: respond with tts:true + tts_audio + driver.start
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond" && m.args.tts === true
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("Let me show you the order form.");
+      expect(respondMsg.args.messageId).toBeDefined();
+
+      const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
+      expect(ttsMsg).toBeDefined();
+      expect(ttsMsg.messageId).toBe(respondMsg.args.messageId);
+
+      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1");
+
+      // Verify order: respond BEFORE driver.start
+      const respondIdx = ctx.sent.indexOf(respondMsg);
+      const ttsIdx = ctx.sent.indexOf(ttsMsg);
+      expect(ttsIdx).toBe(respondIdx + 1);
+    });
+
+    test("answer_question sends respond with TTS", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "answer_question", args: { response: "Orders are at /orders." } },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "YW5zd2Vy");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "where are orders" }, ctx as any);
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("Orders are at /orders.");
+      expect(respondMsg.args.tts).toBe(true);
+      expect(respondMsg.args.messageId).toBeDefined();
+
+      const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
+      expect(ttsMsg).toBeDefined();
+      expect(ttsMsg.messageId).toBe(respondMsg.args.messageId);
+    });
+
+    test("ask_clarification sends respond with TTS", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "ask_clarification", args: { message: "Which form do you mean?" } },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "Y2xhcg==");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "show me the form" }, ctx as any);
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("Which form do you mean?");
+      expect(respondMsg.args.tts).toBe(true);
+
+      const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
+      expect(ttsMsg).toBeDefined();
+    });
+
+    test("rawContent fallback sends respond with TTS when no tool calls", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [],
+        rawContent: "I'm not sure how to help with that.",
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "ZmFsbGJhY2s=");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "do something weird" }, ctx as any);
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("I'm not sure how to help with that.");
+      expect(respondMsg.args.tts).toBe(true);
+
+      const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
+      expect(ttsMsg).toBeDefined();
+    });
+  });
+
+  // =============================================
+  // CONTRACT 6: TTS matching
+  // =============================================
+  describe("TTS messageId matching", () => {
+    test("respond with tts:true always has matching tts_audio messageId", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "answer_question", args: { response: "Test answer" } },
+        ],
+        rawContent: null,
+      }));
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "test?" }, ctx as any);
+
+      const respondMsgs = ctx.sent.filter(
+        (m: any) => m.type === "tool" && m.tool === "respond" && m.args.tts === true
+      );
+      const ttsMsgs = ctx.sent.filter((m: any) => m.type === "tts_audio");
+
+      expect(ttsMsgs.length).toBeGreaterThanOrEqual(1);
+      for (const rm of respondMsgs) {
+        const matching = ttsMsgs.filter((t: any) => t.messageId === rm.args.messageId);
+        expect(matching.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  // =============================================
+  // CONTRACT 7: TTS failure handling
+  // =============================================
+  describe("TTS failure handling", () => {
+    test("TTS failure does not prevent respond message from being sent", async () => {
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "answer_question", args: { response: "This will fail TTS" } },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeStream.mockRejectedValue(new Error("TTS API down"));
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "test?" }, ctx as any);
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("This will fail TTS");
+
+      const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
+      expect(ttsMsg).toBeUndefined();
+    });
+  });
+
+  // =============================================
+  // CONTRACT 8: STT error handling
+  // =============================================
+  describe("STT error handling", () => {
+    test("STT error sends error message with TTS", async () => {
+      mockTranscribeAudio.mockRejectedValue(new Error("STT API down"));
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", audio: "base64audio" }, ctx as any);
+
+      expect(ctx.sent).toHaveLength(1);
+      expect(ctx.sent[0].type).toBe("tool");
+      expect(ctx.sent[0].tool).toBe("respond");
+      expect(ctx.sent[0].args.message).toBe(
+        "Sorry, I had trouble hearing you. Please try again."
+      );
+      expect(ctx.sent[0].args.tts).toBe(true);
+    });
+  });
+
+  // =============================================
+  // CONTRACT 9: Detours & Resumption
+  // =============================================
+  describe("Detours and Resumption", () => {
+    test("detour_to_field transitions state and sends tool calls", async () => {
+      const mockSMTransition = mock((state: string) => {});
+      const mockSession = {
+        sessionId: "test-session-1",
+        schema: {
+          fields: [
+            { key: "customer", label: "Customer", explanation: "Select the customer name" },
+          ],
+          subForms: [],
+        },
+        stateMachine: {
+          currentState: "FIELD_EXPLAIN",
+          currentContext: { fieldIndex: 0 },
+          transition: mockSMTransition,
+        },
+      };
+      mockGetSession.mockReturnValue(mockSession);
+
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "detour_to_field", args: { fieldKey: "customer" } },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "ZGV0b3Vy");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "what is customer field?" }, ctx as any);
+
+      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR");
+
+      const detourStartMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "detour_start"
+      );
+      expect(detourStartMsg).toBeDefined();
+      expect(detourStartMsg.args.fieldKey).toBe("customer");
+
+      const goToFieldMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+      expect(goToFieldMsg).toBeDefined();
+      expect(goToFieldMsg.args.fieldKey).toBe("customer");
+      expect(goToFieldMsg.args.label).toBe("Customer");
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("Select the customer name");
+      expect(respondMsg.args.tts).toBe(true);
+    });
+
+    test("resume_walkthrough transitions state and returns to original field", async () => {
+      const mockSMTransition = mock((state: string) => {});
+      const mockSession = {
+        sessionId: "test-session-1",
+        schema: {
+          fields: [
+            { key: "customer", label: "Customer", explanation: "Select the customer name" },
+          ],
+          subForms: [],
+        },
+        stateMachine: {
+          currentState: "DETOUR_QA",
+          currentContext: { fieldIndex: 0 },
+          transition: mockSMTransition,
+        },
+      };
+      mockGetSession.mockReturnValue(mockSession);
+
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "resume_walkthrough", args: {} },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "cmVzdW1l");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "continue" }, ctx as any);
+
+      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR_COMPLETE");
+
+      const detourEndMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "detour_end"
+      );
+      expect(detourEndMsg).toBeDefined();
+
+      const goToFieldMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+      expect(goToFieldMsg).toBeDefined();
+      expect(goToFieldMsg.args.fieldKey).toBe("customer");
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toContain("Returning to our walkthrough");
+    });
+  });
+});
+
+
+
+================================================================================
+File: agent-backend/tests/walkthroughDriver.acceptance.test.ts
+================================================================================
+
+import { describe, test, expect, mock, beforeEach } from "bun:test";
+
+// --- Mock setup (before imports) ---
+
+const mockConnectionSend = mock((sessionId: string, msg: any) => {
+  if (msg && msg.type === "tts_audio") {
+    setTimeout(() => {
+      walkthroughDriver.handleStatus(sessionId, "tts_playback_complete", { messageId: msg.messageId });
+    }, 10);
+  }
+  return true;
+});
+
+mock.module("../src/connectionManager.js", () => ({
+  connectionManager: {
+    send: mockConnectionSend,
+    add: mock(() => {}),
+    remove: mock(() => {}),
+    get: mock(() => undefined),
+    has: mock(() => true),
+    broadcast: mock(() => 0),
+    touch: mock(() => {}),
+    getSessionIds: mock(() => []),
+    size: 0,
+  },
+}));
+
+const mockSynthesize = mock(async (text: string, lang: string) => {
+  return "data:audio/mpeg;base64,aGVsbG8=";
+});
+
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (chunk: string, isFinal: boolean) => void) => {
+  onChunk("aGVsbG8=", false);
+  onChunk("", true);
+});
+
+mock.module("../src/services/elevenLabsTTS.js", () => ({
+  synthesize: mockSynthesize,
+  synthesizeStream: mockSynthesizeStream,
+}));
+
+const ORDER_SCHEMA = {
+  id: "createOrder",
+  name: "Create Order",
+  mode: "guided",
+  route: "/orders",
+  openAction: { type: "click", fallbackText: "Create Order" },
+  overview: "This is the order creation form. Let me walk you through each field.",
+  fields: [
+    {
+      key: "customer",
+      label: "Customer",
+      type: "text" as const,
+      demoValue: "Acme Corp",
+      explanation: "Select the customer for this order.",
+    },
+    {
+      key: "orderType",
+      label: "Order Type",
+      type: "select" as const,
+      demoValue: "delivery",
+      explanation: "Choose the order type.",
+    },
+  ],
+  subForms: [],
+  wrapUp: "That completes the order form walkthrough!",
+};
+
+mock.module("../src/schema/loader.js", () => ({
+  getSchema: (formId: string) => {
+    if (formId === "createOrder") return ORDER_SCHEMA;
+    throw new Error(`Schema not found: "${formId}"`);
+  },
+  getAvailableForms: () => [{ id: "createOrder", name: "Create Order", route: "/orders" }],
+}));
+
+// --- Import after mocks ---
+const { walkthroughDriver } = await import("../src/walkthrough/driver.js");
+
+function delay(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function sentMessages(sessionId: string): any[] {
+  return mockConnectionSend.mock.calls
+    .filter((c: any) => c[0] === sessionId)
+    .map((c: any) => c[1]);
+}
+
+function resetAllMocks() {
+  mockConnectionSend.mockReset();
+  mockSynthesize.mockReset();
+  mockSynthesizeStream.mockReset();
+  mockConnectionSend.mockImplementation((sessionId: string, msg: any) => {
+    if (msg && msg.type === "tts_audio") {
+      setTimeout(() => {
+        walkthroughDriver.handleStatus(sessionId, "tts_playback_complete", { messageId: msg.messageId });
+      }, 10);
+    }
+    return true;
+  });
+  mockSynthesize.mockImplementation(async () => "data:audio/mpeg;base64,aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: any) => {
+    onChunk("aGVsbG8=", false);
+    onChunk("", true);
+  });
+}
+
+/**
+ * Drive a walkthrough session through the initial setup:
+ * navigate → dialog_opened → form_registered
+ * Returns after overview is sent.
+ */
+async function driveToOverview(sid: string) {
+  walkthroughDriver.start("createOrder", sid);
+  // Wait for navigate to be sent and driver to start waiting for navigation_complete
+  await delay(200);
+  walkthroughDriver.handleStatus(sid, "navigation_complete");
+  // Driver does await this.wait(500) after navigation_complete resolves
+  await delay(600);
+  // Now driver sends open_dialog and waits for dialog_opened
+  walkthroughDriver.handleStatus(sid, "dialog_opened");
+  // Driver polls for form_registered (up to 1.5s with 100ms intervals)
+  await delay(200);
+  walkthroughDriver.handleStatus(sid, "form_registered");
+  // Driver sends overview and waits EXPLAIN_DISPLAY (1000ms)
+  await delay(500);
+}
+
+describe("WalkthroughDriver — acceptance tests", () => {
+  beforeEach(() => {
+    resetAllMocks();
+  });
+
+  // =============================================
+  // CONTRACT 1: Session lifecycle
+  // =============================================
+  describe("session lifecycle", () => {
+    test("start creates a session and sends begin_walkthrough", async () => {
+      const sid = "lifecycle-session-1";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const msgs = sentMessages(sid);
+      const beginMsg = msgs.find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+      expect(beginMsg.args.formId).toBe("createOrder");
+    });
+
+    test("start rejects duplicate session", async () => {
+      const sid = "dup-session-1";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      // Clear messages from first start
+      mockConnectionSend.mockReset();
+      mockConnectionSend.mockImplementation(() => true);
+
+      walkthroughDriver.start("createOrder", sid);
+      await delay(100);
+
+      const dupMsg = sentMessages(sid).find(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args?.message?.includes("already in progress")
+      );
+      expect(dupMsg).toBeDefined();
+    });
+
+    test("start rejects unknown formId", async () => {
+      const sid = "unknown-form-session";
+      walkthroughDriver.start("nonExistentForm", sid);
+      await delay(100);
+
+      const errMsg = sentMessages(sid).find(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args?.message?.includes("couldn't find the form")
+      );
+      expect(errMsg).toBeDefined();
+    });
+
+    test("session is cleaned up after walkthrough errors (navigation timeout)", async () => {
+      const sid = "cleanup-session";
+      walkthroughDriver.start("createOrder", sid);
+
+      // Wait for navigation timeout (5000ms) + cleanup
+      await delay(6000);
+
+      // After cleanup, starting again should work
+      mockConnectionSend.mockReset();
+      mockConnectionSend.mockImplementation(() => true);
+
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const beginMsg = sentMessages(sid).find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+    }, { timeout: 10000 });
+  });
+
+  // =============================================
+  // CONTRACT 2: Cancel rejects pending waits and cleans session
+  // =============================================
+  describe("cancellation", () => {
+    test("cancel sets cancelled flag — subsequent operations fail", async () => {
+      const sid = "cancel-session-1";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      walkthroughDriver.cancel(sid);
+      await delay(500);
+
+      // Starting a new session should work
+      mockConnectionSend.mockReset();
+      mockConnectionSend.mockImplementation(() => true);
+
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const beginMsg = sentMessages(sid).find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+    });
+  });
+
+  // =============================================
+  // CONTRACT 3: handleStatus routes events
+  // =============================================
+  describe("handleStatus routing", () => {
+    test("dialog_closed_by_user cancels the session", async () => {
+      const sid = "status-cancel-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      walkthroughDriver.handleStatus(sid, "dialog_closed_by_user");
+      await delay(500);
+
+      mockConnectionSend.mockReset();
+      mockConnectionSend.mockImplementation(() => true);
+
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const beginMsg = sentMessages(sid).find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+    });
+
+    test("page_changed cancels the session", async () => {
+      const sid = "page-change-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      walkthroughDriver.handleStatus(sid, "page_changed");
+      await delay(500);
+
+      mockConnectionSend.mockReset();
+      mockConnectionSend.mockImplementation(() => true);
+
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const beginMsg = sentMessages(sid).find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+    });
+
+    test("form_registered sets isRegistered flag", async () => {
+      const sid = "form-registered-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(50);
+
+      walkthroughDriver.handleStatus(sid, "form_registered");
+      await delay(100);
+    });
+
+    test("error event rejects pending wait", async () => {
+      const sid = "error-event-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      walkthroughDriver.handleStatus(sid, "error", {
+        tool: "navigate",
+        reason: "Element not found",
+      });
+      await delay(200);
+    });
+  });
+
+  // =============================================
+  // CONTRACT 4: driver.send auto-synthesizes TTS
+  // =============================================
+  describe("driver.send TTS auto-synthesis", () => {
+    test("tool messages with tts:true trigger automatic TTS synthesis", async () => {
+      const sid = "tts-auto-session";
+      await driveToOverview(sid);
+
+      // At this point, the overview respond with tts:true should have been sent
+      const toolMsgs = sentMessages(sid).filter(
+        (m: any) => m.type === "tool" && m.args?.tts === true
+      );
+      expect(toolMsgs.length).toBeGreaterThan(0);
+
+      // Wait for background TTS synthesis
+      await delay(500);
+      expect(mockSynthesizeStream.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    test("tts_audio messages are sent with matching messageId", async () => {
+      const sid = "tts-match-session";
+      await driveToOverview(sid);
+      await delay(500);
+
+      const ttsAudioMsgs = sentMessages(sid).filter(
+        (m: any) => m.type === "tts_audio"
+      );
+      const toolMsgs = sentMessages(sid).filter(
+        (m: any) => m.type === "tool" && m.args?.tts === true && m.args?.messageId
+      );
+
+      // At least some tts_audio should be present
+      expect(ttsAudioMsgs.length).toBeGreaterThan(0);
+
+      // Each tts_audio should match a tool message
+      for (const ttsMsg of ttsAudioMsgs) {
+        const matching = toolMsgs.find(
+          (t: any) => t.args.messageId === ttsMsg.messageId
+        );
+        expect(matching).toBeDefined();
+      }
+    });
+
+    test("tool messages without tts:true do NOT trigger TTS synthesis", async () => {
+      const sid = "no-tts-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      // begin_walkthrough has no tts — should not trigger synthesis
+      const beginMsg = sentMessages(sid).find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+      expect(beginMsg.args?.tts).toBeUndefined();
+    });
+  });
+
+  // =============================================
+  // CONTRACT 5: sendTool sends via connectionManager
+  // =============================================
+  describe("sendTool and transport", () => {
+    test("begin_walkthrough is sent as first tool message", async () => {
+      const sid = "first-msg-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const msgs = sentMessages(sid);
+      expect(msgs.length).toBeGreaterThan(0);
+
+      const beginMsg = msgs.find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
+      expect(beginMsg.args.formId).toBe("createOrder");
+    });
+
+    test("navigate tool is sent with correct route from schema", async () => {
+      const sid = "nav-route-session";
+      walkthroughDriver.start("createOrder", sid);
+      await delay(200);
+
+      const navMsg = sentMessages(sid).find(
+        (m: any) => m.type === "tool" && m.tool === "navigate"
+      );
+      expect(navMsg).toBeDefined();
+      expect(navMsg.args.route).toBe("/orders");
+    });
+  });
+
+  // =============================================
+  // CONTRACT 6: Walkthrough sends overview
+  // =============================================
+  describe("overview message", () => {
+    test("sends overview respond message with tts:true", async () => {
+      const sid = "overview-session";
+      await driveToOverview(sid);
+
+      const overviewMsg = sentMessages(sid).find(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args?.tts === true &&
+          typeof m.args?.message === "string" &&
+          m.args.message.includes("order creation form")
+      );
+      expect(overviewMsg).toBeDefined();
+    });
+  });
+
+  // =============================================
+  // CONTRACT 7: Walkthrough overview before fields
+  // =============================================
+  describe("walkthrough sequence", () => {
+    test("overview is sent before field processing begins", async () => {
+      const sid = "sequence-session";
+      await driveToOverview(sid);
+
+      const msgs = sentMessages(sid);
+      const overviewIdx = msgs.findIndex(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args?.message?.includes("order creation form")
+      );
+
+      const goToFieldIdx = msgs.findIndex(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+
+      expect(overviewIdx).toBeGreaterThanOrEqual(0);
+
+      // If go_to_field was sent, overview should come first
+      if (goToFieldIdx >= 0) {
+        expect(overviewIdx).toBeLessThan(goToFieldIdx);
+      }
+    });
+
+    test("fields are processed after overview", async () => {
+      const sid = "fields-session";
+      await driveToOverview(sid);
+
+      // Wait for field processing (the driver proceeds after overview + EXPLAIN_DISPLAY wait)
+      await delay(2000);
+
+      const msgs = sentMessages(sid);
+      // Should have go_to_field for the first field
+      const goToFieldMsg = msgs.find(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+      expect(goToFieldMsg).toBeDefined();
+      expect(goToFieldMsg.args.fieldKey).toBe("customer");
+    });
+  });
+});
+
+describe("WalkthroughStateMachine — detour transitions", () => {
+  test("allows DETOUR event from DETOUR_QA and retains original context", async () => {
+    const { WalkthroughStateMachine } = await import("../src/state/stateMachine.js");
+    const sm = new WalkthroughStateMachine();
+    sm.reset("WALKING_THROUGH", {
+      formId: "createOrder",
+      fieldIndex: 1,
+    });
+
+    // 1. Transition to DETOUR
+    sm.transition("DETOUR");
+    expect(sm.currentState).toBe("DETOUR_QA");
+    expect(sm.currentContext.detourOrigin).toBeDefined();
+    expect(sm.currentContext.detourOrigin?.state).toBe("WALKING_THROUGH");
+    expect(sm.currentContext.detourOrigin?.fieldIndex).toBe(1);
+
+    // 2. Transition to DETOUR again (multi-hop detour)
+    // Modify index to simulate looking at another field
+    const ctx = sm.currentContext as any;
+    ctx.fieldIndex = 5; // Simulates looking at another field key
+    
+    sm.transition("DETOUR");
+    expect(sm.currentState).toBe("DETOUR_QA");
+    // Ensure detourOrigin is NOT overwritten (it should still point to WALKING_THROUGH at fieldIndex 1)
+    expect(sm.currentContext.detourOrigin?.state).toBe("WALKING_THROUGH");
+    expect(sm.currentContext.detourOrigin?.fieldIndex).toBe(1);
+
+    // 3. Complete detour
+    sm.transition("DETOUR_COMPLETE");
+    expect(sm.currentState).toBe("WALKING_THROUGH");
+    expect(sm.currentContext.fieldIndex).toBe(1);
+    expect(sm.currentContext.detourOrigin).toBeNull();
+  });
+});
 
 
 ================================================================================
@@ -666,175 +2034,180 @@ export function matchKeyword(text: string): KeywordAction {
 
 
 ================================================================================
-File: agent-backend/voice/stt.ts
+File: agent-backend/scratch/test-stream.ts
 ================================================================================
 
-// ============================================
-// ElevenLabs Speech-to-Text
-// Converts audio blob → transcribed text
-// ============================================
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { navigateTool, startWalkthroughTool, askClarificationTool, detourToFieldTool, resumeWalkthroughTool } from "../llm/tools";
+import dotenv from "dotenv";
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
-const STT_URL = "https://api.elevenlabs.io/v1/speech-to-text";
+dotenv.config();
 
-export interface STTResult {
-  success: boolean;
-  text: string;
-  languageCode?: string;
-  error?: string;
-}
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "";
+const GOOGLE_MODEL = process.env.GOOGLE_MODEL || "gemini-2.5-flash";
 
-/**
- * Send audio to ElevenLabs STT and get transcribed text
- */
-export async function transcribeAudio(audioBuffer: Buffer): Promise<STTResult> {
-  if (!ELEVENLABS_API_KEY) {
-    return {
-      success: false,
-      text: "",
-      error: "ELEVENLABS_API_KEY not configured",
-    };
+async function main() {
+  if (!GOOGLE_API_KEY) {
+    console.error("GOOGLE_API_KEY not configured");
+    return;
   }
 
-  try {
-    const formData = new FormData();
-    // Bun's Buffer.buffer may be SharedArrayBuffer — copy to a plain ArrayBuffer first
-    const arrayBuffer = audioBuffer.buffer.slice(
-      audioBuffer.byteOffset,
-      audioBuffer.byteOffset + audioBuffer.byteLength
-    ) as ArrayBuffer;
-    const blob = new Blob([arrayBuffer], { type: "audio/webm;codecs=opus" });
-    formData.append("file", blob, "audio.webm");   // field name must be "file"
-    formData.append("model_id", "scribe_v2");       // scribe_v2 is current
+  const tools = [
+    navigateTool,
+    startWalkthroughTool,
+    askClarificationTool,
+    detourToFieldTool,
+    resumeWalkthroughTool
+  ];
 
-    const response = await fetch(STT_URL, {
-      method: "POST",
-      headers: {
-        "xi-api-key": ELEVENLABS_API_KEY,
-      },
-      body: formData,
-    });
+  const model = new ChatGoogleGenerativeAI({
+    model: GOOGLE_MODEL,
+    temperature: 0,
+    apiKey: GOOGLE_API_KEY,
+  }).bindTools(tools);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[STT] API error ${response.status}: ${errorText}`);
-      return {
-        success: false,
-        text: "",
-        error: `STT API returned ${response.status}`,
-      };
+  console.log("Starting tool stream...");
+  const stream = await model.stream([
+    new SystemMessage("You are a helpful assistant. If you want to answer a question, reply with plain text. Do not use any tools unless navigation or walkthroughs are needed."),
+    new HumanMessage("Take me to the orders page"),
+  ]);
+
+  for await (const chunk of stream) {
+    console.log("--- CHUNK ---");
+    console.log("Content:", JSON.stringify(chunk.content));
+    console.log("Tool Call Chunks:", JSON.stringify(chunk.tool_call_chunks));
+  }
+}
+
+main().catch(console.error);
+
+
+================================================================================
+File: agent-backend/scratch/test-partial-parser.ts
+================================================================================
+
+class SentenceStreamer {
+  private buffer = "";
+  private onSentence: (sentence: string) => void;
+
+  constructor(onSentence: (sentence: string) => void) {
+    this.onSentence = onSentence;
+  }
+
+  push(chunk: string) {
+    this.buffer += chunk;
+    this.process();
+  }
+
+  private process() {
+    while (true) {
+      let index = -1;
+      for (let i = 0; i < this.buffer.length; i++) {
+        const char = this.buffer[i];
+        if (char === "." || char === "!" || char === "?" || char === "\n" || char === "\r") {
+          // Check if followed by whitespace or end of string
+          if (i === this.buffer.length - 1 || /\s/.test(this.buffer[i + 1])) {
+            index = i;
+            break;
+          }
+        }
+      }
+
+      if (index === -1) {
+        break; // No complete sentence found
+      }
+
+      const sentence = this.buffer.substring(0, index + 1).trim();
+      if (sentence) {
+        this.onSentence(sentence);
+      }
+      this.buffer = this.buffer.substring(index + 1);
     }
-
-    const data = (await response.json()) as {
-      text?: string;
-      language_code?: string;
-    };
-
-    const text = data.text?.trim() || "";
-    console.log(
-      `[STT] Transcribed: "${text}"` +
-        (data.language_code ? ` (lang: ${data.language_code})` : "")
-    );
-
-    return {
-      success: true,
-      text,
-      languageCode: data.language_code,
-    };
-  } catch (error) {
-    console.error("[STT] Transcription failed:", error);
-    return {
-      success: false,
-      text: "",
-      error: error instanceof Error ? error.message : "Unknown STT error",
-    };
-  }
-}
-
-
-================================================================================
-File: agent-backend/voice/tts.ts
-================================================================================
-
-// ============================================
-// ElevenLabs Text-to-Speech
-// Converts text → audio buffer (MP3)
-// ============================================
-
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
-const ELEVENLABS_VOICE_ID =
-  process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
-const ELEVENLABS_TTS_MODEL =
-  process.env.ELEVENLABS_TTS_MODEL || "eleven_multilingual_v2";
-
-const TTS_URL = `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`;
-
-export interface TTSResult {
-  success: boolean;
-  audioBuffer: Buffer | null;
-  error?: string;
-}
-
-/**
- * Generate speech audio from text using ElevenLabs TTS
- */
-export async function generateSpeech(text: string): Promise<TTSResult> {
-  if (!ELEVENLABS_API_KEY) {
-    console.warn("[TTS] ELEVENLABS_API_KEY not configured, skipping TTS");
-    return { success: false, audioBuffer: null, error: "Not configured" };
   }
 
-  if (!text || text.trim().length === 0) {
-    return { success: false, audioBuffer: null, error: "Empty text" };
-  }
-
-  try {
-    const response = await fetch(TTS_URL, {
-      method: "POST",
-      headers: {
-        "xi-api-key": ELEVENLABS_API_KEY,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: ELEVENLABS_TTS_MODEL,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.3,
-          use_speaker_boost: true,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[TTS] API error ${response.status}: ${errorText}`);
-      return {
-        success: false,
-        audioBuffer: null,
-        error: `TTS API returned ${response.status}`,
-      };
+  flush() {
+    const remaining = this.buffer.trim();
+    if (remaining) {
+      this.onSentence(remaining);
     }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const audioBuffer = Buffer.from(arrayBuffer);
-    const sizeKB = (audioBuffer.length / 1024).toFixed(1);
-    console.log(
-      `[TTS] Generated audio: ${sizeKB}KB for "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}"`
-    );
-
-    return { success: true, audioBuffer };
-  } catch (error) {
-    console.error("[TTS] Speech generation failed:", error);
-    return {
-      success: false,
-      audioBuffer: null,
-      error: error instanceof Error ? error.message : "Unknown TTS error",
-    };
+    this.buffer = "";
   }
 }
+
+function runTest() {
+  const sentences: string[] = [];
+  const streamer = new SentenceStreamer((s) => sentences.push(s));
+
+  streamer.push("The capital of France is Paris. It");
+  streamer.push(" is famous for its history. ");
+  streamer.push("Visit the Eiffel Tower! We have 3.5");
+  streamer.push(" hours left.");
+  streamer.flush();
+
+  console.log("Decoded sentences:");
+  console.log(sentences);
+}
+
+runTest();
+
+
+================================================================================
+File: agent-backend/scratch/test-tool-parse.ts
+================================================================================
+
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { navigateTool, startWalkthroughTool, askClarificationTool, detourToFieldTool, resumeWalkthroughTool } from "../llm/tools";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "";
+const GOOGLE_MODEL = process.env.GOOGLE_MODEL || "gemini-2.5-flash";
+
+async function main() {
+  if (!GOOGLE_API_KEY) {
+    console.error("GOOGLE_API_KEY not configured");
+    return;
+  }
+
+  const tools = [
+    navigateTool,
+    startWalkthroughTool,
+    askClarificationTool,
+    detourToFieldTool,
+    resumeWalkthroughTool
+  ];
+
+  const model = new ChatGoogleGenerativeAI({
+    model: GOOGLE_MODEL,
+    temperature: 0,
+    apiKey: GOOGLE_API_KEY,
+  }).bindTools(tools);
+
+  console.log("Starting tool stream...");
+  const stream = await model.stream([
+    new SystemMessage("You are a helpful assistant. Use tools for actions."),
+    new HumanMessage("What is the capital of France?"),
+  ]);
+
+  let finalMessage: any = null;
+  for await (const chunk of stream) {
+    if (!finalMessage) {
+      finalMessage = chunk;
+    } else {
+      finalMessage = finalMessage.concat(chunk);
+    }
+  }
+
+  console.log("--- FINAL MESSAGE ---");
+  console.log("Content:", JSON.stringify(finalMessage.content));
+  console.log("Tool Calls:", JSON.stringify(finalMessage.tool_calls));
+  console.log("Additional Kwargs Tool Calls:", JSON.stringify(finalMessage.additional_kwargs?.tool_calls));
+}
+
+main().catch(console.error);
 
 
 ================================================================================
@@ -1108,7 +2481,6 @@ export function routeMessage(
       handleVoice(message, context);
       break;
     case "status":
-      // Route status to both the handler AND the walkthrough driver
       handleStatus(message, context);
       walkthroughDriver.handleStatus(
         context.sessionId,
@@ -1164,13 +2536,16 @@ export class NarrationService {
     const id = messageId || crypto.randomUUID();
 
     try {
-      const { synthesize } = await import("../services/elevenLabsTTS.js");
-      const audioDataUrl = await synthesize(text, languageCode);
-      const base64 = audioDataUrl.split(",")[1];
-      connectionManager.send(session.sessionId, {
-        type: "tts_audio",
-        audio: base64,
-        messageId: id,
+      const { synthesizeStream } = await import("../services/elevenLabsTTS.js");
+      await new Promise<void>((resolve, reject) => {
+        synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            audio: chunkBase64,
+            messageId: id,
+            isFinal,
+          });
+        }, session.sessionId).then(resolve).catch(reject);
       });
       return id;
     } catch (err) {
@@ -1232,7 +2607,6 @@ import { ToolMessenger } from "./toolMessenger.js";
 import { NarrationService } from "./narrationService.js";
 import type { OutgoingMessage } from "../types.js";
 
-// --- Constants ---
 const TIMEOUTS = {
   NAVIGATE: 5000,
   OPEN_DIALOG: 3000,
@@ -1252,6 +2626,13 @@ const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
 
 // --- Errors ---
+export class InterruptError extends Error {
+  constructor() {
+    super("Operation interrupted by detour or pause");
+    this.name = "InterruptError";
+  }
+}
+
 class FieldSkipError extends Error {
   constructor(public fieldKey: string) {
     super(`Field skipped: ${fieldKey}`);
@@ -1279,7 +2660,7 @@ class WalkthroughDriver {
 
   private async yieldToInterrupts(session: WalkthroughSession): Promise<void> {
     while (
-      session.stateMachine.currentState === "PAUSED" || 
+      session.stateMachine.currentState === "PAUSED" ||
       session.stateMachine.currentState === "DETOUR_QA"
     ) {
       this.checkCancelled(session);
@@ -1369,6 +2750,14 @@ class WalkthroughDriver {
     this.statusAwaiter.rejectPending(session, new CancellationError());
   }
 
+  // Abort and unblock any active waitForStatus promise, forcing immediate state yields
+  interrupt(sessionId: string): void {
+    const session = this.sessionManager.get(sessionId);
+    if (!session) return;
+    console.log(`[Driver] Interrupt requested: ${sessionId}`);
+    this.statusAwaiter.rejectPending(session, new InterruptError());
+  }
+
   handleStatus(sessionId: string, event: string, data?: any): void {
     const session = this.sessionManager.get(sessionId);
     if (!session) return;
@@ -1405,30 +2794,42 @@ class WalkthroughDriver {
 
     if (schema.selectItem) {
       console.log(`[Driver] Selecting item: ${schema.selectItem.label || schema.selectItem.selector}`);
-      await this.sendTool(
+      await this.retryOperation(
         session,
-        "select_item",
-        {
-          label: schema.selectItem.label,
-          selector: schema.selectItem.selector,
+        async () => {
+          await this.sendTool(
+            session,
+            "select_item",
+            {
+              label: schema.selectItem.label,
+              selector: schema.selectItem.selector,
+            },
+            "item_selected",
+            TIMEOUTS.NAVIGATE
+          );
         },
-        "item_selected",
-        TIMEOUTS.NAVIGATE
+        "select_item"
       );
       this.checkCancelled(session);
       await this.wait(1000);
     }
 
     console.log(`[Driver] Opening dialog: ${schema.openAction.fallbackText}`);
-    await this.sendTool(
+    await this.retryOperation(
       session,
-      "open_dialog",
-      {
-        selector: schema.openAction.selector,
-        fallbackText: schema.openAction.fallbackText,
+      async () => {
+        await this.sendTool(
+          session,
+          "open_dialog",
+          {
+            selector: schema.openAction.selector,
+            fallbackText: schema.openAction.fallbackText,
+          },
+          "dialog_opened",
+          TIMEOUTS.OPEN_DIALOG
+        );
       },
-      "dialog_opened",
-      TIMEOUTS.OPEN_DIALOG
+      "open_dialog"
     );
     this.checkCancelled(session);
 
@@ -1646,13 +3047,17 @@ class WalkthroughDriver {
     await this.wait(TIMEOUTS.COMPLETION_PAUSE);
 
     console.log(`[Driver] Clearing demo data`);
-    await this.sendTool(
-      session,
-      "clear_all_fields",
-      {},
-      "fields_cleared",
-      TIMEOUTS.CLEAR_FIELDS
-    );
+    try {
+      await this.sendTool(
+        session,
+        "clear_all_fields",
+        {},
+        "fields_cleared",
+        TIMEOUTS.CLEAR_FIELDS
+      );
+    } catch (e) {
+      console.warn("[Driver] Cleanup of demo fields timed out, continuing wrap-up:", e);
+    }
 
     console.log(`[Driver] Closing dialog`);
     this.sendTool(
@@ -1797,7 +3202,7 @@ class WalkthroughDriver {
       await this.processAutoPopulatedSubForm(session, subForm);
     } else if (subForm.copyFrom) {
       const { subFormId, whenFieldEquals, checkboxLabel } = subForm.copyFrom;
-      const shouldCopy = !whenFieldEquals || 
+      const shouldCopy = !whenFieldEquals ||
         session.filledValues.get(whenFieldEquals.field) === whenFieldEquals.value;
 
       if (shouldCopy) {
@@ -2164,7 +3569,17 @@ class WalkthroughDriver {
 
     let eventResult = null;
     if (expectedEvent && timeout > 0) {
-      eventResult = await this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
+      try {
+        eventResult = await this.statusAwaiter.waitForStatus(session, expectedEvent, timeout);
+      } catch (err) {
+        if (err instanceof InterruptError) {
+          console.log(`[Driver] sendTool interrupted for: ${tool}. Yielding to detour/pause.`);
+          await this.yieldToInterrupts(session);
+          console.log(`[Driver] Detour/pause finished. Re-evaluating tool: ${tool}`);
+          return this.sendTool(session, tool, { ...args, tts: false }, expectedEvent, timeout);
+        }
+        throw err;
+      }
     }
 
     if (ttsPromise) {
@@ -2728,7 +4143,7 @@ export class WalkthroughStateMachine {
         break;
 
       case "FORM_SELECTED":
-        if (event === "FORM_READY") return "WALKING_THROUGH";        // Bug 1 fix
+        if (event === "FORM_READY") return "WALKING_THROUGH";     
         break;
 
       case "WALKING_THROUGH":
@@ -2742,16 +4157,15 @@ export class WalkthroughStateMachine {
 
       case "PAUSED":
         if (event === "RESUME") return "WALKING_THROUGH";
-        if (event === "DETOUR") return "DETOUR_QA";                 // Bug 4 fix
+        if (event === "DETOUR") return "DETOUR_QA";             
         if (event === "CANCEL") return "CANCELLED";
         break;
 
       case "DETOUR_QA":
-        // Bug 6 fix: return to originating state
         if (event === "DETOUR_COMPLETE") return this.context.detourOrigin?.state ?? "WALKING_THROUGH";
         if (event === "DETOUR") return "DETOUR_QA";
         if (event === "PAUSE") return "PAUSED";                     // Bug 5 fix
-        if (event === "CANCEL") return "CANCELLED";
+        if (event === "CANCEL") return "CANCELLED"; 
         break;
 
       case "SUB_FORM":
@@ -2781,7 +4195,6 @@ export class WalkthroughStateMachine {
 
     switch (event) {
       case "START_WALKTHROUGH":
-        // Bug 2 fix: set formId from payload
         if (payload?.formId) ctx.formId = payload.formId;
         ctx.fieldIndex = 0;
         ctx.subFormId = null;
@@ -2791,7 +4204,6 @@ export class WalkthroughStateMachine {
         break;
 
       case "FORM_READY":
-        // Bug 1 fix: no fieldIndex increment — we start at field 0
         break;
 
       case "FIELD_COMPLETE":
@@ -2799,7 +4211,6 @@ export class WalkthroughStateMachine {
         break;
 
       case "SUB_FORM_START":
-        // Bug 3 fix: set subFormId from payload
         if (payload?.subFormId) ctx.subFormId = payload.subFormId;
         ctx.subFormItemIndex = 0;
         ctx.subFormFieldIndex = 0;
@@ -2823,7 +4234,7 @@ export class WalkthroughStateMachine {
       case "DETOUR":
         if (this.state !== "DETOUR_QA") {
           ctx.detourOrigin = {
-            state: this.state,           // stores the exact state we were in (PAUSED, WALKING, etc.)
+            state: this.state,           
             fieldIndex: ctx.fieldIndex,
             subFormId: ctx.subFormId,
             subFormItemIndex: ctx.subFormItemIndex,
@@ -2843,7 +4254,6 @@ export class WalkthroughStateMachine {
         break;
 
       case "RESET":
-        // Bug 7 fix: clear all context
         ctx.formId = "";
         ctx.fieldIndex = 0;
         ctx.subFormId = null;
@@ -3582,10 +4992,868 @@ File: agent-backend/src/schema/forms/createIssue.json
 }
 
 
+================================================================================
+File: agent-backend/src/schema/forms/createHotel.json
+================================================================================
+
+{
+  "id": "createHotel",
+  "name": "Create Hotel",
+  "mode": "create",
+  "route": "/hotels",
+  "openAction": {
+    "type": "button",
+    "selector": "[data-agent-action='add-hotel']",
+    "fallbackText": "Add Hotel"
+  },
+  "overview": "A hotel is a customer in the LinenGrass system. Each hotel has basic contact details, tax registration numbers, billing and shipping addresses, and contact persons. Once created, you can create orders and agreements for this hotel.",
+  "fields": [
+    {
+      "key": "name",
+      "label": "Hotel Name",
+      "type": "text",
+      "required": true,
+      "demoValue": "Grand Hyatt Mumbai",
+      "explanation": "This is the name of the hotel or customer. It appears on invoices, orders, and throughout the system. Use the official business name.",
+      "tips": "Use the full official name. You can always search by partial name later.",
+      "commonQuestions": [
+        { "question": "Can I change the name later?", "answer": "Yes, you can edit the hotel details after creation." }
+      ]
+    },
+    {
+      "key": "phone",
+      "label": "Contact Phone",
+      "type": "text",
+      "demoValue": "+91 98765 43210",
+      "explanation": "The primary phone number for contacting this hotel. This is used for delivery coordination and general communication.",
+      "commonQuestions": []
+    },
+    {
+      "key": "email",
+      "label": "Contact Email",
+      "type": "text",
+      "demoValue": "reservations@grandhyatt.com",
+      "explanation": "The primary email address for this hotel. Invoices and order confirmations are sent to this email.",
+      "tips": "Use a generic department email rather than a personal one, so it stays active even if staff changes.",
+      "commonQuestions": []
+    },
+    {
+      "key": "status",
+      "label": "Status",
+      "type": "select",
+      "required": true,
+      "options": ["ACTIVE", "INACTIVE"],
+      "demoValue": "ACTIVE",
+      "explanation": "This controls whether the hotel is active in the system. Only active hotels appear when creating orders. Set to Inactive if the hotel has stopped doing business with you.",
+      "tips": "New hotels should always be Active. Use Inactive only when the relationship has ended.",
+      "commonQuestions": [
+        { "question": "What happens if I set a hotel to Inactive?", "answer": "Existing orders and data are preserved, but you cannot create new orders for this hotel. It will not appear in the customer dropdown." }
+      ]
+    },
+    {
+      "key": "type",
+      "label": "Customer Type",
+      "type": "select",
+      "required": true,
+      "demoValue": "HOTEL",
+      "explanation": "This categorizes the customer. Hotels, resorts, hospitals, and other businesses may have different billing rules and product agreements.",
+      "tips": "Choose the type that best matches the business. This affects which product agreements are available.",
+      "commonQuestions": []
+    },
+    {
+      "key": "gstin",
+      "label": "GSTIN Number",
+      "type": "text",
+      "demoValue": "27AABCU9603R1ZM",
+      "explanation": "The GST Identification Number for this hotel. This is required for tax compliance and appears on invoices. It is a 15-character alphanumeric code.",
+      "tips": "Verify the GSTIN on the government GST portal before entering. An incorrect GSTIN will cause invoice mismatches.",
+      "commonQuestions": [
+        { "question": "Is GSTIN mandatory?", "answer": "It depends on your tax configuration. If your business is GST-registered, you should enter the customer's GSTIN for proper invoicing." }
+      ]
+    },
+    {
+      "key": "pan",
+      "label": "PAN Number",
+      "type": "text",
+      "demoValue": "AABCU9603R",
+      "explanation": "The Permanent Account Number for this hotel. It is a 10-character code used for tax identification. The PAN is usually the first 10 characters of the GSTIN.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingAddressLine1",
+      "label": "Address Line 1",
+      "type": "text",
+      "demoValue": "Off Western Express Highway",
+      "explanation": "The first line of the billing address. This address appears on invoices and is used for all financial correspondence.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingAddressLine2",
+      "label": "Address Line 2",
+      "type": "text",
+      "demoValue": "Santacruz East",
+      "explanation": "The second line of the billing address. Use this for area name, landmark, or building details.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingCity",
+      "label": "City",
+      "type": "text",
+      "demoValue": "Mumbai",
+      "explanation": "The city for the billing address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingState",
+      "label": "State",
+      "type": "text",
+      "demoValue": "Maharashtra",
+      "explanation": "The state for the billing address. This affects GST calculation — interstate and intrastate deliveries have different tax rates.",
+      "tips": "Make sure the state matches the GSTIN registration state for correct tax calculation.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingPincode",
+      "label": "ZIP Code",
+      "type": "text",
+      "demoValue": "400055",
+      "explanation": "The postal code for the billing address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "billingCountry",
+      "label": "Country",
+      "type": "text",
+      "demoValue": "India",
+      "explanation": "The country for the billing address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingAddressLine1",
+      "label": "Address Line 1",
+      "type": "text",
+      "demoValue": "Off Western Express Highway",
+      "explanation": "The first line of the shipping address. This is where deliveries will be sent. It can be the same as the billing address or a different location.",
+      "commonQuestions": [
+        { "question": "Is the shipping address the same as billing?", "answer": "It can be. Many hotels use the same address for both. If deliveries go to a different entrance or location, enter that address here." }
+      ]
+    },
+    {
+      "key": "shippingAddressLine2",
+      "label": "Address Line 2",
+      "type": "text",
+      "demoValue": "Santacruz East",
+      "explanation": "The second line of the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingCity",
+      "label": "City",
+      "type": "text",
+      "demoValue": "Mumbai",
+      "explanation": "The city for the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingState",
+      "label": "State",
+      "type": "text",
+      "demoValue": "Maharashtra",
+      "explanation": "The state for the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingPincode",
+      "label": "ZIP Code",
+      "type": "text",
+      "demoValue": "400055",
+      "explanation": "The postal code for the shipping address.",
+      "commonQuestions": []
+    },
+    {
+      "key": "shippingCountry",
+      "label": "Country",
+      "type": "text",
+      "demoValue": "India",
+      "explanation": "The country for the shipping address.",
+      "commonQuestions": []
+    }
+  ],
+  "subForms": [
+    {
+      "id": "contactPerson",
+      "name": "Contact Person",
+      "triggerText": "Add Contact Person",
+      "repeatable": true,
+      "demoItemCount": 1,
+      "explanation": "Contact persons are the people at this hotel you communicate with directly — the linen manager, housekeeping head, or procurement officer. Adding them here makes it easy to track who you coordinate with.",
+      "explanationForMultiple": "Let me add a second contact person to show you.",
+      "fields": [
+        {
+          "key": "contactName",
+          "label": "Name",
+          "type": "text",
+          "demoValue": "Rajesh Kumar",
+          "explanation": "The name of the contact person at this hotel.",
+          "commonQuestions": []
+        },
+        {
+          "key": "contactPhone",
+          "label": "Phone",
+          "type": "text",
+          "demoValue": "+91 99887 76655",
+          "explanation": "Their direct phone number for quick communication about deliveries or issues.",
+          "commonQuestions": []
+        },
+        {
+          "key": "contactEmail",
+          "label": "Email",
+          "type": "text",
+          "demoValue": "rajesh@grandhyatt.com",
+          "explanation": "Their email address. Order notifications and delivery updates can be sent to this person.",
+          "commonQuestions": []
+        },
+        {
+          "key": "contactTag",
+          "label": "Tag",
+          "type": "text",
+          "demoValue": "Housekeeping Manager",
+          "explanation": "A tag or title to identify their role. For example, 'Housekeeping Manager', 'Procurement', or 'General Manager'. This helps your team know who to contact for what.",
+          "commonQuestions": []
+        }
+      ]
+    }
+  ],
+  "wrapUp": "That covers all the fields for creating a hotel! You've seen how to enter basic details, tax information, addresses, and contact persons. Remember, this was a demo — all the data has been cleared. When you're ready, you can create a real hotel entry."
+}
 
 
+================================================================================
+File: agent-backend/src/schema/forms/CreateAggrement.json
+================================================================================
 
+{
+  "id": "createAgreement",
+  "name": "Create Agreement",
+  "mode": "create",
+  "route": "/hotels",
+  "selectItem": {
+    "label": "AutoTest Hotel 124032"
+  },
+  "openAction": {
+    "type": "button",
+    "selector": "[data-agent-action='add-agreement']",
+    "fallbackText": "Add New Agreement"
+  },
+  "overview": "An agreement defines pricing, billing and service terms for a hotel. I will create one for the selected hotel and walk you through each field.",
+  "fields": [
+    {
+      "key": "type",
+      "label": "Agreement Type",
+      "type": "select",
+      "required": true,
+      "options": ["RENTAL_LAUNDRY", "LAUNDRY"],
+      "demoValue": "RENTAL_LAUNDRY",
+      "explanation": "RENTAL_LAUNDRY is for hotels renting linen from you. LAUNDRY is for wash-only customers who own their linen.",
+      "tips": "The type you choose changes which fields appear below."
+    },
+    {
+      "key": "startDate",
+      "label": "Start Date",
+      "type": "date",
+      "required": true,
+      "demoValue": "2026-02-01",
+      "explanation": "The date the agreement becomes active. Billing and pricing take effect from this day."
+    },
+    {
+      "key": "endDate",
+      "label": "End Date",
+      "type": "date",
+      "required": true,
+      "demoValue": "2027-01-31",
+      "explanation": "The date the agreement expires. Renew before this date to avoid service interruption."
+    },
+    {
+      "key": "status",
+      "label": "Status",
+      "type": "select",
+      "options": ["ACTIVE", "INACTIVE"],
+      "demoValue": "ACTIVE",
+      "explanation": "Only ACTIVE agreements are used for order pricing and billing."
+    },
+    {
+      "key": "totalRooms",
+      "label": "Total Rooms",
+      "type": "text",
+      "demoValue": "120",
+      "explanation": "Total number of rooms in the hotel. Used for rental capacity planning."
+    },
+    {
+      "key": "occupancyRate",
+      "label": "Occupancy Rate",
+      "type": "text",
+      "demoValue": "75",
+      "explanation": "Expected average occupancy in percent. Used to estimate linen usage."
+    },
+    {
+      "key": "depositAmount",
+      "label": "Deposit Amount",
+      "type": "text",
+      "demoValue": "50000",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "Security deposit collected for rented linen. Refunded at agreement end."
+    },
+    {
+      "key": "creditDays",
+      "label": "Credit Days",
+      "type": "text",
+      "demoValue": "30",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "Number of credit days allowed for rental invoices."
+    },
+    {
+      "key": "linenDeliveryDays",
+      "label": "Linen Delivery Days",
+      "type": "text",
+      "demoValue": "2",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "How many days per week linen is delivered to the hotel."
+    },
+    {
+      "key": "serviceFrequency",
+      "label": "Service Frequency",
+      "type": "select",
+      "options": ["EVERY_DAY", "ALTERNATE_DAY", "EVERY_SUNDAY", "CUSTOM"],
+      "demoValue": "ALTERNATE_DAY",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "How often pickup and delivery service is performed."
+    },
+    {
+      "key": "creditTermDays",
+      "label": "Credit Term Days",
+      "type": "text",
+      "demoValue": "15",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "Credit period for laundry invoices."
+    },
+    {
+      "key": "pickupFrequencyDays",
+      "label": "Pickup Frequency Days",
+      "type": "text",
+      "demoValue": "1",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "How often laundry is picked up from the hotel."
+    },
+    {
+      "key": "deliveryTatDays",
+      "label": "Delivery TAT Days",
+      "type": "text",
+      "demoValue": "2",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "Turnaround time in days from pickup to delivery."
+    },
+    {
+      "key": "discountPercentage",
+      "label": "Discount Percentage",
+      "type": "text",
+      "demoValue": "5",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "Discount applied on laundry billing."
+    },
+    {
+      "key": "billingCycle",
+      "label": "Billing Cycle",
+      "type": "text",
+      "demoValue": "1",
+      "explanation": "Billing cycle in months. 1 = monthly."
+    },
+    {
+      "key": "billingStartDay",
+      "label": "Billing Start Day",
+      "type": "text",
+      "demoValue": "1",
+      "explanation": "Day of month when billing period starts."
+    },
+    {
+      "key": "billingEndDay",
+      "label": "Billing End Day",
+      "type": "text",
+      "demoValue": "30",
+      "explanation": "Day of month when billing period ends."
+    },
+    {
+      "key": "billingType",
+      "label": "Billing Type",
+      "type": "select",
+      "options": ["FLEXIBLE", "FIXED"],
+      "demoValue": "FLEXIBLE",
+      "explanation": "FLEXIBLE uses price list per item. FIXED uses a flat monthly amount."
+    },
+    {
+      "key": "fixedMonthlyAmount",
+      "label": "Fixed Monthly Amount",
+      "type": "text",
+      "demoValue": "75000",
+      "visibleWhen": {
+        "field": "billingType",
+        "value": "FIXED"
+      },
+      "explanation": "Flat amount charged per month when billing type is FIXED."
+    }
+  ],
+  "subForms": [
+    {
+      "id": "priceItem",
+      "name": "Price Item",
+      "triggerText": "Add Price Item",
+      "repeatable": true,
+      "demoItemCount": 2,
+      "explanation": "Add products with quantity, price and service type for this agreement.",
+      "explanationForMultiple": "Let me add a second price item to show you.",
+      "fields": [
+        {
+          "key": "productId",
+          "label": "Product",
+          "type": "select",
+          "demoValue": "Bath Towel",
+          "explanation": "Select the linen product. List comes from your product catalog."
+        },
+        {
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "100",
+          "explanation": "Quantity of this product covered under the agreement."
+        },
+        {
+          "key": "price",
+          "label": "Price",
+          "type": "text",
+          "demoValue": "25",
+          "explanation": "Unit price for this product and service type."
+        },
+        {
+          "key": "serviceType",
+          "label": "Service Type",
+          "type": "select",
+          "options": [
+            "WASHING",
+            "WASHING_RENTING",
+            "RENTING",
+            "WASHING_IRONING",
+            "DRY_CLEANING",
+            "PRESSING",
+            "FOLDING",
+            "PACKAGING"
+          ],
+          "demoValue": "WASHING_RENTING",
+          "explanation": "Type of service applied to this product."
+        },
+        {
+          "key": "remarks",
+          "label": "Remarks",
+          "type": "text",
+          "demoValue": "Premium quality",
+          "explanation": "Optional notes for this price line."
+        }
+      ]
+    }
+  ],
+  "wrapUp": "That completes the agreement setup. You have seen agreement type, dates, commercial terms and price list. This was a demo, data will be cleared. You can now create a real agreement for this hotel."
+}
 
+================================================================================
+File: agent-backend/src/schema/forms/createOrder.json
+================================================================================
+
+{
+  "id": "createOrder",
+  "name": "Create Order",
+  "mode": "create",
+  "route": "/orders",
+  "openAction": {
+    "type": "button",
+    "selector": "[data-agent-action='add-order']",
+    "fallbackText": "+ Add Order"
+  },
+  "overview": "An order is how you schedule pickups and deliveries of linen items for your customers. Each order belongs to a customer and specifies when items are picked up and delivered.",
+  "fields": [
+    {
+      "key": "orderReferenceId",
+      "label": "Order Reference ID",
+      "type": "text",
+      "readOnly": false,
+      "demoValue": "ORD-2026-001",
+      "visibleWhen": null,
+      "explanation": "This is a unique identifier for your order. You can enter a custom reference like 'ORD-2026-001' to easily track and search for this order later. If you leave it blank, the system will auto-generate one when you save.",
+      "tips": "Use a consistent naming pattern like ORD-YYYY-NNN so your team can quickly identify orders.",
+      "commonQuestions": [
+        {
+          "question": "What happens if I leave this blank?",
+          "answer": "The system will auto-generate a reference ID when you save the order."
+        },
+        {
+          "question": "Can I use any format?",
+          "answer": "Yes, you can use any format. But a consistent pattern like ORD-YYYY-NNN makes orders easier to find."
+        }
+      ]
+    },
+    {
+      "key": "customer",
+      "label": "Customer",
+      "type": "autocomplete",
+      "required": true,
+      "demoValue": "Arama Suites",
+      "visibleWhen": null,
+      "explanation": "This is the customer who is placing the order. Start typing the customer name and the system will search automatically. Only active customers will appear in the results.",
+      "tips": "If a customer doesn't show up, check if they are marked as active in the Customers section.",
+      "waitAfterFillMs": 4000,
+      "commonQuestions": [
+        {
+          "question": "Why can't I find my customer?",
+          "answer": "Only active customers appear in the search. Check the Customers page to make sure the customer is active and not deactivated."
+        },
+        {
+          "question": "Can I create a new customer from here?",
+          "answer": "No, you need to create the customer first from the Customers page, then come back to create the order."
+        }
+      ]
+    },
+    {
+      "key": "orderDate",
+      "label": "Order Date",
+      "type": "date",
+      "demoValue": "2026-01-15",
+      "visibleWhen": null,
+      "explanation": "This is the date the order is being created. It defaults to today's date. Changing this will automatically adjust the pickup and delivery dates to maintain the same gap.",
+      "tips": "If you set this to a past date, the pickup and delivery dates will shift accordingly. This is useful for backdating orders.",
+      "commonQuestions": [
+        {
+          "question": "Can I set a past date?",
+          "answer": "Yes, you can set a past order date. The pickup and delivery dates will adjust to maintain the same number of days between them."
+        }
+      ]
+    },
+    {
+      "key": "orderType",
+      "label": "Order Type",
+      "type": "select",
+      "required": true,
+      "options": [
+        "LEASING",
+        "RENTAL",
+        "WASHING"
+      ],
+      "demoValue": "LEASING",
+      "visibleWhen": null,
+      "explanation": "This determines what kind of order this is. Leasing means you are renting linen items to the customer. Rental is for short-term use. Washing means the customer is sending items for laundry service. The type you choose changes which fields appear below.",
+      "tips": "Most orders in this system are Leasing orders. Only choose Rental or Washing if your business specifically uses those workflows.",
+      "commonQuestions": [
+        {
+          "question": "What is the difference between Leasing and Rental?",
+          "answer": "Leasing is for long-term linen contracts where items are delivered and picked up on a schedule. Rental is short-term, like an event or a one-time use."
+        },
+        {
+          "question": "What does Washing mean?",
+          "answer": "A Washing order is when the customer sends their own linen to your facility for cleaning. You pick it up, wash it, and deliver it back."
+        }
+      ]
+    },
+    {
+      "key": "isAdjustment",
+      "label": "Adjustment Order",
+      "type": "toggle",
+      "demoValue": false,
+      "visibleWhen": null,
+      "explanation": "Turn this on if this order is an adjustment to a previous order. Adjustment orders are used to correct quantities, add missing items, or make changes to an existing order without creating a brand new one.",
+      "tips": "Only use this when correcting a previous order. New orders should have this turned off.",
+      "commonQuestions": [
+        {
+          "question": "When should I use Adjustment Order?",
+          "answer": "Use it when you need to correct or modify an existing order, like adding items that were missed or adjusting quantities."
+        }
+      ]
+    },
+    {
+      "key": "deliveryType",
+      "label": "Delivery Type",
+      "type": "select",
+      "options": [
+        "DELIVERY",
+        "PICKUP",
+        "BOTH"
+      ],
+      "demoValue": "BOTH",
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "LEASING"
+      },
+      "explanation": "This controls whether this order includes a delivery, a pickup, or both. Delivery means you bring items to the customer. Pickup means you collect items from the customer. Both means you do both \u2014 deliver fresh items and collect used ones.",
+      "tips": "Most Leasing orders use 'Both' because you deliver fresh linen and pick up the used ones in the same trip.",
+      "commonQuestions": [
+        {
+          "question": "What if I only need to pick up items?",
+          "answer": "Choose 'Pickup' and the system will only show pickup-related fields and items."
+        }
+      ]
+    },
+    {
+      "key": "pickupDate",
+      "label": "Pickup Date",
+      "type": "date",
+      "demoValue": "2026-01-16",
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "LEASING"
+      },
+      "conditionalOn": {
+        "field": "deliveryType",
+        "values": [
+          "PICKUP",
+          "BOTH"
+        ]
+      },
+      "explanation": "This is the date when your team will go to the customer's location to collect used linen items. It defaults to one day after the order date.",
+      "tips": "Make sure pickup dates don't fall on weekends or holidays unless your team operates on those days.",
+      "commonQuestions": [
+        {
+          "question": "Can the pickup date be before the order date?",
+          "answer": "Technically yes, but it's unusual. The system allows it for edge cases like backdating."
+        }
+      ]
+    },
+    {
+      "key": "deliveryDate",
+      "label": "Delivery Date",
+      "type": "date",
+      "demoValue": "2026-01-16",
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "LEASING"
+      },
+      "conditionalOn": {
+        "field": "deliveryType",
+        "values": [
+          "DELIVERY",
+          "BOTH"
+        ]
+      },
+      "explanation": "This is the date when your team will deliver fresh linen items to the customer's location. It defaults to one day after the order date.",
+      "tips": "Delivery dates should account for processing time. Make sure your warehouse has enough stock to fulfill the order by this date.",
+      "commonQuestions": [
+        {
+          "question": "What if delivery is delayed?",
+          "answer": "You can edit the order later to change the delivery date. The system does not automatically reschedule."
+        }
+      ]
+    }
+  ],
+  "subForms": [
+    {
+      "id": "deliveryItem",
+      "name": "Delivery Item",
+      "triggerText": "Add Delivery Item",
+      "repeatable": true,
+      "autoPopulated": true,
+      "autoPopulatedTrigger": {
+        "field": "customer",
+        "description": "Products auto-populate based on the customer's reserved products after selection"
+      },
+      "fallbackManual": {
+        "triggerText": "Add Delivery Item",
+        "description": "Click this if no products auto-populate for the selected customer"
+      },
+      "demoItemCount": 2,
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "LEASING"
+      },
+      "conditionalOn": {
+        "field": "deliveryType",
+        "values": [
+          "DELIVERY",
+          "BOTH"
+        ]
+      },
+      "explanationForMultiple": "You can add multiple items to a single order. Let me add a second one to show you.",
+      "explanation": "Now we add the actual items to be delivered to the customer. These are the linen products they will receive.",
+      "fields": [
+        {
+          "key": "product",
+          "label": "Product",
+          "type": "select",
+          "autoFilled": true,
+          "demoValue": "Bath Towel (Standard)",
+          "explanation": "Select the linen product being delivered. The list shows products that are reserved for this customer in their agreement. If the customer has reserved products, this field is automatically filled for you.",
+          "commonQuestions": []
+        },
+        {
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "50",
+          "explanation": "Enter the number of items to deliver. This should match what the customer needs for this delivery cycle.",
+          "commonQuestions": []
+        },
+        {
+          "key": "remarks",
+          "label": "Remarks",
+          "type": "text",
+          "demoValue": "Premium quality required",
+          "explanation": "Add any special instructions about this item. For example, 'Premium quality required' or 'Handle with care'.",
+          "commonQuestions": []
+        }
+      ]
+    },
+    {
+      "id": "pickupItem",
+      "name": "Pickup Item",
+      "triggerText": "Add Pickup Item",
+      "repeatable": true,
+      "autoPopulated": false,
+      "demoItemCount": 2,
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "LEASING"
+      },
+      "conditionalOn": {
+        "field": "deliveryType",
+        "values": [
+          "PICKUP",
+          "BOTH"
+        ]
+      },
+      "copyFrom": {
+        "subFormId": "deliveryItem",
+        "whenFieldEquals": { "field": "deliveryType", "value": "BOTH" },
+        "checkboxLabel": "Use same items and quantities as Delivery"
+      },
+      "explanationForMultiple": "Let me add a second pickup item to show you.",
+      "explanation": "These are the items being picked up from the customer. You can add them manually, or use the 'Use same items as Delivery' checkbox to copy the delivery items automatically.",
+      "fields": [
+        {
+          "key": "product",
+          "label": "Product",
+          "type": "select",
+          "demoValue": "Bath Towel (Standard)",
+          "explanation": "Select the linen product being picked up from the customer. This should match the type of items that were originally delivered to them.",
+          "commonQuestions": []
+        },
+        {
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "50",
+          "explanation": "Enter the number of items being picked up. This may differ from the delivery quantity if some items are still in use at the customer's location.",
+          "commonQuestions": []
+        },
+        {
+          "key": "remarks",
+          "label": "Remarks",
+          "type": "text",
+          "demoValue": "For washing",
+          "explanation": "Add any notes about the pickup. For example, 'Customer reported 5 damaged items' or 'Partial pickup requested'.",
+          "commonQuestions": []
+        }
+      ]
+    },
+    {
+      "id": "rentalItem",
+      "name": "Rental Item",
+      "triggerText": "Add Rental Item",
+      "repeatable": true,
+      "autoPopulated": false,
+      "demoItemCount": 1,
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "RENTAL"
+      },
+      "explanation": "Add the linen items the customer is renting. Rental orders are for short-term use, like events or temporary setups.",
+      "fields": [
+        {
+          "key": "product",
+          "label": "Product",
+          "type": "select",
+          "demoValue": "Bath Towel (Standard)",
+          "explanation": "Select the linen product being rented out to the customer. The available products come from your product catalog.",
+          "commonQuestions": []
+        },
+        {
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "100",
+          "explanation": "Enter the number of items being rented. Make sure this matches what was agreed with the customer.",
+          "commonQuestions": []
+        },
+        {
+          "key": "rentalDuration",
+          "label": "Rental Duration (days)",
+          "type": "text",
+          "demoValue": "30",
+          "explanation": "Enter how many days the customer will be renting these items. This affects the billing calculation \u2014 longer durations cost more.",
+          "commonQuestions": []
+        }
+      ]
+    },
+    {
+      "id": "washingItem",
+      "name": "Washing Item",
+      "triggerText": "Add Washing Item",
+      "repeatable": true,
+      "autoPopulated": false,
+      "demoItemCount": 1,
+      "visibleWhen": {
+        "field": "orderType",
+        "value": "WASHING"
+      },
+      "explanation": "Add the linen items being sent for washing. Washing orders are for customers who want their own linen cleaned at your facility.",
+      "fields": [
+        {
+          "key": "product",
+          "label": "Product",
+          "type": "select",
+          "demoValue": "Bath Towel (Standard)",
+          "explanation": "Select the linen product being sent for washing. This is the type of item the customer wants cleaned.",
+          "commonQuestions": []
+        },
+        {
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "200",
+          "explanation": "Enter the number of items being sent for laundry service. The total will be used to calculate the washing charges.",
+          "commonQuestions": []
+        }
+      ]
+    }
+  ],
+  "wrapUp": "That covers all the fields for creating an order! You've seen how to select a customer, choose the order type, set dates, and add items. Remember, this was a demo \u2014 all the data has been cleared. When you're ready, you can create a real order. Just say the name of any other form if you'd like to learn about it."
+}
 
 ================================================================================
 File: agent-backend/src/handlers/statusHandler.ts
@@ -3732,7 +6000,10 @@ export async function transcribe(base64Audio: string): Promise<SttResult> {
 
   const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST",
-    headers: { "xi-api-key": ELEVENLABS_API_KEY },
+    headers: {
+      "xi-api-key": ELEVENLABS_API_KEY,
+      "Connection": "keep-alive",
+    },
     body: form,
   });
 
@@ -3794,17 +6065,92 @@ File: agent-backend/src/services/voicePipeline.ts
 ================================================================================
 
 import type { VoiceMessage, HandlerContext } from "../types.js";
-import { orchestrate } from "../../llm/orchestrator.js";
+import { orchestrate, orchestrateStream } from "../../llm/orchestrator.js";
 import { walkthroughDriver } from "../walkthrough/driver.js";
 import * as sttService from "./sttService.js";
 import * as ttsService from "./ttsService.js";
 import * as responseSender from "./responseSender.js";
+
+class SentenceStreamer {
+  private buffer: string = "";
+
+  public feed(chunk: string): string[] {
+    this.buffer += chunk;
+    const sentences: string[] = [];
+
+    while (true) {
+      let foundIdx = -1;
+      let foundPuncLen = 1;
+
+      for (let i = 0; i < this.buffer.length; i++) {
+        const char = this.buffer[i];
+        if (char === '\n') {
+          foundIdx = i;
+          foundPuncLen = 1;
+          break;
+        }
+        if (char === '.' || char === '?' || char === '!') {
+          const nextChar = this.buffer[i + 1];
+          if (!nextChar || /\s/.test(nextChar)) {
+            const prevText = this.buffer.slice(0, i);
+            const words = prevText.trim().split(/\s+/);
+            const lastWord = words[words.length - 1]?.toLowerCase()?.replace(/[^a-z]/g, "");
+            
+            const abbreviations = ["mr", "ms", "mrs", "dr", "st", "eg", "ie", "vs"];
+            if (char === '.' && lastWord && abbreviations.includes(lastWord)) {
+              if (nextChar === '\n') {
+                foundIdx = i;
+                foundPuncLen = 1;
+                break;
+              }
+              continue;
+            }
+
+            foundIdx = i;
+            foundPuncLen = 1;
+            break;
+          }
+        }
+      }
+
+      if (foundIdx === -1) {
+        break;
+      }
+
+      const sentence = this.buffer.slice(0, foundIdx + foundPuncLen).trim();
+      this.buffer = this.buffer.slice(foundIdx + foundPuncLen);
+
+      if (sentence.length > 0) {
+        sentences.push(sentence);
+      }
+    }
+
+    return sentences;
+  }
+
+  public flush(): string[] {
+    const sentences: string[] = [];
+    const remaining = this.buffer.trim();
+    if (remaining.length > 0) {
+      sentences.push(remaining);
+    }
+    this.buffer = "";
+    return sentences;
+  }
+}
 
 export async function handleVoiceMessage(
   message: VoiceMessage,
   context: HandlerContext
 ): Promise<void> {
   const { sessionId, send } = context;
+
+  const tracker = {
+    startTime: Date.now(),
+    sttDuration: 0,
+    llmDuration: 0,
+    ttsDuration: 0,
+  };
 
   // Test command fast path
   if (message.text && message.text.startsWith("test:")) {
@@ -3815,7 +6161,7 @@ export async function handleVoiceMessage(
 
   // Text path for dev testing
   if (message.text && !message.audio) {
-    await handleText(message.text, undefined, context);
+    await handleText(message.text, undefined, context, tracker);
     return;
   }
 
@@ -3823,16 +6169,29 @@ export async function handleVoiceMessage(
   if (!message.audio) return;
 
   try {
+    const sttStart = Date.now();
     const stt = await sttService.transcribeAudio(message.audio);
+    tracker.sttDuration = Date.now() - sttStart;
 
     if (!stt.text) {
       const count = sttService.incrementRetry(sessionId);
 
       if (count <= sttService.getMaxRetries()) {
+        const totalDuration = Date.now() - tracker.startTime;
         responseSender.sendRespond(
           send,
           "I didn't catch that, could you repeat?",
-          true
+          true,
+          undefined,
+          {
+            stt: tracker.sttDuration,
+            llm: 0,
+            tts: 0,
+            total: totalDuration,
+          }
+        );
+        console.log(
+          `[Latency] 🎙️ No speech detected. STT: ${tracker.sttDuration}ms | Total: ${totalDuration}ms`
         );
       } else {
         sttService.resetRetry(sessionId);
@@ -3845,13 +6204,21 @@ export async function handleVoiceMessage(
     // Echo what we heard for UI
     responseSender.sendRespond(send, `You said: "${stt.text}"`, false);
 
-    await handleText(stt.text, stt.languageCode, context);
+    await handleText(stt.text, stt.languageCode, context, tracker);
   } catch (error) {
     console.error("[VoiceHandler] STT error:", error);
+    const totalDuration = Date.now() - tracker.startTime;
     responseSender.sendRespond(
       send,
       "Sorry, I had trouble hearing you. Please try again.",
-      true
+      true,
+      undefined,
+      {
+        stt: tracker.sttDuration,
+        llm: 0,
+        tts: 0,
+        total: totalDuration,
+      }
     );
   }
 }
@@ -3859,33 +6226,151 @@ export async function handleVoiceMessage(
 async function handleText(
   text: string,
   languageCode: string | undefined,
-  context: HandlerContext
+  context: HandlerContext,
+  tracker?: {
+    startTime: number;
+    sttDuration: number;
+    llmDuration: number;
+    ttsDuration: number;
+  }
 ): Promise<void> {
   const { send, sessionId } = context;
   const lang = languageCode || "en";
 
-  const { toolCalls, rawContent } = await orchestrate(text, sessionId, languageCode);
+  const llmStart = Date.now();
+  const responseMessageId = crypto.randomUUID();
+  const sentenceStreamer = new SentenceStreamer();
 
+  let accumulatedText = "";
+  const ttsPromises: Promise<void>[] = [];
+  let isFirstSentence = true;
+  const ttsStart = Date.now();
+
+  const handleCompletedSentence = (sentence: string) => {
+    if (accumulatedText) {
+      accumulatedText += " " + sentence;
+    } else {
+      accumulatedText = sentence;
+    }
+
+    const currentAccumulated = accumulatedText;
+
+    const p = new Promise<void>((resolve, reject) => {
+      let isFirstChunk = true;
+      ttsService.synthesizeStream(sentence, lang, (chunkBase64, isFinal) => {
+        if (isFirstChunk) {
+          isFirstChunk = false;
+          if (isFirstSentence) {
+            isFirstSentence = false;
+            if (tracker) {
+              tracker.ttsDuration = Date.now() - ttsStart;
+            }
+            const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+            const latency = tracker ? {
+              stt: tracker.sttDuration,
+              llm: tracker.llmDuration,
+              tts: tracker.ttsDuration,
+              total: totalDuration,
+            } : undefined;
+
+            responseSender.sendRespond(send, currentAccumulated, true, responseMessageId, latency);
+
+            if (tracker) {
+              console.log(
+                `[Latency Breakdown] 🔊 Speech Response (Stream Started): "${sentence}"
+-----------------------------------------
+🎙️ STT:   ${tracker.sttDuration}ms
+🧠 LLM:   ${tracker.llmDuration}ms
+🔊 TTS (TTFB): ${tracker.ttsDuration}ms
+⏱️ Total: ${totalDuration}ms
+-----------------------------------------`
+              );
+            }
+          } else {
+            responseSender.sendRespond(send, currentAccumulated, true, responseMessageId);
+          }
+        }
+
+        if (chunkBase64) {
+          responseSender.sendTtsAudio(send, chunkBase64, responseMessageId, false);
+        }
+      }, sessionId).then(resolve).catch(reject); // Session ID isolated
+    });
+
+    ttsPromises.push(p);
+  };
+
+  const { toolCalls, rawContent } = await orchestrateStream(
+    text,
+    sessionId,
+    languageCode,
+    (chunk) => {
+      if (tracker && tracker.llmDuration === 0) {
+        tracker.llmDuration = Date.now() - llmStart;
+      }
+
+      const sentences = sentenceStreamer.feed(chunk);
+      for (const sentence of sentences) {
+        handleCompletedSentence(sentence);
+      }
+    }
+  );
+
+  const finalSentences = sentenceStreamer.flush();
+  for (const sentence of finalSentences) {
+    handleCompletedSentence(sentence);
+  }
+
+  await Promise.all(ttsPromises);
+
+  if (ttsPromises.length > 0) {
+    responseSender.sendTtsAudio(send, "", responseMessageId, true);
+  }
+
+  let spoke = false;
   for (const tc of toolCalls) {
     switch (tc.name) {
       case "navigate": {
         responseSender.sendNavigate(send, tc.args);
+        if (tracker && !spoke) {
+          const totalDuration = Date.now() - tracker.startTime;
+          console.log(
+            `[Latency Breakdown] 🚀 Navigate (No Speech)
+-----------------------------------------
+🎙️ STT:   ${tracker.sttDuration}ms
+🧠 LLM:   ${tracker.llmDuration}ms
+🔊 TTS:   0ms
+⏱️ Total: ${totalDuration}ms
+-----------------------------------------`
+          );
+        }
         break;
       }
       case "start_walkthrough": {
         const msg = String(tc.args.message || "Starting walkthrough");
         const formId = String(tc.args.formId);
-        await speakAndSend(send, msg, lang);
+        spoke = true;
+        // Suppress static speech synthesis if dynamic content was already streamed
+        if (!accumulatedText) {
+          await speakAndSend(send, msg, lang, tracker);
+        }
         walkthroughDriver.start(formId, context.sessionId);
         break;
       }
       case "answer_question": {
-        await speakAndSend(send, String(tc.args.response), lang);
+        spoke = true;
+        // Suppress redundancy: do not re-speak if dynamic content was already streamed
+        if (!accumulatedText) {
+          await speakAndSend(send, String(tc.args.response), lang, tracker);
+        }
         break;
       }
       case "detour_to_field": {
         const session = walkthroughDriver.getSession(sessionId);
         if (session) {
+          // Interrupt any active wait in status awaiter so driver thread pauses instantly
+          walkthroughDriver.interrupt(sessionId);
+
           session.stateMachine.transition("DETOUR");
           const targetFieldKey = String(tc.args.fieldKey);
           let matchedField = session.schema.fields.find(f => f.key === targetFieldKey);
@@ -3898,51 +6383,119 @@ async function handleText(
               }
             }
           }
-
-          // Move visual spotlight overlay on the client app immediately
           context.send({ type: "tool", tool: "detour_start", args: { fieldKey: targetFieldKey } });
           context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetFieldKey, label: matchedField?.label } });
 
           const narrationText = matchedField?.explanation || "Let me highlight that field on your form.";
-          await speakAndSend(send, narrationText, lang);
+          spoke = true;
+          // Only speak static narration if dynamic explanation wasn't already streamed
+          if (!accumulatedText) {
+            await speakAndSend(send, narrationText, lang, tracker);
+          }
         }
         break;
       }
       case "resume_walkthrough": {
-        await executeAutoResume(context);
+        const session = walkthroughDriver.getSession(sessionId);
+        if (session) {
+          walkthroughDriver.interrupt(sessionId);
+        }
+        spoke = true;
+        await executeAutoResume(context, tracker);
         break;
       }
       case "ask_clarification": {
-        await speakAndSend(send, String(tc.args.message), lang);
+        spoke = true;
+        if (!accumulatedText) {
+          await speakAndSend(send, String(tc.args.message), lang, tracker);
+        }
         break;
       }
     }
   }
 
-  if (toolCalls.length === 0 && rawContent) {
-    await speakAndSend(send, rawContent, lang);
+  if (toolCalls.length === 0 && rawContent && ttsPromises.length === 0) {
+    spoke = true;
+    await speakAndSend(send, rawContent, lang, tracker);
   }
 }
 
 async function speakAndSend(
   send: HandlerContext["send"],
   text: string,
-  languageCode: string
+  languageCode: string,
+  tracker?: {
+    startTime: number;
+    sttDuration: number;
+    llmDuration: number;
+    ttsDuration: number;
+  }
 ): Promise<void> {
-  const messageId = responseSender.sendRespond(send, text, true);
+  const ttsStart = Date.now();
+  let messageId: string | undefined = undefined;
+  let isFirstChunk = true;
 
   try {
-    const base64 = await ttsService.synthesizeToBase64(text, languageCode);
-    responseSender.sendTtsAudio(send, base64, messageId);
+    await ttsService.synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
+      if (isFirstChunk) {
+        isFirstChunk = false;
+        if (tracker) {
+          tracker.ttsDuration = Date.now() - ttsStart;
+        }
+        const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+        const latency = tracker ? {
+          stt: tracker.sttDuration,
+          llm: tracker.llmDuration,
+          tts: tracker.ttsDuration,
+          total: totalDuration,
+        } : undefined;
+
+        messageId = responseSender.sendRespond(send, text, true, undefined, latency);
+
+        if (tracker) {
+          console.log(
+            `[Latency Breakdown] 🔊 Speech Response (Stream Started): "${text}"
+-----------------------------------------
+🎙️ STT:   ${tracker.sttDuration}ms
+🧠 LLM:   ${tracker.llmDuration}ms
+🔊 TTS (TTFB): ${tracker.ttsDuration}ms
+⏱️ Total: ${totalDuration}ms
+-----------------------------------------`
+          );
+        }
+      }
+
+      if (messageId) {
+        responseSender.sendTtsAudio(send, chunkBase64, messageId, isFinal);
+      }
+    });
   } catch (e) {
-    console.error("[VoiceHandler] TTS failed:", e);
+    console.error("[VoiceHandler] TTS stream failed:", e);
+    if (isFirstChunk) {
+      const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+      const latency = tracker ? {
+        stt: tracker.sttDuration,
+        llm: tracker.llmDuration,
+        tts: Date.now() - ttsStart,
+        total: totalDuration,
+      } : undefined;
+      responseSender.sendRespond(send, text, false, undefined, latency);
+    }
   }
 }
 
 /**
  * Recovers execution states back down to original tracking coordinates seamlessly.
  */
-export async function executeAutoResume(context: HandlerContext): Promise<void> {
+export async function executeAutoResume(
+  context: HandlerContext,
+  tracker?: {
+    startTime: number;
+    sttDuration: number;
+    llmDuration: number;
+    ttsDuration: number;
+  }
+): Promise<void> {
   const session = walkthroughDriver.getSession(context.sessionId);
   if (session && session.stateMachine.currentState === "DETOUR_QA") {
     session.stateMachine.transition("DETOUR_COMPLETE");
@@ -3966,7 +6519,7 @@ export async function executeAutoResume(context: HandlerContext): Promise<void> 
               itemIndex: originalCtx.subFormItemIndex,
             },
           });
-          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en");
+          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
           return;
         }
       }
@@ -3974,7 +6527,7 @@ export async function executeAutoResume(context: HandlerContext): Promise<void> 
 
     if (targetField) {
       context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetField.key, label: targetField.label } });
-      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en");
+      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
     }
   }
 }
@@ -3986,43 +6539,65 @@ File: agent-backend/src/services/elevenLabsTTS.ts
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
+const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_multilingual_v2";
 
-// TTS Queue to ensure exactly 1 request runs at a time (preventing 429 concurrent limits)
 interface TTSJob {
   text: string;
   languageCode: string;
-  resolve: (val: string) => void;
+  onChunk: (chunkBase64: string, isFinal: boolean) => void;
+  resolve: () => void;
   reject: (err: any) => void;
 }
 
-const ttsQueue: TTSJob[] = [];
-let ttsBusy = false;
-
-async function processQueue() {
-  if (ttsBusy) return;
-  ttsBusy = true;
-
-  while (ttsQueue.length > 0) {
-    const job = ttsQueue.shift()!;
-    try {
-      const result = await synthesizeDirect(job.text, job.languageCode);
-      job.resolve(result);
-    } catch (err) {
-      job.reject(err);
-    }
-    // Small gap between requests to prevent rapid succession rate limits
-    await new Promise((r) => setTimeout(r, 300));
-  }
-
-  ttsBusy = false;
+interface SessionQueueState {
+  queue: TTSJob[];
+  busy: boolean;
+  currentDelay: number;
 }
 
-// Actual fetch API call with 429 retry support
-async function synthesizeDirect(
+// Session-specific queues to prevent multi-user bottlenecks
+const sessionQueues = new Map<string, SessionQueueState>();
+
+const BASELINE_DELAY = 50;
+const BACKOFF_DELAY = 1000;
+
+async function processSessionQueue(sessionId: string) {
+  const state = sessionQueues.get(sessionId);
+  if (!state || state.busy) return;
+  state.busy = true;
+
+  while (state.queue.length > 0) {
+    const job = state.queue.shift()!;
+    try {
+      await synthesizeStreamDirect(job.text, job.languageCode, job.onChunk, state);
+      job.resolve();
+      // On success, scale back down to baseline delay
+      if (state.currentDelay > BASELINE_DELAY) {
+        state.currentDelay = Math.max(BASELINE_DELAY, state.currentDelay - 250);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("429")) {
+        state.currentDelay = BACKOFF_DELAY;
+      }
+      job.reject(err);
+    }
+    // Adaptive delay per session
+    await new Promise((r) => setTimeout(r, state.currentDelay));
+  }
+
+  state.busy = false;
+  if (state.queue.length === 0) {
+    sessionQueues.delete(sessionId);
+  }
+}
+
+async function synthesizeStreamDirect(
   text: string,
   languageCode: string,
+  onChunk: (chunkBase64: string, isFinal: boolean) => void,
+  state?: { currentDelay: number },
   attempt = 1
-): Promise<string> {
+): Promise<void> {
   if (!ELEVENLABS_API_KEY) {
     throw new Error("ELEVENLABS_API_KEY not configured");
   }
@@ -4032,43 +6607,93 @@ async function synthesizeDirect(
 
   const voiceId = ELEVENLABS_VOICE_ID;
 
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
     method: "POST",
     headers: {
       "xi-api-key": ELEVENLABS_API_KEY,
       "Content-Type": "application/json",
       "Accept": "audio/mpeg",
+      "Connection": "keep-alive",
     },
     body: JSON.stringify({
       text,
-      model_id: "eleven_multilingual_v2",
+      model_id: ELEVENLABS_TTS_MODEL,
       voice_settings: { stability: 0.5, similarity_boost: 0.8 },
     }),
   });
 
-  // If rate limited or concurrency limit reached, retry with delay
+  // If rate limited, retry with delay
   if (res.status === 429 && attempt <= 2) {
+    if (state) state.currentDelay = BACKOFF_DELAY;
     console.warn(
       `[TTS] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
     );
     await new Promise((r) => setTimeout(r, 1000));
-    return synthesizeDirect(text, languageCode, attempt + 1);
+    return synthesizeStreamDirect(text, languageCode, onChunk, state, attempt + 1);
+  }
+  if (res.status === 429 && state) {
+    state.currentDelay = BACKOFF_DELAY;
   }
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`TTS failed ${res.status}: ${text}`);
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`TTS failed ${res.status}: ${errorText}`);
   }
 
-  const arrayBuffer = await res.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
-  return `data:audio/mpeg;base64,${base64}`;
+  if (!res.body) {
+    throw new Error("Response body is empty or not readable");
+  }
+
+  const reader = res.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        onChunk("", true);
+        break;
+      }
+      if (value && value.length > 0) {
+        const base64 = Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64");
+        onChunk(base64, false);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
-export function synthesize(text: string, languageCode: string): Promise<string> {
+export function synthesizeStream(
+  text: string,
+  languageCode: string,
+  onChunk: (chunkBase64: string, isFinal: boolean) => void,
+  sessionId?: string
+): Promise<void> {
+  if (!sessionId) {
+    return synthesizeStreamDirect(text, languageCode, onChunk);
+  }
+
   return new Promise((resolve, reject) => {
-    ttsQueue.push({ text, languageCode, resolve, reject });
-    processQueue();
+    let state = sessionQueues.get(sessionId);
+    if (!state) {
+      state = { queue: [], busy: false, currentDelay: BASELINE_DELAY };
+      sessionQueues.set(sessionId, state);
+    }
+    state.queue.push({ text, languageCode, onChunk, resolve, reject });
+    processSessionQueue(sessionId);
+  });
+}
+
+export function synthesize(text: string, languageCode: string, sessionId?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let accumulatedBase64 = "";
+    synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
+      if (chunkBase64) {
+        accumulatedBase64 += chunkBase64;
+      }
+      if (isFinal) {
+        resolve(`data:audio/mpeg;base64,${accumulatedBase64}`);
+      }
+    }, sessionId).catch(reject);
   });
 }
 
@@ -4083,13 +6708,19 @@ export function sendRespond(
   send: HandlerContext["send"],
   message: string,
   tts: boolean,
-  messageId?: string
+  messageId?: string,
+  latency?: {
+    stt: number;
+    llm: number;
+    tts: number;
+    total: number;
+  }
 ): string {
   const id = messageId || crypto.randomUUID();
   send({
     type: "tool",
     tool: "respond",
-    args: { message, tts, messageId: id },
+    args: { message, tts, messageId: id, latency },
   });
   return id;
 }
@@ -4104,9 +6735,10 @@ export function sendNavigate(
 export function sendTtsAudio(
   send: HandlerContext["send"],
   base64: string,
-  messageId: string
+  messageId: string,
+  isFinal?: boolean
 ): void {
-  send({ type: "tts_audio", audio: base64, messageId });
+  send({ type: "tts_audio", audio: base64, messageId, isFinal });
 }
 
 
@@ -4114,7 +6746,9 @@ export function sendTtsAudio(
 File: agent-backend/src/services/ttsService.ts
 ================================================================================
 
-import { synthesize } from "./elevenLabsTTS.js";
+import { synthesize, synthesizeStream } from "./elevenLabsTTS.js";
+
+export { synthesizeStream };
 
 export async function synthesizeToBase64(
   text: string,

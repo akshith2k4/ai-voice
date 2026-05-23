@@ -22,22 +22,8 @@ const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: stri
   rawContent: null as string | null,
 }));
 
-const mockOrchestrateStream = mock(async (
-  text: string,
-  sessionId: string,
-  lang: string | undefined,
-  onChunk: (chunk: string) => void
-) => {
-  const res = await mockOrchestrate(text, sessionId, lang);
-  if (res.rawContent) {
-    onChunk(res.rawContent);
-  }
-  return res;
-});
-
 const mockDriverStart = mock((formId: string, sessionId: string) => {});
 const mockGetSession = mock((sessionId: string) => null as any);
-const mockInterrupt = mock((sessionId: string) => {});
 
 // Mock the service modules that voicePipeline imports
 mock.module("../src/services/sttService.js", () => ({
@@ -55,14 +41,12 @@ mock.module("../src/services/ttsService.js", () => ({
 
 mock.module("../llm/orchestrator.js", () => ({
   orchestrate: mockOrchestrate,
-  orchestrateStream: mockOrchestrateStream,
 }));
 
 mock.module("../src/walkthrough/driver.js", () => ({
   walkthroughDriver: {
     start: mockDriverStart,
     getSession: mockGetSession,
-    interrupt: mockInterrupt,
   },
 }));
 
@@ -85,10 +69,8 @@ function resetAllMocks() {
   mockSynthesizeToBase64.mockReset();
   mockSynthesizeStream.mockReset();
   mockOrchestrate.mockReset();
-  mockOrchestrateStream.mockReset();
   mockDriverStart.mockReset();
   mockGetSession.mockReset();
-  mockInterrupt.mockReset();
 
   mockTranscribeAudio.mockImplementation(async () => ({
     text: "hello world",
@@ -104,18 +86,6 @@ function resetAllMocks() {
     toolCalls: [],
     rawContent: null,
   }));
-  mockOrchestrateStream.mockImplementation(async (
-    text: string,
-    sessionId: string,
-    lang: string | undefined,
-    onChunk: (chunk: string) => void
-  ) => {
-    const res = await mockOrchestrate(text, sessionId, lang);
-    if (res.rawContent) {
-      onChunk(res.rawContent);
-    }
-    return res;
-  });
 
   // Reset the real sttService retry counts by re-importing (sttService is already mocked)
   // We need to track retry behavior through the mocked sttService

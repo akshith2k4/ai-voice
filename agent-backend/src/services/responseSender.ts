@@ -4,19 +4,13 @@ export function sendRespond(
   send: HandlerContext["send"],
   message: string,
   tts: boolean,
-  messageId?: string,
-  latency?: {
-    stt: number;
-    llm: number;
-    tts: number;
-    total: number;
-  }
+  messageId?: string
 ): string {
   const id = messageId || crypto.randomUUID();
   send({
     type: "tool",
     tool: "respond",
-    args: { message, tts, messageId: id, latency },
+    args: { message, tts, messageId: id },
   });
   return id;
 }
@@ -31,8 +25,7 @@ export function sendNavigate(
 export function sendTtsAudio(
   send: HandlerContext["send"],
   base64: string,
-  messageId: string,
-  isFinal?: boolean
+  messageId: string
 ): void {
-  send({ type: "tts_audio", audio: base64, messageId, isFinal });
+  send({ type: "tts_audio", audio: base64, messageId });
 }
