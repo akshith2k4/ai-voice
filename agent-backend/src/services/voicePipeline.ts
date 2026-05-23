@@ -197,40 +197,55 @@ async function speakAndSend(
   }
 ): Promise<void> {
   const ttsStart = Date.now();
-  let base64 = "";
+  let messageId: string | undefined = undefined;
+  let isFirstChunk = true;
+
   try {
-    base64 = await ttsService.synthesizeToBase64(text, languageCode);
-    if (tracker) {
-      tracker.ttsDuration = Date.now() - ttsStart;
-    }
-  } catch (e) {
-    console.error("[VoiceHandler] TTS failed:", e);
-  }
+    await ttsService.synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
+      if (isFirstChunk) {
+        isFirstChunk = false;
+        if (tracker) {
+          tracker.ttsDuration = Date.now() - ttsStart;
+        }
+        const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+        const latency = tracker ? {
+          stt: tracker.sttDuration,
+          llm: tracker.llmDuration,
+          tts: tracker.ttsDuration,
+          total: totalDuration,
+        } : undefined;
 
-  const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
-  const latency = tracker ? {
-    stt: tracker.sttDuration,
-    llm: tracker.llmDuration,
-    tts: tracker.ttsDuration,
-    total: totalDuration,
-  } : undefined;
+        messageId = responseSender.sendRespond(send, text, true, undefined, latency);
 
-  const messageId = responseSender.sendRespond(send, text, !!base64, undefined, latency);
-
-  if (base64) {
-    responseSender.sendTtsAudio(send, base64, messageId);
-  }
-
-  if (tracker) {
-    console.log(
-      `[Latency Breakdown] 🔊 Speech Response: "${text}"
+        if (tracker) {
+          console.log(
+            `[Latency Breakdown] 🔊 Speech Response (Stream Started): "${text}"
 -----------------------------------------
 🎙️ STT:   ${tracker.sttDuration}ms
 🧠 LLM:   ${tracker.llmDuration}ms
-🔊 TTS:   ${tracker.ttsDuration}ms
+🔊 TTS (TTFB): ${tracker.ttsDuration}ms
 ⏱️ Total: ${totalDuration}ms
 -----------------------------------------`
-    );
+          );
+        }
+      }
+
+      if (messageId) {
+        responseSender.sendTtsAudio(send, chunkBase64, messageId, isFinal);
+      }
+    });
+  } catch (e) {
+    console.error("[VoiceHandler] TTS stream failed:", e);
+    if (isFirstChunk) {
+      const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
+      const latency = tracker ? {
+        stt: tracker.sttDuration,
+        llm: tracker.llmDuration,
+        tts: Date.now() - ttsStart,
+        total: totalDuration,
+      } : undefined;
+      responseSender.sendRespond(send, text, false, undefined, latency);
+    }
   }
 }
 

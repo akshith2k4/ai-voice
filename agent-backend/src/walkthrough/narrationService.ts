@@ -18,13 +18,16 @@ export class NarrationService {
     const id = messageId || crypto.randomUUID();
 
     try {
-      const { synthesize } = await import("../services/elevenLabsTTS.js");
-      const audioDataUrl = await synthesize(text, languageCode);
-      const base64 = audioDataUrl.split(",")[1];
-      connectionManager.send(session.sessionId, {
-        type: "tts_audio",
-        audio: base64,
-        messageId: id,
+      const { synthesizeStream } = await import("../services/elevenLabsTTS.js");
+      await new Promise<void>((resolve, reject) => {
+        synthesizeStream(text, languageCode, (chunkBase64, isFinal) => {
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            audio: chunkBase64,
+            messageId: id,
+            isFinal,
+          });
+        }).then(resolve).catch(reject);
       });
       return id;
     } catch (err) {

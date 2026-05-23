@@ -12,6 +12,11 @@ const mockSynthesizeToBase64 = mock(async (text: string, lang: string) => {
   return "aGVsbG8=";
 });
 
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (chunk: string, isFinal: boolean) => void) => {
+  onChunk("aGVsbG8=", false);
+  onChunk("", true);
+});
+
 const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: string) => ({
   toolCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   rawContent: null as string | null,
@@ -31,6 +36,7 @@ mock.module("../src/services/sttService.js", () => ({
 
 mock.module("../src/services/ttsService.js", () => ({
   synthesizeToBase64: mockSynthesizeToBase64,
+  synthesizeStream: mockSynthesizeStream,
 }));
 
 mock.module("../llm/orchestrator.js", () => ({
@@ -61,6 +67,7 @@ function createCtx(overrides?: Record<string, unknown>) {
 function resetAllMocks() {
   mockTranscribeAudio.mockReset();
   mockSynthesizeToBase64.mockReset();
+  mockSynthesizeStream.mockReset();
   mockOrchestrate.mockReset();
   mockDriverStart.mockReset();
   mockGetSession.mockReset();
@@ -71,6 +78,10 @@ function resetAllMocks() {
     confidence: 0.95,
   }));
   mockSynthesizeToBase64.mockImplementation(async () => "aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: any) => {
+    onChunk("aGVsbG8=", false);
+    onChunk("", true);
+  });
   mockOrchestrate.mockImplementation(async () => ({
     toolCalls: [],
     rawContent: null,
@@ -456,7 +467,6 @@ describe("VoiceHandler — acceptance tests", () => {
         ],
         rawContent: null,
       }));
-      mockSynthesizeToBase64.mockImplementation(async () => "dGVzdA==");
 
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "test?" }, ctx as any);
@@ -466,10 +476,10 @@ describe("VoiceHandler — acceptance tests", () => {
       );
       const ttsMsgs = ctx.sent.filter((m: any) => m.type === "tts_audio");
 
-      expect(respondMsgs.length).toBe(ttsMsgs.length);
+      expect(ttsMsgs.length).toBeGreaterThanOrEqual(1);
       for (const rm of respondMsgs) {
-        const matching = ttsMsgs.find((t: any) => t.messageId === rm.args.messageId);
-        expect(matching).toBeDefined();
+        const matching = ttsMsgs.filter((t: any) => t.messageId === rm.args.messageId);
+        expect(matching.length).toBeGreaterThanOrEqual(1);
       }
     });
   });
@@ -485,7 +495,7 @@ describe("VoiceHandler — acceptance tests", () => {
         ],
         rawContent: null,
       }));
-      mockSynthesizeToBase64.mockRejectedValue(new Error("TTS API down"));
+      mockSynthesizeStream.mockRejectedValue(new Error("TTS API down"));
 
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "test?" }, ctx as any);
