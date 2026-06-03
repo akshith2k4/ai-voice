@@ -17,24 +17,47 @@ const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: stri
   rawContent: null as string | null,
 }));
 
+const mockOrchestrateStream = mock(async function* (text: string, sessionId: string, lang?: string) {
+  const res = await mockOrchestrate(text, sessionId, lang);
+  if (res.rawContent) {
+    yield { type: "text", text: res.rawContent };
+  }
+  for (const tc of res.toolCalls) {
+    yield { type: "tool_call", toolCall: tc };
+  }
+  return res;
+});
+
 const mockDriverStart = mock((formId: string, sessionId: string) => {});
 const mockGetSession = mock((sessionId: string) => null as any);
 
-// Mock the service modules that voicePipeline imports
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+  const base64 = await mockSynthesizeToBase64(text, lang);
+  onChunk(base64, true);
+});
+
 mock.module("../src/services/sttService.js", () => ({
   transcribeAudio: mockTranscribeAudio,
   getRetryCount: mock(() => 0),
   incrementRetry: mock((sid: string) => 1),
   resetRetry: mock(() => {}),
   getMaxRetries: mock(() => 2),
+  handleAudioChunk: mock(async () => {}),
+  handleAudioEnd: mock(async () => ({
+    text: "hello world",
+    languageCode: "en",
+    confidence: 0.95,
+  })),
 }));
 
 mock.module("../src/services/ttsService.js", () => ({
   synthesizeToBase64: mockSynthesizeToBase64,
+  synthesizeStream: mockSynthesizeStream,
 }));
 
 mock.module("../llm/orchestrator.js", () => ({
   orchestrate: mockOrchestrate,
+  orchestrateStream: mockOrchestrateStream,
 }));
 
 mock.module("../src/walkthrough/driver.js", () => ({
@@ -61,7 +84,9 @@ function createCtx(overrides?: Record<string, unknown>) {
 function resetAllMocks() {
   mockTranscribeAudio.mockReset();
   mockSynthesizeToBase64.mockReset();
+  mockSynthesizeStream.mockReset();
   mockOrchestrate.mockReset();
+  mockOrchestrateStream.mockReset();
   mockDriverStart.mockReset();
   mockGetSession.mockReset();
 
@@ -71,10 +96,24 @@ function resetAllMocks() {
     confidence: 0.95,
   }));
   mockSynthesizeToBase64.mockImplementation(async () => "aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+    const base64 = await mockSynthesizeToBase64(text, lang);
+    onChunk(base64, true);
+  });
   mockOrchestrate.mockImplementation(async () => ({
     toolCalls: [],
     rawContent: null,
   }));
+  mockOrchestrateStream.mockImplementation(async function* (text: string, sessionId: string, lang?: string) {
+    const res = await mockOrchestrate(text, sessionId, lang);
+    if (res.rawContent) {
+      yield { type: "text", text: res.rawContent };
+    }
+    for (const tc of res.toolCalls) {
+      yield { type: "tool_call", toolCall: tc };
+    }
+    return res;
+  });
 
   // Reset the real sttService retry counts by re-importing (sttService is already mocked)
   // We need to track retry behavior through the mocked sttService

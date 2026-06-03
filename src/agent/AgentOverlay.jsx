@@ -50,6 +50,8 @@ const MIC_CONFIG = {
 export default function AgentOverlay() {
   const {
     sendAudio,
+    sendAudioChunk,
+    sendAudioEnd,
     connectionStatus,
     agentMessages,
     isProcessing,
@@ -65,6 +67,9 @@ export default function AgentOverlay() {
   const [micPermission, setMicPermission] = useState("prompt"); // "prompt" | "granted" | "denied"
 
   const mediaRecorderRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const processorRef = useRef(null);
+  const sourceRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
   const messagesEndRef = useRef(null);
@@ -74,6 +79,29 @@ export default function AgentOverlay() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [agentMessages]);
+
+  // Helper: Convert Float32Array PCM to 16-bit signed Int16Array PCM
+  const float32To16BitPCM = (float32Array) => {
+    const buffer = new ArrayBuffer(float32Array.length * 2);
+    const view = new DataView(buffer);
+    let offset = 0;
+    for (let i = 0; i < float32Array.length; i++, offset += 2) {
+      let s = Math.max(-1, Math.min(1, float32Array[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buffer;
+  };
+
+  // Helper: Convert ArrayBuffer to base64 string
+  const arrayBufferToBase64 = (buffer) => {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+  };
 
   // ---- Push-to-talk ----
   const startRecording = useCallback(async () => {
@@ -92,38 +120,40 @@ export default function AgentOverlay() {
       }
 
       const stream = streamRef.current;
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
+      
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContextClass({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
 
-      chunksRef.current = [];
+      const source = audioContext.createMediaStreamSource(stream);
+      sourceRef.current = source;
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
+      // ScriptProcessor with buffer size of 4096 (256ms of 16kHz audio)
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        if (!recordingActiveRef.current) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate max amplitude to help debug microphone capture
+        let maxAmp = 0;
+        for (let i = 0; i < inputData.length; i++) {
+          const val = Math.abs(inputData[i]);
+          if (val > maxAmp) maxAmp = val;
+        }
+        console.log(`[AudioCapture] Chunks captured. Max amplitude: ${maxAmp.toFixed(4)}`);
+
+        const pcmBuffer = float32To16BitPCM(inputData);
+        const base64Chunk = arrayBufferToBase64(pcmBuffer);
+        if (base64Chunk) {
+          sendAudioChunk(base64Chunk);
         }
       };
 
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm;codecs=opus" });
-        chunksRef.current = [];
-        recordingActiveRef.current = false;
-        setIsRecording(false);
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
-        // Don't send if blob is too small (< MIN_AUDIO_BYTES = likely just noise)
-        if (blob.size < TIMING.MIN_AUDIO_BYTES) return;
-
-        sendAudio(blob);
-      };
-
-      mediaRecorder.onerror = (error) => {
-        console.error("[AgentOverlay] MediaRecorder error:", error);
-        recordingActiveRef.current = false;
-        setIsRecording(false);
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
       recordingActiveRef.current = true;
       setIsRecording(true);
     } catch (error) {
@@ -132,16 +162,31 @@ export default function AgentOverlay() {
         setMicPermission("denied");
       }
     }
-  }, [connectionStatus, isProcessing, micPermission, sendAudio]);
+  }, [connectionStatus, isProcessing, micPermission, sendAudioChunk]);
 
   const stopRecording = useCallback(() => {
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state === "recording"
-    ) {
-      mediaRecorderRef.current.stop();
+    if (recordingActiveRef.current) {
+      recordingActiveRef.current = false;
+      setIsRecording(false);
+
+      try {
+        if (processorRef.current) {
+          processorRef.current.disconnect();
+          processorRef.current.onaudioprocess = null;
+        }
+        if (sourceRef.current) {
+          sourceRef.current.disconnect();
+        }
+        if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+          audioContextRef.current.close();
+        }
+      } catch (e) {
+        console.warn("[AgentOverlay] Error stopping AudioContext:", e);
+      }
+
+      sendAudioEnd();
     }
-  }, []);
+  }, [sendAudioEnd]);
 
   // ---- Mouse/touch handlers for push-to-talk ----
   const handleMicDown = useCallback(

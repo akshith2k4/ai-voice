@@ -29,8 +29,15 @@ const mockSynthesize = mock(async (text: string, lang: string) => {
   return "data:audio/mpeg;base64,aGVsbG8=";
 });
 
-mock.module("../src/services/elevenLabsTTS.js", () => ({
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+  const result = await mockSynthesize(text, lang);
+  const base64 = result.split(",")[1];
+  onChunk(base64, true);
+});
+
+mock.module("../src/services/sarvamTTS.js", () => ({
   synthesize: mockSynthesize,
+  synthesizeStream: mockSynthesizeStream,
 }));
 
 const ORDER_SCHEMA = {
@@ -84,6 +91,7 @@ function sentMessages(sessionId: string): any[] {
 function resetAllMocks() {
   mockConnectionSend.mockReset();
   mockSynthesize.mockReset();
+  mockSynthesizeStream.mockReset();
   mockConnectionSend.mockImplementation((sessionId: string, msg: any) => {
     if (msg && msg.type === "tts_audio") {
       setTimeout(() => {
@@ -93,6 +101,11 @@ function resetAllMocks() {
     return true;
   });
   mockSynthesize.mockImplementation(async () => "data:audio/mpeg;base64,aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+    const result = await mockSynthesize(text, lang);
+    const base64 = result.split(",")[1];
+    onChunk(base64, true);
+  });
 }
 
 /**

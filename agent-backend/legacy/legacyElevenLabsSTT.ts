@@ -19,6 +19,7 @@ export async function transcribe(base64Audio: string): Promise<SttResult> {
   const form = new FormData();
   form.append("model_id", STT_MODEL);
   form.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "audio.webm");
+  form.append("language_code", "en");
 
   const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST",
@@ -38,7 +39,7 @@ export async function transcribe(base64Audio: string): Promise<SttResult> {
   };
 
   const text = (data.text || "").trim();
-  const languageCode = data.language_code || "en";
+  const languageCode = "en";
   const confidence = data.language_probability ?? 0.9;
 
   return { text, languageCode, confidence };

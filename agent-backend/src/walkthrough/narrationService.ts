@@ -2,6 +2,16 @@ import { connectionManager } from "../connectionManager.js";
 import type { StatusAwaiter } from "./statusAwaiter.js";
 import type { WalkthroughSession } from "./sessionManager.js";
 
+
+const activeNarrations = new Map<string, { interrupted: boolean }>();
+
+export function interruptNarration(sessionId: string) {
+  const state = activeNarrations.get(sessionId);
+  if (state) {
+    state.interrupted = true;
+  }
+}
+
 export class NarrationService {
   private statusAwaiter: StatusAwaiter;
 
@@ -16,19 +26,36 @@ export class NarrationService {
     messageId?: string
   ): Promise<string> {
     const id = messageId || crypto.randomUUID();
+    
+    const state = { interrupted: false };
+    activeNarrations.set(session.sessionId, state);
 
     try {
-      const { synthesize } = await import("../services/elevenLabsTTS.js");
-      const audioDataUrl = await synthesize(text, languageCode);
-      const base64 = audioDataUrl.split(",")[1];
-      connectionManager.send(session.sessionId, {
-        type: "tts_audio",
-        audio: base64,
-        messageId: id,
+      const { synthesizeStream } = await import("../services/sarvamTTS.js");
+      await synthesizeStream(text, languageCode, (base64Chunk, isDone) => {
+        if (state.interrupted) {
+           return;
+        }
+        connectionManager.send(session.sessionId, {
+          type: "tts_audio",
+          audio: base64Chunk,
+          messageId: id,
+          done: isDone,
+        });
       });
+      if (activeNarrations.get(session.sessionId) === state) {
+         activeNarrations.delete(session.sessionId);
+      }
       return id;
     } catch (err) {
       console.error("[NarrationService] TTS synthesis failed:", err);
+      // Send an empty complete chunk so the client queue doesn't hang
+      connectionManager.send(session.sessionId, {
+        type: "tts_audio",
+        audio: "",
+        messageId: id,
+        done: true,
+      });
       throw err;
     }
   }

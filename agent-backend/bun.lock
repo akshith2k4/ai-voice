@@ -11,6 +11,7 @@
         "@types/ws": "^8.18.1",
         "dotenv": "^17.4.2",
         "langchain": "^0.3.0",
+        "sarvamai": "^1.1.7",
         "uuid": "^14.0.0",
         "ws": "^8.20.1",
         "zod": "^4.4.3",
@@ -156,6 +157,8 @@
     "p-timeout": ["p-timeout@3.2.0", "", { "dependencies": { "p-finally": "^1.0.0" } }, "sha512-rhIwUycgwwKcP9yTOOFK/AKsAopjjCakVqLHePO3CC6Mir1Z99xT+R63jZxAT5lFZLa2inS5h+ZS2GvR99/FBg=="],
 
     "retry": ["retry@0.13.1", "", {}, "sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg=="],
+
+    "sarvamai": ["sarvamai@1.1.7", "", { "dependencies": { "ws": "^8.16.0" } }, "sha512-xROqWjLB2jajV+CFzMUAS913poGgpVP0t/ELwn4cAVNXX4dju/LcP8VrOWzIeU0LTK9n2M00UQEriJTYNrIrJw=="],
 
     "semver": ["semver@7.8.0", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-AcM7dV/5ul4EekoQ29Agm5vri8JNqRyj39o0qpX6vDF2GZrtutZl5RwgD1XnZjiTAfncsJhMI48QQH3sN87YNA=="],
 

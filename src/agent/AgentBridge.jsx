@@ -15,6 +15,8 @@ export { AgentErrorBoundary } from "./AgentErrorBoundary";
 const AgentContext = createContext({
   sendMessage: () => {},
   sendAudio: () => {},
+  sendAudioChunk: () => {},
+  sendAudioEnd: () => {},
   connectionStatus: "disconnected",
   agentMessages: [],
   isProcessing: false,
@@ -187,6 +189,21 @@ export function AgentBridgeProvider({ children }) {
     [sendMessage, addMessage]
   );
 
+  const sendAudioChunk = useCallback(
+    (base64Chunk) => {
+      sendMessage({ type: "audio_chunk", audio: base64Chunk });
+    },
+    [sendMessage]
+  );
+
+  const sendAudioEnd = useCallback(
+    () => {
+      setIsProcessing(true);
+      sendMessage({ type: "audio_end" });
+    },
+    [sendMessage]
+  );
+
   // ---- Lifecycle ----
   useEffect(() => {
     const unsubscribe = onStatusChange(setConnectionStatus);
@@ -203,6 +220,8 @@ export function AgentBridgeProvider({ children }) {
   const contextValue = {
     sendMessage,
     sendAudio,
+    sendAudioChunk,
+    sendAudioEnd,
     connectionStatus,
     agentMessages,
     isProcessing,

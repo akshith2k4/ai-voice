@@ -9,6 +9,8 @@ export function routeMessage(
 ): void {
   switch (message.type) {
     case "voice":
+    case "audio_chunk":
+    case "audio_end":
       handleVoice(message, context);
       break;
     case "status":

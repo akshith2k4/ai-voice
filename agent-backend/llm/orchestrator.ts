@@ -162,3 +162,87 @@ export async function orchestrate(
     };
   }
 }
+
+export interface LLMStreamChunk {
+  type: "text" | "tool_call";
+  text?: string;
+  toolCall?: LLMToolCall;
+}
+
+export async function* orchestrateStream(
+  userText: string,
+  sessionId: string,
+  languageCode?: string
+): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
+  let systemPrompt = buildIdlePrompt();
+
+  const activeSession = walkthroughDriver.getSession(sessionId);
+  if (activeSession) {
+    const ctx = activeSession.stateMachine.currentContext;
+    const currentField = activeSession.schema.fields[ctx.fieldIndex];
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
+  }
+
+  const languageHint = languageCode
+    ? `\n\nThe user's speech was detected as language code: ${languageCode}. Respond in that language.`
+    : "";
+
+  const toolCalls: LLMToolCall[] = [];
+  let rawContent = "";
+
+  try {
+    const stream = await getModel().stream([
+      new SystemMessage(systemPrompt + languageHint),
+      new HumanMessage(userText),
+    ]);
+
+    for await (const chunk of stream) {
+      let textContent = "";
+      if (typeof chunk.content === "string") {
+        textContent = chunk.content;
+      } else if (Array.isArray(chunk.content)) {
+        for (const block of chunk.content) {
+          if (typeof block === "string") {
+            textContent += block;
+          } else if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+            textContent += block.text;
+          }
+        }
+      }
+
+      if (chunk.tool_calls && chunk.tool_calls.length > 0) {
+        for (const tc of chunk.tool_calls) {
+          const toolCall = {
+            name: tc.name,
+            args: tc.args as Record<string, unknown>,
+          };
+          toolCalls.push(toolCall);
+          yield { type: "tool_call", toolCall };
+        }
+      } else if (textContent) {
+        rawContent += textContent;
+        yield { type: "text", text: textContent };
+      }
+    }
+
+    console.log(
+      `[LLM Stream] Stream finished. ${toolCalls.length} tool call(s)` +
+        (toolCalls.length > 0
+          ? ` — [${toolCalls.map((tc) => tc.name).join(", ")}]`
+          : "") +
+        (rawContent ? ` | text: "${rawContent.substring(0, 80)}"` : "")
+    );
+
+    return {
+      toolCalls,
+      rawContent: rawContent.trim() || null,
+    };
+  } catch (error) {
+    console.error("[LLM Stream] Orchestration stream failed:", error);
+    return {
+      toolCalls: [],
+      rawContent: "I'm having trouble understanding. Could you try again?",
+    };
+  }
+}

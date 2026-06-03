@@ -1,4 +1,4 @@
-import { synthesize } from "./elevenLabsTTS.js";
+import { synthesize, synthesizeStream } from "./sarvamTTS.js";
 
 export async function synthesizeToBase64(
   text: string,
@@ -7,3 +7,5 @@ export async function synthesizeToBase64(
   const audioDataUrl = await synthesize(text, languageCode);
   return audioDataUrl.split(",")[1];
 }
+
+export { synthesizeStream };

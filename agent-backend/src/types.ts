@@ -62,7 +62,18 @@ export interface StatusMessage {
   [key: string]: unknown;
 }
 
-export type IncomingMessage = VoiceMessage | StatusMessage;
+export interface AudioChunkMessage {
+  type: "audio_chunk";
+  audio: string; // base64 encoded raw pcm_s16le chunk
+  sessionId?: string;
+}
+
+export interface AudioEndMessage {
+  type: "audio_end";
+  sessionId?: string;
+}
+
+export type IncomingMessage = VoiceMessage | StatusMessage | AudioChunkMessage | AudioEndMessage;
 
 // --- Outgoing Messages (Backend → Frontend) ---
 
@@ -76,6 +87,7 @@ export interface TtsAudioMessage {
   type: "tts_audio";
   audio: string; // base64 encoded MP3
   messageId: string;
+  done?: boolean;
 }
 
 export interface StatusAckMessage {
