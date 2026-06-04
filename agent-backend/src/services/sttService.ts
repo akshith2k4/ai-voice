@@ -1,4 +1,4 @@
-import { transcribe, handleAudioChunk, handleAudioEnd, onSpeechDetected, type SttResult } from "./sarvamSTT.js";
+import { transcribe, handleAudioChunk, handleAudioEnd, onSpeechDetected, type SttResult } from "./elevenLabsSTT.js";
 
 const MAX_EMPTY_RETRIES = 2;
 const retryCounts = new Map<string, number>();

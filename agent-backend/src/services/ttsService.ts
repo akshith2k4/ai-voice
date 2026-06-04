@@ -1,4 +1,4 @@
-import { synthesize, synthesizeStream } from "./sarvamTTS.js";
+import { synthesize, synthesizeStream } from "./elevenLabsTTS.js";
 
 export async function synthesizeToBase64(
   text: string,

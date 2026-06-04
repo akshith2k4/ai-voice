@@ -48,6 +48,7 @@ mock.module("../src/services/sttService.js", () => ({
     languageCode: "en",
     confidence: 0.95,
   })),
+  onSpeechDetected: mock(() => {}),
 }));
 
 mock.module("../src/services/ttsService.js", () => ({

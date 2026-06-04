@@ -35,7 +35,7 @@ const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (b
   onChunk(base64, true);
 });
 
-mock.module("../src/services/sarvamTTS.js", () => ({
+mock.module("../src/services/ttsService.js", () => ({
   synthesize: mockSynthesize,
   synthesizeStream: mockSynthesizeStream,
 }));
