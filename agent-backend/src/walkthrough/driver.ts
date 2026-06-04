@@ -18,22 +18,22 @@ import type { OutgoingMessage } from "../types.js";
 
 const TIMEOUTS = {
   NAVIGATE: 5000,
-  OPEN_DIALOG: 3000,
-  GO_TO_FIELD: 5000,
-  FILL_FIELD: 10000,
+  OPEN_DIALOG: 4000,
+  GO_TO_FIELD: 4000,
+  FILL_FIELD: 5000,
   ADD_ITEM: 3000,
   CLEAR_FIELDS: 3000,
   CLOSE_DIALOG: 3000,
-  AUTO_POPULATION_WAIT: 4000,
-  COMPLETION_PAUSE: 5000,
-  EXPLAIN_DISPLAY: 1000,
-  FIELD_RENDER_WAIT: 500,
-  RETRY_DELAY: 500,
+  AUTO_POPULATION_WAIT: 1000,
+  COMPLETION_PAUSE: 400,
+  EXPLAIN_DISPLAY: 100,
+  FIELD_RENDER_WAIT: 300,
+  RETRY_DELAY: 200,
 };
 
 const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
-
+  
 // --- Errors ---
 class FieldSkipError extends Error {
   constructor(public fieldKey: string) {
@@ -184,7 +184,7 @@ class WalkthroughDriver {
       TIMEOUTS.NAVIGATE
     );
     this.checkCancelled(session);
-    await this.wait(500);
+    await this.wait(TIMEOUTS.FIELD_RENDER_WAIT);
 
     if (schema.selectItem) {
       console.log(`[Driver] Selecting item: ${schema.selectItem.label || schema.selectItem.selector}`);
@@ -199,7 +199,7 @@ class WalkthroughDriver {
         TIMEOUTS.NAVIGATE
       );
       this.checkCancelled(session);
-      await this.wait(1000);
+      await this.wait(200);
     }
 
     console.log(`[Driver] Opening dialog: ${schema.openAction.fallbackText}`);
@@ -309,7 +309,7 @@ class WalkthroughDriver {
               session.filledValues.set(field.key, val);
               stateMachine.transition("FIELD_COMPLETE");
 
-              const pauseAfterFill = field.pauseAfterFill || 800;
+              const pauseAfterFill = field.pauseAfterFill || 200;
               await this.wait(pauseAfterFill);
 
               if (field.waitAfterFillMs) {
@@ -318,7 +318,7 @@ class WalkthroughDriver {
 
               if (field.autoLoad) {
                 console.log(`[Driver] Field "${field.key}" has autoLoad — waiting for loading to trigger...`);
-                await this.wait(1000);
+                await this.wait(200);
                 try {
                   const res = await this.sendTool(
                     session,
@@ -445,7 +445,7 @@ class WalkthroughDriver {
       null,
       0
     );
-    await this.wait(500);
+    await this.wait(150);
 
     stateMachine.transition("RESET");
     console.log(`[Driver] ✅ Walkthrough complete: ${schema.id}`);
@@ -495,7 +495,7 @@ class WalkthroughDriver {
         null,
         0
       );
-      await this.wait(500);
+      await this.wait(200);
       return;
     }
 
@@ -510,7 +510,7 @@ class WalkthroughDriver {
         null,
         0
       );
-      await this.wait(500);
+      await this.wait(200);
       return;
     }
 
@@ -525,7 +525,7 @@ class WalkthroughDriver {
         null,
         0
       );
-      await this.wait(500);
+      await this.wait(200);
       return;
     }
 
@@ -545,7 +545,7 @@ class WalkthroughDriver {
       key
     );
 
-    const pauseAfterFill = field.pauseAfterFill || 800;
+    const pauseAfterFill = field.pauseAfterFill || 200;
     await this.wait(pauseAfterFill);
 
     if (field.waitAfterFillMs) {
@@ -679,7 +679,7 @@ class WalkthroughDriver {
               null,
               0
             );
-            await this.wait(500);
+            await this.wait(200);
             stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
             continue;
           }
@@ -707,7 +707,7 @@ class WalkthroughDriver {
             field.key
           );
 
-          const pauseAfterFill = field.pauseAfterFill || 800;
+          const pauseAfterFill = field.pauseAfterFill || 200;
           await this.wait(pauseAfterFill);
 
           stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
@@ -825,7 +825,7 @@ class WalkthroughDriver {
             field.key
           );
 
-          const pauseAfterFill = field.pauseAfterFill || 800;
+          const pauseAfterFill = field.pauseAfterFill || 200;
           await this.wait(pauseAfterFill);
 
           stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
@@ -996,7 +996,7 @@ class WalkthroughDriver {
             null,
             0
           );
-          await this.wait(500);
+          await this.wait(200);
 
           if (session.errorCount >= MAX_ERRORS_BEFORE_ABORT) {
             await this.sendTool(

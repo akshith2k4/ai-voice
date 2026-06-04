@@ -4,6 +4,7 @@ let cursorEl = null;
 let lastX = window.innerWidth - 100; // Start near the bottom-right, near the overlay
 let lastY = window.innerHeight - 100;
 let inactivityTimeout = null;
+let lastElement = null;
 
 function getOrCreateCursor() {
   if (cursorEl) return cursorEl;
@@ -46,35 +47,51 @@ export const CursorManager = {
       inactivityTimeout = null;
     }
 
-    // Scroll into view if needed
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
-
-    // Wait for the scroll to settle (MUI components sometimes transition too)
-    await new Promise((resolve) => setTimeout(resolve, 350));
-
-    // Recalculate rect in case scrolling moved it
     const rect = element.getBoundingClientRect();
     const targetX = rect.left + rect.width / 2;
     const targetY = rect.top + rect.height / 2;
+
+    const isAlreadyAtElement = lastElement === element || 
+      (Math.abs(lastX - targetX) < 2 && Math.abs(lastY - targetY) < 2 && cursor.style.opacity === "1");
+
+    lastElement = element;
+
+    if (isAlreadyAtElement) {
+      // Fast path: cursor is already on the element! Play ripple and proceed quickly.
+      playRipple(targetX, targetY);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      return;
+    }
+
+    // Scroll into view if needed
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    // Wait for the scroll to settle (reduced from 350ms to 120ms)
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    // Recalculate rect in case scrolling moved it
+    const rectAfterScroll = element.getBoundingClientRect();
+    const finalX = rectAfterScroll.left + rectAfterScroll.width / 2;
+    const finalY = rectAfterScroll.top + rectAfterScroll.height / 2;
 
     // Show the cursor (fade in)
     cursor.style.opacity = "1";
 
     // Set translation to animate position
-    cursor.style.transform = `translate3d(${targetX}px, ${targetY}px, 0)`;
+    cursor.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`;
 
     // Save position
-    lastX = targetX;
-    lastY = targetY;
+    lastX = finalX;
+    lastY = finalY;
 
-    // Wait for travel animation (matches transition time in spotlight.css)
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    // Wait for travel animation (reduced from 600ms to 250ms to match spotlight.css)
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     // Play click ripple
-    playRipple(targetX, targetY);
+    playRipple(finalX, finalY);
 
-    // Wait for click visual feedback before proceeding (400ms)
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // Wait for click visual feedback before proceeding (reduced from 400ms to 120ms)
+    await new Promise((resolve) => setTimeout(resolve, 120));
 
     // Set inactivity timeout to hide the cursor if no actions happen for 3s
     inactivityTimeout = setTimeout(() => {
@@ -88,5 +105,6 @@ export const CursorManager = {
     if (cursorEl) {
       cursorEl.style.opacity = "0";
     }
+    lastElement = null;
   }
 };

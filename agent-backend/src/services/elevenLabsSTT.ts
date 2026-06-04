@@ -91,7 +91,7 @@ export async function transcribe(base64Audio: string): Promise<SttResult> {
 
   const form = new FormData();
   form.append("model_id", "scribe_v2");
-  form.append("file", new Blob([wavBytes], { type: "audio/wav" }), "audio.wav");
+  form.append("file", new Blob([Buffer.from(wavBytes)], { type: "audio/wav" }), "audio.wav");
 
   const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST",
@@ -173,7 +173,7 @@ export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
 
   const form = new FormData();
   form.append("model_id", "scribe_v2");
-  form.append("file", new Blob([wavBytes], { type: "audio/wav" }), "audio.wav");
+  form.append("file", new Blob([Buffer.from(wavBytes)], { type: "audio/wav" }), "audio.wav");
 
   const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST",

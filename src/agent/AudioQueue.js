@@ -17,87 +17,73 @@ export class AudioQueue {
     this.nextPlaybackTime = 0;
     this.activeSources = [];
     this.isProcessingQueue = false;
+    this.pendingBuffers = new Map();
   }
 
-  enqueue(base64Audio, messageId, done) {
+  concatArrayBuffers(buffers) {
+    let totalLength = 0;
+    for (const b of buffers) {
+      totalLength += b.byteLength;
+    }
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const b of buffers) {
+      result.set(new Uint8Array(b), offset);
+      offset += b.byteLength;
+    }
+    return result.buffer;
+  }
+
+  async enqueue(base64Audio, messageId, done) {
     console.log(`[AudioQueue] Enqueue: messageId=${messageId}, done=${done}`);
-    this.queue.push({ base64Audio, messageId, done });
-    this.processQueue();
-  }
-
-  async processQueue() {
-    if (this.isProcessingQueue) return;
-    this.isProcessingQueue = true;
-
-    try {
-      while (this.queue.length > 0) {
-        const item = this.queue[0];
-
-        // Resume AudioContext if it's suspended (autoplay policy)
-        if (this.audioContext.state === "suspended") {
-          try {
-            await this.audioContext.resume();
-          } catch (e) {
-            console.warn("[AudioQueue] Failed to resume AudioContext:", e);
-          }
-        }
-
-        // Decode base64 to ArrayBuffer
-        let arrayBuffer;
-        try {
-          arrayBuffer = this.base64ToArrayBuffer(item.base64Audio);
-        } catch (error) {
-          console.error("[AudioQueue] Base64 decoding failed:", error);
-          sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: item.messageId });
-          this.queue.shift();
-          continue;
-        }
-
-        // Check if it's an empty buffer (completion marker)
-        if (arrayBuffer.byteLength === 0) {
-          this.schedulePlayback(null, item.messageId, item.done);
-          this.queue.shift();
-          continue;
-        }
-
-        // Convert PCM 16-bit to AudioBuffer
-        let audioBuffer;
-        try {
-          const byteLength = arrayBuffer.byteLength;
-          const sampleCount = Math.floor(byteLength / 2);
-          const int16Array = new Int16Array(arrayBuffer, 0, sampleCount);
-
-          audioBuffer = this.audioContext.createBuffer(1, sampleCount, 22050);
-          const channelData = audioBuffer.getChannelData(0);
-
-          for (let i = 0; i < sampleCount; i++) {
-            channelData[i] = int16Array[i] / 32768.0;
-          }
-        } catch (error) {
-          console.error("[AudioQueue] Raw PCM conversion failed:", error);
-          // Still report completion if it's the last chunk so the pipeline doesn't stall
-          const isLast = item.done !== false;
-          if (isLast) {
-            sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: item.messageId });
-          }
-          this.queue.shift();
-          continue;
-        }
-
-        // Check if the queue was cleared during async resume operation
-        if (this.queue[0] !== item) {
-          sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: item.messageId });
-          continue;
-        }
-
-        // Schedule playback
-        this.schedulePlayback(audioBuffer, item.messageId, item.done);
-
-        // Remove from queue
-        this.queue.shift();
+    
+    // Resume AudioContext if it's suspended (autoplay policy)
+    if (this.audioContext.state === "suspended") {
+      try {
+        await this.audioContext.resume();
+      } catch (e) {
+        console.warn("[AudioQueue] Failed to resume AudioContext:", e);
       }
-    } finally {
-      this.isProcessingQueue = false;
+    }
+
+    // Decode base64 to ArrayBuffer
+    let arrayBuffer;
+    try {
+      arrayBuffer = this.base64ToArrayBuffer(base64Audio);
+    } catch (error) {
+      console.error("[AudioQueue] Base64 decoding failed:", error);
+      if (done !== false) {
+        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+      }
+      return;
+    }
+
+    if (!this.pendingBuffers.has(messageId)) {
+      this.pendingBuffers.set(messageId, []);
+    }
+
+    if (arrayBuffer.byteLength > 0) {
+      this.pendingBuffers.get(messageId).push(arrayBuffer);
+    }
+
+    if (done !== false) {
+      const buffers = this.pendingBuffers.get(messageId) || [];
+      this.pendingBuffers.delete(messageId);
+
+      if (buffers.length === 0) {
+        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+        return;
+      }
+
+      const combinedBuffer = this.concatArrayBuffers(buffers);
+      
+      try {
+        const audioBuffer = await this.audioContext.decodeAudioData(combinedBuffer);
+        this.schedulePlayback(audioBuffer, messageId, true);
+      } catch (decodeError) {
+        console.error("[AudioQueue] MP3 decoding failed:", decodeError);
+        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+      }
     }
   }
 
@@ -160,6 +146,7 @@ export class AudioQueue {
   clear(suppressCompletion = false) {
     this.queue = [];
     this.isProcessingQueue = false;
+    this.pendingBuffers.clear();
 
     // Stop all active/scheduled source nodes
     this.activeSources.forEach((sourceItem) => {
