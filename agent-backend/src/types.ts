@@ -85,7 +85,8 @@ export interface ToolMessage {
 
 export interface TtsAudioMessage {
   type: "tts_audio";
-  audio: string; // base64 encoded MP3
+  audio?: string; // base64 encoded MP3 (optional if url is provided)
+  url?: string; // S3 presigned URL
   messageId: string;
   done?: boolean;
 }

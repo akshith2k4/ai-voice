@@ -1,12 +1,7 @@
 import { connectionManager } from "../connectionManager.js";
 import type { StatusAwaiter } from "./statusAwaiter.js";
 import type { WalkthroughSession } from "./sessionManager.js";
-import { promises as fsPromises } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 import crypto from "crypto";
 
@@ -17,6 +12,12 @@ export function interruptNarration(sessionId: string) {
   if (state) {
     state.interrupted = true;
   }
+  // Call interruptActiveTTS to detach any active ElevenLabs TTS fetch to the background
+  import("../services/elevenLabsTTS.js").then(({ interruptActiveTTS }) => {
+    interruptActiveTTS();
+  }).catch((err) => {
+    console.error("[NarrationService] Failed to interrupt active TTS queue:", err);
+  });
 }
 
 function getHash(text: string): string {
@@ -45,46 +46,91 @@ export class NarrationService {
     // Look for pre-recorded audio file matching the MD5 hash of the normalized text prompt
     const hash = getHash(text);
     const audioFilename = `${hash}.mp3`;
-    const filePath = join(__dirname, "../../voicefiles_mp3", audioFilename);
+    const s3Key = `walkthrough-audio/${audioFilename}`;
 
+    let existsOnS3 = false;
+
+    // Check S3 directly for cached audios
     try {
-      const buffer = await fsPromises.readFile(filePath);
-      console.log(`[NarrationService] Cache hit! Streaming pre-recorded audio: ${audioFilename} for prompt: "${text.substring(0, 40)}..."`);
+      const { checkS3ObjectExists } = await import("../services/s3Service.js");
+      existsOnS3 = await checkS3ObjectExists(s3Key);
+    } catch (s3Err) {
+      console.warn(`[NarrationService] S3 check failed for ${s3Key}:`, s3Err);
+    }
 
-      if (!state.interrupted) {
-        connectionManager.send(session.sessionId, {
-          type: "tts_audio",
-          audio: buffer.toString("base64"),
-          messageId: id,
-          done: true,
-        });
-      }
+    if (existsOnS3) {
+      try {
+        const { getPresignedUrl } = await import("../services/s3Service.js");
+        const signedUrl = await getPresignedUrl(s3Key);
+        console.log(`[NarrationService] S3 Hit! Streaming presigned URL: ${signedUrl} for prompt: "${text.substring(0, 40)}..."`);
 
-      if (activeNarrations.get(session.sessionId) === state) {
-        activeNarrations.delete(session.sessionId);
-      }
-      return id;
-    } catch (err: any) {
-      if (err && err.code === "ENOENT") {
-        console.log(`[NarrationService] Cache miss (no pre-recorded file for hash ${hash}). Falling back to live ElevenLabs TTS.`);
-      } else {
-        console.warn(`[NarrationService] Failed to read pre-recorded file ${audioFilename}:`, err);
+        if (!state.interrupted) {
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            url: signedUrl,
+            messageId: id,
+            done: true,
+          });
+        }
+
+        if (activeNarrations.get(session.sessionId) === state) {
+          activeNarrations.delete(session.sessionId);
+        }
+        return id;
+      } catch (err: any) {
+        console.warn(`[NarrationService] Failed to generate S3 presigned URL for ${s3Key}:`, err);
       }
     }
 
+    console.log(`[NarrationService] Cache miss (no S3 file for key ${s3Key}). Falling back to live ElevenLabs TTS.`);
+
     try {
       const { synthesizeStream } = await import("../services/ttsService.js");
+      const chunks: Buffer[] = [];
+
       await synthesizeStream(text, languageCode, (base64Chunk, isDone) => {
-        if (state.interrupted) {
-           return;
+        // Collect chunk for S3 caching
+        if (base64Chunk) {
+          chunks.push(Buffer.from(base64Chunk, "base64"));
         }
-        connectionManager.send(session.sessionId, {
-          type: "tts_audio",
-          audio: base64Chunk,
-          messageId: id,
-          done: isDone,
-        });
+
+        // Only stream to the frontend if the narration hasn't been interrupted
+        if (!state.interrupted) {
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            audio: base64Chunk,
+            messageId: id,
+            done: isDone,
+          });
+        } else if (isDone) {
+          // If interrupted but done, send empty complete chunk to ensure client doesn't hang
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            audio: "",
+            messageId: id,
+            done: true,
+          });
+        }
+
+        // Once live synthesis finishes, upload the combined buffer to S3
+        if (isDone && chunks.length > 0) {
+          const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+          const combinedBuffer = Buffer.concat(chunks, totalLength);
+          
+          import("../services/s3Service.js").then(({ uploadToS3 }) => {
+            uploadToS3(s3Key, combinedBuffer, "audio/mpeg")
+              .then(() => {
+                console.log(`[NarrationService] Dynamically cached new audio to S3: ${s3Key}`);
+              })
+              .catch((uploadErr) => {
+                console.error(`[NarrationService] Failed to upload dynamic audio cache to S3: ${s3Key}`, uploadErr);
+              });
+          }).catch((importErr) => {
+            console.error("[NarrationService] Failed to import s3Service dynamically:", importErr);
+          });
+        }
       });
+
       if (activeNarrations.get(session.sessionId) === state) {
          activeNarrations.delete(session.sessionId);
       }
@@ -121,7 +167,7 @@ export class NarrationService {
       await this.statusAwaiter.waitForStatus(
         session,
         "tts_playback_complete",
-        15000,
+        60000,
         (data) => data.messageId === id
       );
     } catch (err) {

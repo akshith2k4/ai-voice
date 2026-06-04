@@ -40,13 +40,19 @@ mock.module("../src/services/ttsService.js", () => ({
   synthesizeStream: mockSynthesizeStream,
 }));
 
+mock.module("../src/services/s3Service.js", () => ({
+  checkS3ObjectExists: mock(async () => false),
+  getPresignedUrl: mock(async () => "https://mocked-s3-url.com/audio.mp3"),
+  uploadToS3: mock(async () => {}),
+}));
+
 const ORDER_SCHEMA = {
   id: "createOrder",
   name: "Create Order",
   mode: "guided",
   route: "/orders",
   openAction: { type: "click", fallbackText: "Create Order" },
-  overview: "This is the order creation form. Let me walk you through each field.",
+  overview: "Unique order creation form testing overview.",
   fields: [
     {
       key: "customer",

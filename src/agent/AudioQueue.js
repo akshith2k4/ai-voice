@@ -18,6 +18,8 @@ export class AudioQueue {
     this.activeSources = [];
     this.isProcessingQueue = false;
     this.pendingBuffers = new Map();
+    this.fetchControllers = new Map(); // messageId -> AbortController
+    this.activeAudios = new Map(); // messageId -> HTML5 Audio
   }
 
   concatArrayBuffers(buffers) {
@@ -87,6 +89,56 @@ export class AudioQueue {
     }
   }
 
+  async enqueueUrl(url, messageId) {
+    console.log(`[AudioQueue] EnqueueUrl (HTML5 Audio): messageId=${messageId}, url=${url}`);
+
+    if (this.audioContext.state === "suspended") {
+      try {
+        await this.audioContext.resume();
+      } catch (e) {
+        console.warn("[AudioQueue] Failed to resume AudioContext:", e);
+      }
+    }
+
+    const audio = new Audio(url);
+    this.activeAudios.set(messageId, audio);
+
+    this.isPlaying = true;
+    this.onPlaybackStateChange?.(true);
+
+    audio.onended = () => {
+      console.log(`[AudioQueue] AudioUrl Ended: messageId=${messageId}`);
+      this.activeAudios.delete(messageId);
+      if (this.activeAudios.size === 0 && this.activeSources.length === 0) {
+        this.isPlaying = false;
+        this.onPlaybackStateChange?.(false);
+      }
+      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+    };
+
+    audio.onerror = (err) => {
+      console.error(`[AudioQueue] AudioUrl Error for messageId=${messageId}:`, err);
+      this.activeAudios.delete(messageId);
+      if (this.activeAudios.size === 0 && this.activeSources.length === 0) {
+        this.isPlaying = false;
+        this.onPlaybackStateChange?.(false);
+      }
+      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+    };
+
+    try {
+      await audio.play();
+    } catch (playError) {
+      console.error("[AudioQueue] AudioUrl play() failed:", playError);
+      this.activeAudios.delete(messageId);
+      if (this.activeAudios.size === 0 && this.activeSources.length === 0) {
+        this.isPlaying = false;
+        this.onPlaybackStateChange?.(false);
+      }
+      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+    }
+  }
+
   base64ToArrayBuffer(base64) {
     const binaryString = window.atob(base64);
     const len = binaryString.length;
@@ -147,6 +199,30 @@ export class AudioQueue {
     this.queue = [];
     this.isProcessingQueue = false;
     this.pendingBuffers.clear();
+
+    // Abort any active fetches
+    this.fetchControllers.forEach((controller, msgId) => {
+      controller.abort();
+      if (!suppressCompletion) {
+        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: msgId });
+      }
+    });
+    this.fetchControllers.clear();
+
+    // Pause and clean up any HTML5 Audio elements
+    if (this.activeAudios) {
+      this.activeAudios.forEach((audio, msgId) => {
+        try {
+          audio.pause();
+        } catch (e) {
+          console.warn("[AudioQueue] Failed to pause HTML5 audio:", e);
+        }
+        if (!suppressCompletion) {
+          sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: msgId });
+        }
+      });
+      this.activeAudios.clear();
+    }
 
     // Stop all active/scheduled source nodes
     this.activeSources.forEach((sourceItem) => {

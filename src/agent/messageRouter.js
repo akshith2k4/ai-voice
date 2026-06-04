@@ -90,17 +90,27 @@ export function routeIncomingMessage(
       }
 
       case MESSAGE_TYPES.TTS_AUDIO: {
-        const { audio, messageId, done } = message;
+        const { audio, url, messageId, done } = message;
+        if (typeof messageId !== 'string' && typeof messageId !== 'number') {
+          console.warn("[AgentBridge] Invalid tts_audio message: 'messageId' must be a string or number.");
+          break;
+        }
+
+        if (url) {
+          if (typeof url !== 'string') {
+            console.warn("[AgentBridge] Invalid tts_audio message: 'url' must be a string.");
+            break;
+          }
+          audioQueue?.enqueueUrl(url, messageId);
+          break;
+        }
+
         if (typeof audio !== 'string') {
           console.warn("[AgentBridge] Invalid tts_audio message: 'audio' must be a string.");
           break;
         }
         if (audio.length === 0 && !done) {
           console.warn("[AgentBridge] Invalid tts_audio message: empty audio chunk but not done.");
-          break;
-        }
-        if (typeof messageId !== 'string' && typeof messageId !== 'number') {
-          console.warn("[AgentBridge] Invalid tts_audio message: 'messageId' must be a string or number.");
           break;
         }
         audioQueue?.enqueue(audio, messageId, done);
