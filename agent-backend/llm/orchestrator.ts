@@ -42,9 +42,7 @@ export interface LLMResult {
   rawContent: string | null;
 }
 
-/**
- * Send user text to the LLM and get tool calls back
- */
+/*
 export async function orchestrate(
   userText: string,
   sessionId: string,
@@ -55,8 +53,14 @@ export async function orchestrate(
   const activeSession = walkthroughDriver.getSession(sessionId);
   if (activeSession) {
     const ctx = activeSession.stateMachine.currentContext;
-    const currentField = activeSession.schema.fields[ctx.fieldIndex];
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    let currentField = activeSession.schema.fields[ctx.fieldIndex];
+    if (ctx.subFormId) {
+      const subForm = activeSession.schema.subForms.find(sf => sf.id === ctx.subFormId);
+      if (subForm && subForm.fields[ctx.subFormFieldIndex]) {
+        currentField = subForm.fields[ctx.subFormFieldIndex];
+      }
+    }
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField);
     console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
   }
 
@@ -162,6 +166,7 @@ export async function orchestrate(
     };
   }
 }
+*/
 
 export interface LLMStreamChunk {
   type: "text" | "tool_call";
@@ -179,8 +184,14 @@ export async function* orchestrateStream(
   const activeSession = walkthroughDriver.getSession(sessionId);
   if (activeSession) {
     const ctx = activeSession.stateMachine.currentContext;
-    const currentField = activeSession.schema.fields[ctx.fieldIndex];
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    let currentField = activeSession.schema.fields[ctx.fieldIndex];
+    if (ctx.subFormId) {
+      const subForm = activeSession.schema.subForms.find(sf => sf.id === ctx.subFormId);
+      if (subForm && subForm.fields[ctx.subFormFieldIndex]) {
+        currentField = subForm.fields[ctx.subFormFieldIndex];
+      }
+    }
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField);
     console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
   }
 

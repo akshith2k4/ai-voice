@@ -457,6 +457,22 @@ describe("WalkthroughDriver — acceptance tests", () => {
       expect(goToFieldMsg).toBeDefined();
       expect(goToFieldMsg.args.fieldKey).toBe("customer");
     });
+
+    test("speaks introMessage first if provided", async () => {
+      const sid = "intro-msg-session";
+      walkthroughDriver.start("createOrder", sid, true, "Welcome to the create order walkthrough!");
+      await delay(200);
+
+      const msgs = sentMessages(sid);
+      const introMsg = msgs.find(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args?.tts === true &&
+          m.args.message === "Welcome to the create order walkthrough!"
+      );
+      expect(introMsg).toBeDefined();
+    });
   });
 });
 

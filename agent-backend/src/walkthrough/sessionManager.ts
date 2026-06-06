@@ -23,9 +23,10 @@ export interface WalkthroughSession {
   filledValues: Map<string, unknown>;
   cancelled: boolean;
   errorCount: number;
-  pendingStatus: PendingStatus | null;
+  pendingStatuses: PendingStatus[];
   isRegistered: boolean;
   ttsEnabled: boolean;
+  languageCode: string;
 }
 
 export class SessionManager {
@@ -39,7 +40,7 @@ export class SessionManager {
     return this.sessions.get(sessionId);
   }
 
-  create(sessionId: string, formId: string, ttsEnabled: boolean = true): WalkthroughSession {
+  create(sessionId: string, formId: string, ttsEnabled: boolean = true, languageCode: string = "en"): WalkthroughSession {
     const schema = getSchema(formId);
     const session: WalkthroughSession = {
       sessionId,
@@ -49,9 +50,10 @@ export class SessionManager {
       filledValues: new Map(),
       cancelled: false,
       errorCount: 0,
-      pendingStatus: null,
+      pendingStatuses: [],
       isRegistered: false,
       ttsEnabled,
+      languageCode,
     };
     this.sessions.set(sessionId, session);
     return session;

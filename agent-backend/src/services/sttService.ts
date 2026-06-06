@@ -20,7 +20,7 @@ export function incrementRetry(sessionId: string): number {
 }
 
 export function resetRetry(sessionId: string): void {
-  retryCounts.set(sessionId, 0);
+  retryCounts.delete(sessionId);
 }
 
 export function getMaxRetries(): number {

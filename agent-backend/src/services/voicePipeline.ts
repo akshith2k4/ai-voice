@@ -1,16 +1,57 @@
 import type { VoiceMessage, HandlerContext } from "../types.js";
-import { orchestrate, orchestrateStream, type LLMStreamChunk, type LLMResult, type LLMToolCall } from "../../llm/orchestrator.js";
-import { walkthroughDriver } from "../walkthrough/driver.js";
+import { orchestrateStream, type LLMStreamChunk, type LLMResult, type LLMToolCall } from "../../llm/orchestrator.js";
+import { walkthroughDriver, WalkthroughDriver } from "../walkthrough/driver.js";
 import { interruptNarration } from "../walkthrough/narrationService.js";
 import * as sttService from "./sttService.js";
 import { onSpeechDetected } from "./sttService.js";
 import * as ttsService from "./ttsService.js";
 import * as responseSender from "./responseSender.js";
 import { connectionManager } from "../connectionManager.js";
+import { SentenceSplitter } from "./sentenceSplitter.js";
+import { SentenceTTSQueue } from "./sentenceTtsQueue.js";
 
 
 const activeTTSQueues = new Map<string, SentenceTTSQueue>();
 const activeSpeakAndSend = new Map<string, { interrupted: boolean }>();
+
+export async function cleanupSession(sessionId: string): Promise<void> {
+  console.log(`[SessionCleanup] Cleaning up resources for session: ${sessionId}`);
+
+  // 1. Walkthrough session (cancel + session cleanup)
+  try {
+    const { walkthroughDriver } = await import("../walkthrough/driver.js");
+    walkthroughDriver.cancel(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cancel walkthrough:", err);
+  }
+
+  // 2. TTS engine state
+  try {
+    const { cleanupSession: cleanTTS } = await import("./elevenLabsTTS.js");
+    cleanTTS(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs TTS:", err);
+  }
+
+  // 3. Cleanup local voice pipeline maps
+  activeTTSQueues.delete(sessionId);
+  activeSpeakAndSend.delete(sessionId);
+
+  // 4. Cleanup STT buffer maps
+  try {
+    const { cleanupSession: cleanSTT } = await import("./elevenLabsSTT.js");
+    cleanSTT(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs STT:", err);
+  }
+
+  // 5. Reset STT retry counts
+  try {
+    sttService.resetRetry(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to reset STT retry count:", err);
+  }
+}
 
 export function interruptTTS(sessionId: string) {
   interruptNarration(sessionId);
@@ -77,7 +118,7 @@ export async function handleVoiceMessage(
     let stt;
     if (preTranscribedResult) {
       stt = preTranscribedResult;
-      tracker.sttDuration = 0; // processed concurrently via websocket streaming
+      tracker.sttDuration = 0;
     } else {
       if (!message.audio) return;
       const sttStart = Date.now();
@@ -135,161 +176,7 @@ export async function handleVoiceMessage(
   }
 }
 
-class SentenceSplitter {
-  private buffer = "";
-  private onSentence: (sentence: string) => void;
 
-  constructor(onSentence: (sentence: string) => void) {
-    this.onSentence = onSentence;
-  }
-
-  push(text: string) {
-    this.buffer += text;
-    this.process();
-  }
-
-  flush() {
-    const remaining = this.buffer.trim();
-    if (remaining) {
-      this.onSentence(remaining);
-      this.buffer = "";
-    }
-  }
-
-  private process() {
-    let searchStart = 0;
-    while (true) {
-      const remainingBuffer = this.buffer.substring(searchStart);
-      const match = remainingBuffer.match(/[.!?]\s+/);
-      if (!match || match.index === undefined) {
-        break;
-      }
-
-      const matchIdx = searchStart + match.index;
-      const endIdx = matchIdx + 1;
-      const sentence = this.buffer.substring(0, endIdx).trim();
-
-      if (this.isAbbreviation(sentence)) {
-        searchStart = matchIdx + match[0].length;
-        continue;
-      }
-
-      this.onSentence(sentence);
-      this.buffer = this.buffer.substring(matchIdx + match[0].length);
-      searchStart = 0;
-    }
-  }
-
-  private isAbbreviation(text: string): boolean {
-    const lastWord = text.split(/\s+/).pop()?.toLowerCase() || "";
-    const commonAbbreviations = ["mr.", "mrs.", "dr.", "ms.", "vs.", "eg.", "ie.", "etc.", "approx.", "no."];
-    return commonAbbreviations.includes(lastWord);
-  }
-}
-
-class SentenceTTSQueue {
-  private queue: Array<{ text: string; isLast: boolean }> = [];
-  private processing = false;
-  private send: HandlerContext["send"];
-  private languageCode: string;
-  private messageId: string;
-  private tracker?: any;
-  private ttsStart: number;
-  private firstChunkReceived = false;
-  private allPushed = false;
-  private hasToolCalls = false;
-  public interrupted = false;
-
-  constructor(send: HandlerContext["send"], languageCode: string, messageId: string, tracker?: any) {
-    this.send = send;
-    this.languageCode = languageCode;
-    this.messageId = messageId;
-    this.tracker = tracker;
-    this.ttsStart = Date.now();
-  }
-  
-  interrupt() {
-    this.interrupted = true;
-    this.queue = [];
-    responseSender.sendStopAudio(this.send);
-  }
-
-  push(text: string, isLast: boolean) {
-    this.queue.push({ text, isLast });
-    this.process();
-  }
-
-  markAllPushed(hasToolCalls = false) {
-    this.allPushed = true;
-    this.hasToolCalls = hasToolCalls;
-    if (this.queue.length > 0) {
-      this.queue[this.queue.length - 1].isLast = true;
-    }
-    this.process();
-  }
-
-  private async process() {
-    if (this.processing) return;
-    this.processing = true;
-
-    while (this.queue.length > 0) {
-      if (this.interrupted) {
-         this.queue = [];
-         break;
-      }
-      if (!this.allPushed && this.queue.length === 1) {
-        break;
-      }
-
-      const item = this.queue.shift()!;
-      await this.synthesizeSentence(item.text, item.isLast);
-    }
-
-    if (this.allPushed && this.queue.length === 0) {
-      if (!this.firstChunkReceived && !this.hasToolCalls) {
-        responseSender.sendRespond(this.send, "", true, this.messageId, undefined);
-        responseSender.sendTtsAudio(this.send, "", this.messageId, true);
-      }
-    }
-
-    this.processing = false;
-  }
-
-  private synthesizeSentence(text: string, isLast: boolean): Promise<void> {
-    return new Promise<void>((resolve) => {
-      ttsService.synthesizeStream(text, this.languageCode, (base64Chunk, chunkDone) => {
-        if (!this.firstChunkReceived) {
-          this.firstChunkReceived = true;
-          if (this.tracker) {
-            this.tracker.ttsDuration = Date.now() - this.ttsStart;
-            const totalDuration = Date.now() - this.tracker.startTime;
-            console.log(
-              `[Latency Breakdown] 🔊 Speech Response (First Chunk): "${text}"
------------------------------------------
-🎙️ STT:   ${this.tracker.sttDuration}ms
-🧠 LLM:   ${this.tracker.llmDuration}ms
-🔊 TTS:   ${this.tracker.ttsDuration}ms
-⏱️ Total: ${totalDuration}ms
------------------------------------------`
-            );
-          }
-        }
-
-        if (!this.interrupted) {
-          const sendDone = isLast && chunkDone;
-          responseSender.sendTtsAudio(this.send, base64Chunk, this.messageId, sendDone);
-        }
-
-        if (chunkDone || this.interrupted) {
-          resolve();
-        }
-      }).catch(err => {
-        console.error("[SentenceTTSQueue] Synthesis failed for:", text, err);
-        resolve();
-      });
-    });
-  }
-}
 
 async function handleText(
   text: string,
@@ -307,7 +194,7 @@ async function handleText(
 
   const llmStart = Date.now();
   const messageId = crypto.randomUUID();
-  const ttsQueue = new SentenceTTSQueue(send, lang, messageId, tracker);
+  const ttsQueue = new SentenceTTSQueue(sessionId, send, lang, messageId, tracker);
   activeTTSQueues.set(sessionId, ttsQueue);
 
   const splitter = new SentenceSplitter((sentence) => {
@@ -348,6 +235,9 @@ async function handleText(
 
   } catch (error) {
     console.error("[VoiceHandler] Orchestration stream failed:", error);
+    const errMsg = "Sorry, I'm having trouble connecting right now. Please try again.";
+    spoke = true;
+    await speakAndSend(send, errMsg, lang, tracker, sessionId);
   }
 
   for (const tc of toolCalls) {
@@ -372,36 +262,86 @@ async function handleText(
         const msg = String(tc.args.message || "Starting walkthrough");
         const formId = String(tc.args.formId);
         spoke = true;
-        await speakAndSend(send, msg, lang, tracker);
-        walkthroughDriver.start(formId, context.sessionId);
+        walkthroughDriver.start(formId, context.sessionId, true, msg, lang);
         break;
       }
       case "answer_question": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.response), lang, tracker);
+        await speakAndSend(send, String(tc.args.response), lang, tracker, sessionId);
         break;
       }
       case "detour_to_field": {
         const session = walkthroughDriver.getSession(sessionId);
         if (session) {
-          session.stateMachine.transition("DETOUR");
           const targetFieldKey = String(tc.args.fieldKey);
-          let matchedField = session.schema.fields.find(f => f.key === targetFieldKey);
-          if (!matchedField) {
-            for (const subForm of session.schema.subForms) {
-              const f = subForm.fields.find(field => field.key === targetFieldKey);
-              if (f) {
-                matchedField = f;
-                break;
+          const ctx = session.stateMachine.currentContext;
+
+          // 1. Check main fields first
+          let fieldIndex = session.schema.fields.findIndex(f => f.key === targetFieldKey);
+          let subFormId: string | null = null;
+          let subFormFieldIndex = 0;
+          let matchedField = fieldIndex !== -1 ? session.schema.fields[fieldIndex] : undefined;
+
+          // 2. If not in main fields, search sub-forms
+          if (fieldIndex === -1 && session.schema.subForms) {
+            // 2a. Check currently active sub-form first
+            if (ctx.subFormId) {
+              const activeSubForm = session.schema.subForms.find(sf => sf.id === ctx.subFormId);
+              if (activeSubForm) {
+                const idx = activeSubForm.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = activeSubForm.id;
+                  subFormFieldIndex = idx;
+                  matchedField = activeSubForm.fields[idx];
+                }
+              }
+            }
+
+            // 2b. If not in active sub-form, check visible sub-forms
+            if (!subFormId) {
+              const visibleSubForms = session.schema.subForms.filter(sf =>
+                WalkthroughDriver.isFieldVisible(session, sf) &&
+                WalkthroughDriver.isConditionMet(session, sf)
+              );
+              for (const sf of visibleSubForms) {
+                const idx = sf.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = sf.id;
+                  subFormFieldIndex = idx;
+                  matchedField = sf.fields[idx];
+                  break;
+                }
+              }
+            }
+
+            // 2c. Fallback: first match across ALL sub-forms
+            if (!subFormId) {
+              for (const sf of session.schema.subForms) {
+                const idx = sf.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = sf.id;
+                  subFormFieldIndex = idx;
+                  matchedField = sf.fields[idx];
+                  break;
+                }
               }
             }
           }
+
+          session.stateMachine.transition("DETOUR", {
+            fieldIndex: fieldIndex !== -1 ? fieldIndex : undefined,
+            subFormId: subFormId || undefined,
+            subFormFieldIndex: subFormId ? subFormFieldIndex : undefined,
+          });
+
           context.send({ type: "tool", tool: "detour_start", args: { fieldKey: targetFieldKey } });
           context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetFieldKey, label: matchedField?.label } });
 
-          const narrationText = matchedField?.explanation || "Let me highlight that field on your form.";
-          spoke = true;
-          await speakAndSend(send, narrationText, lang, tracker);
+          if (!spoke) {
+            const narrationText = matchedField ? `Here's the ${matchedField.label} field` : "Let me highlight that field on your form.";
+            spoke = true;
+            await speakAndSend(send, narrationText, lang, tracker, sessionId);
+          }
         }
         break;
       }
@@ -412,7 +352,7 @@ async function handleText(
       }
       case "ask_clarification": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.message), lang, tracker);
+        await speakAndSend(send, String(tc.args.message), lang, tracker, sessionId);
         break;
       }
     }
@@ -476,7 +416,7 @@ async function speakAndSend(
       if (messageId) {
         responseSender.sendTtsAudio(send, base64Chunk, messageId, isDone);
       }
-    });
+    }, sessionId);
   } catch (e) {
     console.error("[VoiceHandler] TTS streaming failed:", e);
     if (!firstChunkReceived) {
@@ -500,9 +440,16 @@ export async function executeAutoResume(
   }
 ): Promise<void> {
   const session = walkthroughDriver.getSession(context.sessionId);
-  if (session && session.stateMachine.currentState === "DETOUR_QA") {
+  if (!session) return;
+
+  const currentState = session.stateMachine.currentState;
+  if (currentState === "DETOUR_QA") {
     session.stateMachine.transition("DETOUR_COMPLETE");
-    if (session.stateMachine.currentState as string === "PAUSED") {
+    // Detour complete returns the state to the detourOrigin state.
+    // If the detour originated from WALKING_THROUGH or SUB_FORM, the state machine returns there directly.
+    // If it originated from PAUSED (e.g., user barge-in -> pause -> asked question), it returns to PAUSED,
+    // so we need to transition to RESUME to start running again.
+    if (session.stateMachine.currentState === "PAUSED") {
       session.stateMachine.transition("RESUME");
     }
     context.send({ type: "tool", tool: "detour_end", args: {} });
@@ -525,15 +472,27 @@ export async function executeAutoResume(
               itemIndex: originalCtx.subFormItemIndex,
             },
           });
-          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
+          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker, context.sessionId);
           return;
         }
       }
     }
-
+ 
     if (targetField) {
       context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetField.key, label: targetField.label } });
-      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
+      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker, context.sessionId);
     }
+  } else if (currentState === "PAUSED") {
+    session.stateMachine.transition("RESUME");
+    const originalCtx = session.stateMachine.currentContext;
+    let targetField = session.schema.fields[originalCtx.fieldIndex];
+    if (originalCtx.subFormId) {
+      const subForm = session.schema.subForms.find(sf => sf.id === originalCtx.subFormId);
+      if (subForm) {
+        targetField = subForm.fields[originalCtx.subFormFieldIndex];
+      }
+    }
+    const label = targetField?.label || "the current field";
+    await speakAndSend(context.send, `Resuming walkthrough at ${label}.`, "en", tracker, context.sessionId);
   }
 }

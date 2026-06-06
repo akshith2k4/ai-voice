@@ -1,4 +1,5 @@
 import { connectionManager } from "./src/connectionManager.js";
+import { cleanupSession } from "./src/services/voicePipeline.js";
 import { routeMessage, parseMessage } from "./src/messageRouter.js";
 import type { ClientData, OutgoingMessage } from "./src/types.js";
 
@@ -7,10 +8,8 @@ import type { ClientData, OutgoingMessage } from "./src/types.js";
 // ============================================
 import { loadAllSchemas, getAvailableForms } from "./src/schema/loader";
 import { resolve } from "path";
-// After server starts
 loadAllSchemas(resolve(import.meta.dir, "src/schema/forms"));
 console.log("Available forms:", getAvailableForms());
-// Bun auto-loads .env files
 const PORT = parseInt(process.env.PORT || "3001");
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
 
@@ -26,7 +25,6 @@ const server = Bun.serve<ClientData>({
     // Handle WebSocket upgrade
     const upgradeHeader = req.headers.get("upgrade");
     if (upgradeHeader && upgradeHeader.toLowerCase() === "websocket") {
-      // Validate origin — allow empty origin for local test clients (e.g. bun test-client.ts)
       const isDev = process.env.NODE_ENV !== "production";
       if (origin && origin !== CORS_ORIGIN) {
         console.warn(
@@ -158,6 +156,7 @@ const server = Bun.serve<ClientData>({
       console.log(
         `[Server] Connection closed: ${sessionId} (code: ${code}, reason: ${reason || "none"})`
       );
+      cleanupSession(sessionId);
       connectionManager.remove(sessionId);
     },
 

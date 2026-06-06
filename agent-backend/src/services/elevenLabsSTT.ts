@@ -1,6 +1,3 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 
 type SpeechDetectedCallback = (sessionId: string) => void;
@@ -144,9 +141,16 @@ export async function handleAudioChunk(sessionId: string, base64Chunk: string): 
     const maxAmp = maxVal / 32768;
     console.log(`[ElevenLabs STT Buffering] Chunk size: ${buf.length} bytes, Max Amplitude: ${maxAmp.toFixed(4)}`);
 
-    if (maxAmp > 0.05 && !session.speechDetected) {
+    const threshold = (() => {
+      if (process.env.BARGE_IN_THRESHOLD === undefined || process.env.BARGE_IN_THRESHOLD === null) {
+        return 0.05;
+      }
+      const val = Number(process.env.BARGE_IN_THRESHOLD);
+      return isNaN(val) || val < 0 || val > 1 ? 0.05 : val;
+    })();
+    if (maxAmp > threshold && !session.speechDetected) {
       session.speechDetected = true;
-      console.log(`[ElevenLabs STT Buffering] Speech detected for session ${sessionId} (barge-in triggered)`);
+      console.log(`[ElevenLabs STT Buffering] Speech detected for session ${sessionId} (barge-in triggered with threshold ${threshold})`);
       speechDetectedCallbacks.forEach(cb => cb(sessionId));
     }
   } catch (err) {
@@ -199,4 +203,11 @@ export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
 
   console.log(`[ElevenLabs STT Buffering] Final Transcription: "${text}" (${languageCode})`);
   return { text, languageCode, confidence };
+}
+
+export function cleanupSession(sessionId: string) {
+  const deleted = activeSessions.delete(sessionId);
+  if (deleted) {
+    console.log(`[ElevenLabs STT] [Session: ${sessionId}] STT session state cleaned up.`);
+  }
 }

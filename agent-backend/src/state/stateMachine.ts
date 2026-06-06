@@ -31,6 +31,8 @@ export type WalkthroughEvent =
 export interface TransitionPayload {
   formId?: string;
   subFormId?: string;
+  fieldIndex?: number;
+  subFormFieldIndex?: number;
 }
 
 export interface WalkthroughContext {
@@ -223,6 +225,17 @@ export class WalkthroughStateMachine {
             subFormItemIndex: ctx.subFormItemIndex,
             subFormFieldIndex: ctx.subFormFieldIndex,
           };
+        }
+        if (payload?.fieldIndex !== undefined) {
+          ctx.fieldIndex = payload.fieldIndex;
+        }
+        if (payload?.subFormId !== undefined) {
+          ctx.subFormId = payload.subFormId;
+        } else if (payload?.fieldIndex !== undefined) {
+          ctx.subFormId = null;
+        }
+        if (payload?.subFormFieldIndex !== undefined) {
+          ctx.subFormFieldIndex = payload.subFormFieldIndex;
         }
         break;
 

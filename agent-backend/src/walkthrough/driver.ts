@@ -15,8 +15,16 @@ import { StatusAwaiter, CancellationError } from "./statusAwaiter.js";
 import { ToolMessenger } from "./toolMessenger.js";
 import { NarrationService } from "./narrationService.js";
 import type { OutgoingMessage } from "../types.js";
+import {
+  resolveDemoValue,
+  isFieldVisible,
+  isConditionMet,
+  FieldSkipError,
+  WalkthroughAbortError,
+} from "./evaluator.js";
+import { processSubForm } from "./subFormProcessor.js";
 
-const TIMEOUTS = {
+export const TIMEOUTS = {
   NAVIGATE: 5000,
   OPEN_DIALOG: 4000,
   GO_TO_FIELD: 4000,
@@ -33,34 +41,20 @@ const TIMEOUTS = {
 
 const MAX_RETRIES = 3;
 const MAX_ERRORS_BEFORE_ABORT = 10;
-  
-// --- Errors ---
-class FieldSkipError extends Error {
-  constructor(public fieldKey: string) {
-    super(`Field skipped: ${fieldKey}`);
-    this.name = "FieldSkipError";
-  }
-}
-
-class WalkthroughAbortError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "WalkthroughAbortError";
-  }
-}
 
 // --- Driver ---
-class WalkthroughDriver {
+export class WalkthroughDriver {
   private sessionManager = new SessionManager();
   private statusAwaiter = new StatusAwaiter();
   private toolMessenger = new ToolMessenger();
   private narrationService = new NarrationService(this.statusAwaiter);
+  private startingSessions = new Set<string>();
 
   public getSession(sessionId: string): WalkthroughSession | undefined {
     return this.sessionManager.get(sessionId);
   }
 
-  private async yieldToInterrupts(session: WalkthroughSession): Promise<void> {
+  public async yieldToInterrupts(session: WalkthroughSession): Promise<void> {
     while (
       session.stateMachine.currentState === "PAUSED" ||
       session.stateMachine.currentState === "DETOUR_QA"
@@ -73,9 +67,11 @@ class WalkthroughDriver {
   async start(
     formId: string,
     sessionId: string,
-    ttsEnabled: boolean = true
+    ttsEnabled: boolean = true,
+    introMessage?: string,
+    languageCode: string = "en"
   ): Promise<void> {
-    if (this.sessionManager.has(sessionId)) {
+    if (this.startingSessions.has(sessionId) || this.sessionManager.has(sessionId)) {
       this.send(sessionId, {
         type: "tool",
         tool: "respond",
@@ -87,10 +83,13 @@ class WalkthroughDriver {
       return;
     }
 
+    this.startingSessions.add(sessionId);
+
     let session: WalkthroughSession;
     try {
-      session = this.sessionManager.create(sessionId, formId, ttsEnabled);
+      session = this.sessionManager.create(sessionId, formId, ttsEnabled, languageCode);
     } catch {
+      this.startingSessions.delete(sessionId);
       const { getAvailableForms } = await import("./sessionManager.js");
       const available = getAvailableForms()
         .map((f) => f.name)
@@ -108,7 +107,7 @@ class WalkthroughDriver {
 
     console.log(`[Driver] Session created: ${sessionId} → form: ${formId}`);
 
-    this.run(session)
+    this.run(session, introMessage)
       .catch((error) => {
         if (error instanceof CancellationError) {
           console.log(`[Driver] Walkthrough cancelled: ${sessionId}`);
@@ -140,6 +139,7 @@ class WalkthroughDriver {
         }
         this.sessionManager.delete(sessionId);
         console.log(`[Driver] Session cleaned up: ${sessionId}`);
+        this.startingSessions.delete(sessionId);
       });
   }
 
@@ -152,6 +152,13 @@ class WalkthroughDriver {
     this.statusAwaiter.rejectPending(session, new CancellationError());
   }
 
+  rejectPendingNarration(sessionId: string): void {
+    const session = this.sessionManager.get(sessionId);
+    if (session) {
+      this.statusAwaiter.rejectPending(session, new CancellationError("Narration interrupted"));
+    }
+  }
+
   handleStatus(sessionId: string, event: string, data?: any): void {
     const session = this.sessionManager.get(sessionId);
     if (!session) return;
@@ -162,7 +169,7 @@ class WalkthroughDriver {
   // MAIN WALKTHROUGH LOOP
   // ========================================
 
-  private async run(session: WalkthroughSession): Promise<void> {
+  private async run(session: WalkthroughSession, introMessage?: string): Promise<void> {
     const { schema, stateMachine, sessionId } = session;
 
     stateMachine.transition("START_WALKTHROUGH", { formId: schema.id });
@@ -174,6 +181,18 @@ class WalkthroughDriver {
     });
 
     console.log(`[Driver] ▶ Starting walkthrough: ${schema.id}`);
+
+    if (introMessage) {
+      console.log(`[Driver] Speaking walkthrough intro message`);
+      await this.sendTool(
+        session,
+        "respond",
+        { message: introMessage, tts: session.ttsEnabled },
+        null,
+        0
+      );
+      await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+    }
 
     console.log(`[Driver] Navigating to ${schema.route}`);
     await this.sendTool(
@@ -377,7 +396,7 @@ class WalkthroughDriver {
           await this.processField(session, field);
           await this.yieldToInterrupts(session);
           stateMachine.transition("FIELD_COMPLETE");
-          session.filledValues.set(field.key, field.demoValue);
+          session.filledValues.set(field.key, resolveDemoValue(field, session.filledValues));
         } catch (error) {
           if (error instanceof FieldSkipError) {
             console.log(`[Driver] Skipping field "${field.key}" — fill failed`);
@@ -514,7 +533,8 @@ class WalkthroughDriver {
       return;
     }
 
-    if (demoValue === undefined || demoValue === null) {
+    const resolvedDemoValue = resolveDemoValue(field, session.filledValues);
+    if (resolvedDemoValue === undefined || resolvedDemoValue === null) {
       await this.sendTool(
         session,
         "respond",
@@ -537,7 +557,7 @@ class WalkthroughDriver {
         await this.sendTool(
           session,
           "fill_field",
-          { fieldKey: key, label, type, value: String(demoValue) },
+          { fieldKey: key, label, type, value: String(resolvedDemoValue) },
           "field_filled",
           TIMEOUTS.FILL_FIELD
         );
@@ -562,366 +582,35 @@ class WalkthroughDriver {
     session: WalkthroughSession,
     subForm: SubFormSchema
   ): Promise<void> {
-    const { stateMachine } = session;
-    stateMachine.transition("SUB_FORM_START", { subFormId: subForm.id });
-
-    if (subForm.explanation) {
-      await this.sendTool(
-        session,
-        "respond",
-        { message: subForm.explanation, tts: session.ttsEnabled },
-        null,
-        0
-      );
-      await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-    }
-
-    if (subForm.autoPopulated) {
-      await this.processAutoPopulatedSubForm(session, subForm);
-    } else if (subForm.copyFrom) {
-      const { subFormId, whenFieldEquals, checkboxLabel } = subForm.copyFrom;
-      const shouldCopy = !whenFieldEquals ||
-        session.filledValues.get(whenFieldEquals.field) === whenFieldEquals.value;
-
-      if (shouldCopy) {
-        await this.processCopySubForm(session, subForm, checkboxLabel);
-      } else {
-        await this.processManualSubForm(session, subForm);
-      }
-    } else {
-      await this.processManualSubForm(session, subForm);
-    }
-
-    stateMachine.transition("SUB_FORM_COMPLETE");
-  }
-
-  private async processAutoPopulatedSubForm(
-    session: WalkthroughSession,
-    subForm: SubFormSchema
-  ): Promise<void> {
-    const { stateMachine } = session;
-    console.log(`[Driver] Auto-populated sub-form: ${subForm.id} — items already in DOM`);
-
-    await this.sendTool(
-      session,
-      "respond",
-      {
-        message: "The products have been loaded automatically based on the customer's agreement.",
-        tts: session.ttsEnabled,
-      },
-      null,
-      0
-    );
-    await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-
-    for (let itemIndex = 0; itemIndex < subForm.demoItemCount; itemIndex++) {
-      this.checkCancelled(session);
-      await this.yieldToInterrupts(session);
-      if (itemIndex > 0) {
-        if (subForm.explanationForMultiple) {
-          await this.sendTool(
-            session,
-            "respond",
-            { message: subForm.explanationForMultiple, tts: session.ttsEnabled },
-            null,
-            0
-          );
-          await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-        }
-        stateMachine.transition("SUB_FORM_NEXT_ITEM");
-      }
-
-      for (const field of subForm.fields) {
-        this.checkCancelled(session);
-        await this.yieldToInterrupts(session);
-
-        try {
-          await this.retryOperation(
-            session,
-            async () => {
-              await this.sendTool(
-                session,
-                "go_to_field",
-                {
-                  fieldKey: field.key,
-                  label: field.label,
-                  subFormId: subForm.id,
-                  itemIndex: itemIndex,
-                },
-                "field_reached",
-                TIMEOUTS.GO_TO_FIELD
-              );
-            },
-            field.key
-          );
-
-          await this.sendTool(
-            session,
-            "explain_field",
-            {
-              fieldKey: field.key,
-              text: field.explanation,
-              tts: session.ttsEnabled,
-            },
-            null,
-            0
-          );
-          await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-
-          if (field.autoFilled) {
-            await this.sendTool(
-              session,
-              "respond",
-              {
-                message: "This field was already filled automatically for you.",
-                tts: session.ttsEnabled,
-              },
-              null,
-              0
-            );
-            await this.wait(200);
-            stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-            continue;
-          }
-
-          await this.yieldToInterrupts(session);
-
-          await this.retryOperation(
-            session,
-            async () => {
-              await this.sendTool(
-                session,
-                "fill_field",
-                {
-                  fieldKey: field.key,
-                  label: field.label,
-                  type: field.type,
-                  value: String(field.demoValue),
-                  subFormId: subForm.id,
-                  itemIndex: itemIndex,
-                },
-                "field_filled",
-                TIMEOUTS.FILL_FIELD
-              );
-            },
-            field.key
-          );
-
-          const pauseAfterFill = field.pauseAfterFill || 200;
-          await this.wait(pauseAfterFill);
-
-          stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-          session.filledValues.set(
-            `${subForm.id}_${itemIndex}_${field.key}`,
-            field.demoValue
-          );
-        } catch (error) {
-          if (error instanceof FieldSkipError) {
-            console.log(`[Driver] Skipping sub-form field "${field.key}" — fill failed`);
-            stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-            continue;
-          }
-          throw error;
-        }
-      }
-    }
-  }
-
-  private async processManualSubForm(
-    session: WalkthroughSession,
-    subForm: SubFormSchema
-  ): Promise<void> {
-    const { stateMachine } = session;
-    console.log(`[Driver] Manual sub-form: ${subForm.id} — adding ${subForm.demoItemCount} item(s)`);
-
-    for (let itemIndex = 0; itemIndex < subForm.demoItemCount; itemIndex++) {
-      this.checkCancelled(session);
-      await this.yieldToInterrupts(session);
-      await this.retryOperation(
-        session,
-        async () => {
-          await this.sendTool(
-            session,
-            "add_item",
-            { subFormId: subForm.id, triggerText: subForm.triggerText },
-            "item_added",
-            TIMEOUTS.ADD_ITEM
-          );
-        },
-        `${subForm.id}_addItem_${itemIndex}`
-      );
-
-      await this.wait(TIMEOUTS.FIELD_RENDER_WAIT);
-
-      if (itemIndex > 0 && subForm.explanationForMultiple) {
-        await this.sendTool(
-          session,
-          "respond",
-          { message: subForm.explanationForMultiple, tts: session.ttsEnabled },
-          null,
-          0
-        );
-        await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-        stateMachine.transition("SUB_FORM_NEXT_ITEM");
-      }
-
-      for (const field of subForm.fields) {
-        this.checkCancelled(session);
-        await this.yieldToInterrupts(session);
-
-        try {
-          await this.retryOperation(
-            session,
-            async () => {
-              await this.sendTool(
-                session,
-                "go_to_field",
-                {
-                  fieldKey: field.key,
-                  label: field.label,
-                  subFormId: subForm.id,
-                  itemIndex: itemIndex,
-                },
-                "field_reached",
-                TIMEOUTS.GO_TO_FIELD
-              );
-            },
-            field.key
-          );
-
-          await this.sendTool(
-            session,
-            "explain_field",
-            {
-              fieldKey: field.key,
-              text: field.explanation,
-              tts: session.ttsEnabled,
-            },
-            null,
-            0
-          );
-          await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
-
-          await this.yieldToInterrupts(session);
-
-          await this.retryOperation(
-            session,
-            async () => {
-              await this.sendTool(
-                session,
-                "fill_field",
-                {
-                  fieldKey: field.key,
-                  label: field.label,
-                  type: field.type,
-                  value: String(field.demoValue),
-                  subFormId: subForm.id,
-                  itemIndex: itemIndex,
-                },
-                "field_filled",
-                TIMEOUTS.FILL_FIELD
-              );
-            },
-            field.key
-          );
-
-          const pauseAfterFill = field.pauseAfterFill || 200;
-          await this.wait(pauseAfterFill);
-
-          stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-          session.filledValues.set(
-            `${subForm.id}_${itemIndex}_${field.key}`,
-            field.demoValue
-          );
-        } catch (error) {
-          if (error instanceof FieldSkipError) {
-            console.log(`[Driver] Skipping sub-form field "${field.key}" — fill failed`);
-            stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
-            continue;
-          }
-          throw error;
-        }
-      }
-    }
-  }
-
-  private async processCopySubForm(
-    session: WalkthroughSession,
-    subForm: SubFormSchema,
-    checkboxLabel: string
-  ): Promise<void> {
-    console.log(`[Driver] Sub-form ${subForm.id} — using copy checkbox`);
-
-    await this.sendTool(
-      session,
-      "respond",
-      {
-        message: subForm.copyFrom?.copyExplanation || `These items can be copied from ${subForm.copyFrom?.subFormId}.`,
-        tts: session.ttsEnabled,
-      },
-      null,
-      0
-    );
-
-    await this.retryOperation(
-      session,
-      async () => {
-        await this.sendTool(
-          session,
-          "click_checkbox",
-          {
-            fieldKey: `copy_${subForm.copyFrom?.subFormId}`,
-            labelText: checkboxLabel,
-          },
-          "checkbox_clicked",
-          TIMEOUTS.FILL_FIELD
-        );
-      },
-      `copy_${subForm.id}`
-    );
-
-    await this.sendTool(
-      session,
-      "respond",
-      {
-        message: "I've checked the copy option to automatically copy items.",
-        tts: session.ttsEnabled,
-      },
-      null,
-      0
-    );
-    await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+    await processSubForm(this, session, subForm);
   }
 
   // ========================================
   // CONDITIONAL FIELD EVALUATION
   // ========================================
 
+  public static isFieldVisible = isFieldVisible;
+  public static isConditionMet = isConditionMet;
+
   private isFieldVisible(
     session: WalkthroughSession,
     field: FieldSchema | SubFormSchema
   ): boolean {
-    const { visibleWhen } = field;
-    if (!visibleWhen) return true;
-    const currentValue = session.filledValues.get(visibleWhen.field);
-    return currentValue === visibleWhen.value;
+    return isFieldVisible(session, field);
   }
 
   private isConditionMet(
     session: WalkthroughSession,
     field: FieldSchema | SubFormSchema
   ): boolean {
-    const { conditionalOn } = field as FieldSchema | SubFormSchema;
-    if (!conditionalOn) return true;
-    const currentValue = session.filledValues.get(conditionalOn.field);
-    return conditionalOn.values.includes(String(currentValue));
+    return isConditionMet(session, field);
   }
 
   // ========================================
   // TOOL SENDING
   // ========================================
 
-  private async sendTool(
+  public async sendTool(
     session: WalkthroughSession,
     tool: string,
     args: Record<string, unknown>,
@@ -937,7 +626,7 @@ class WalkthroughDriver {
         const messageId = String(args.messageId || crypto.randomUUID());
         args.messageId = messageId;
 
-        ttsPromise = this.narrationService.speakAndWait(session, textToSpeak, "en", messageId);
+        ttsPromise = this.narrationService.speakAndWait(session, textToSpeak, session.languageCode, messageId);
       }
     }
 
@@ -968,7 +657,7 @@ class WalkthroughDriver {
   // ERROR HANDLING WITH RETRY
   // ========================================
 
-  private async retryOperation(
+  public async retryOperation(
     session: WalkthroughSession,
     operation: () => Promise<void>,
     fieldKey: string
@@ -1018,11 +707,11 @@ class WalkthroughDriver {
     }
   }
 
-  private checkCancelled(session: WalkthroughSession): void {
+  public checkCancelled(session: WalkthroughSession): void {
     if (session.cancelled) throw new CancellationError();
   }
 
-  private wait(ms: number): Promise<void> {
+  public wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
@@ -1032,3 +721,5 @@ class WalkthroughDriver {
 }
 
 export const walkthroughDriver = new WalkthroughDriver();
+
+export { resolveDemoValue } from "./evaluator.js";

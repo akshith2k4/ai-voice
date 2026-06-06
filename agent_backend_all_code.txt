@@ -1,8 +1,10 @@
+
 ================================================================================
 File: agent-backend/server.ts
 ================================================================================
 
 import { connectionManager } from "./src/connectionManager.js";
+import { cleanupSession } from "./src/services/voicePipeline.js";
 import { routeMessage, parseMessage } from "./src/messageRouter.js";
 import type { ClientData, OutgoingMessage } from "./src/types.js";
 
@@ -162,6 +164,7 @@ const server = Bun.serve<ClientData>({
       console.log(
         `[Server] Connection closed: ${sessionId} (code: ${code}, reason: ${reason || "none"})`
       );
+      cleanupSession(sessionId);
       connectionManager.remove(sessionId);
     },
 
@@ -174,9 +177,6 @@ console.log(`\n🚀 Agent backend running on ws://localhost:${PORT}`);
 console.log(`   Health check: http://localhost:${PORT}/health`);
 console.log(`   Allowed origin: ${CORS_ORIGIN}`);
 console.log(`   Press Ctrl+C to stop\n`);
-
-
-
 ================================================================================
 File: agent-backend/llm/orchestrator.ts
 ================================================================================
@@ -238,8 +238,14 @@ export async function orchestrate(
   const activeSession = walkthroughDriver.getSession(sessionId);
   if (activeSession) {
     const ctx = activeSession.stateMachine.currentContext;
-    const currentField = activeSession.schema.fields[ctx.fieldIndex];
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    let currentField = activeSession.schema.fields[ctx.fieldIndex];
+    if (ctx.subFormId) {
+      const subForm = activeSession.schema.subForms.find(sf => sf.id === ctx.subFormId);
+      if (subForm && subForm.fields[ctx.subFormFieldIndex]) {
+        currentField = subForm.fields[ctx.subFormFieldIndex];
+      }
+    }
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField);
     console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
   }
 
@@ -362,8 +368,14 @@ export async function* orchestrateStream(
   const activeSession = walkthroughDriver.getSession(sessionId);
   if (activeSession) {
     const ctx = activeSession.stateMachine.currentContext;
-    const currentField = activeSession.schema.fields[ctx.fieldIndex];
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField?.key || "unknown");
+    let currentField = activeSession.schema.fields[ctx.fieldIndex];
+    if (ctx.subFormId) {
+      const subForm = activeSession.schema.subForms.find(sf => sf.id === ctx.subFormId);
+      if (subForm && subForm.fields[ctx.subFormFieldIndex]) {
+        currentField = subForm.fields[ctx.subFormFieldIndex];
+      }
+    }
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField);
     console.log(`[Orchestrator] Active session detected. Routing using walkthrough layout context slices.`);
   }
 
@@ -442,7 +454,7 @@ File: agent-backend/llm/prompts.ts
 // ============================================
 
 import routeRegistry from "../src/schema/routeRegistry.json" with { type: "json" };
-import type { FormSchema } from "../src/schema/loader.js";
+import type { FormSchema, FieldSchema } from "../src/schema/loader.js";
 
 function formatRoutes(): string {
   return routeRegistry.routes
@@ -505,26 +517,81 @@ RESPONSE RULES:
  * Builds a highly optimized system prompt for active walkthrough sessions.
  * Compacts the field list to remain well under the token performance threshold.
  */
-export function buildWalkthroughPrompt(schema: FormSchema, currentFieldKey: string): string {
-  const simplifiedFields = schema.fields.map(f => ({
-    key: f.key,
-    label: f.label,
-    aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || []
-  }));
+export function buildWalkthroughPrompt(schema: FormSchema, currentField: FieldSchema | undefined): string {
+  // Collect simplified schema for ALL fields (both main form and sub-forms)
+  const allFieldsSimplified: Array<{ key: string; label: string; explanation?: string; options?: string[]; aliases: string[] }> = [];
+
+  for (const f of schema.fields) {
+    allFieldsSimplified.push({
+      key: f.key,
+      label: f.label,
+      explanation: f.explanation,
+      options: f.options ?? undefined,
+      aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || [],
+    });
+  }
+
+  if (schema.subForms) {
+    for (const sf of schema.subForms) {
+      for (const f of sf.fields) {
+        allFieldsSimplified.push({
+          key: f.key,
+          label: f.label,
+          explanation: f.explanation,
+          options: f.options ?? undefined,
+          aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || [],
+        });
+      }
+    }
+  }
+
+  const currentFieldKey = currentField?.key || "unknown";
+  
+  let currentFieldContextBlock = "";
+  if (currentField) {
+    const contextObj: Record<string, any> = {
+      key: currentField.key,
+      label: currentField.label,
+      type: currentField.type,
+      required: currentField.required ?? false,
+    };
+    if (currentField.options !== undefined && currentField.options !== null) {
+      contextObj.options = currentField.options;
+    }
+    contextObj.explanation = currentField.explanation;
+    if (currentField.tips) {
+      contextObj.tips = currentField.tips;
+    }
+    if (currentField.commonQuestions && currentField.commonQuestions.length > 0) {
+      contextObj.commonQuestions = currentField.commonQuestions;
+    }
+    currentFieldContextBlock = `CURRENT FIELD FULL CONTEXT:
+${JSON.stringify(contextObj, null, 2)}`;
+  } else {
+    currentFieldContextBlock = "CURRENT FIELD FULL CONTEXT: No active field context available.";
+  }
 
   return `You are an overlay monitor guiding a user through the "${schema.name}" form dialog.
 CURRENT ACTION FRAME: The user is currently looking at the field: "${currentFieldKey}".
 
-OPERATIONAL CAPABILITIES:
-1. The user can interrupt to ask questions about the active field, previous fields, or upcoming fields.
-2. If they ask a question regarding what a field means, how to use it, or what data goes into it, you MUST select the 'detour_to_field' tool. Do NOT answer inline with text.
-3. If they say "continue", "next", or indicate they are ready to proceed, select the 'resume_walkthrough' tool.
+${currentFieldContextBlock}
 
-CRITICAL FIELD DIRECTORY MAP (Select the exact 'fieldKey' from this map):
-${JSON.stringify(simplifiedFields)}
+DECISION GUIDE:
+Choose the appropriate tool based on the user's intent:
+1. Navigation / Focus: The user wants to locate, highlight, focus on, or go to a field (e.g., "show me the customer field", "where is the order date?", "highlight order reference id").
+   - Action: Select the 'detour_to_field' tool with the target fieldKey.
+2. Explanation / Q&A: The user asks a question about what a field means, how to use it, why it is needed, its options, or comparative questions (e.g., "what is this?", "what is the customer field?", "why do we use leasing?", "how do I use this?", "why do I need this?").
+   - Action: Use the 'answer_question' tool and synthesize a tailored response using the explanations and options provided in the prompt. Do NOT call the 'detour_to_field' tool (do not navigate to the field).
+3. Continue: The user indicates they are ready to proceed (e.g., "ok", "next", "got it", "continue").
+   - Action: Select the 'resume_walkthrough' tool.
+4. Off-topic: The user asks about something unrelated (e.g., "what's the weather?").
+   - Action: Say you can't help with that, and add a polite, brief redirect back to the walkthrough.
+
+CRITICAL FIELD DIRECTORY MAP:
+${JSON.stringify(allFieldsSimplified)}
 
 RESPONSE RULES:
-- Never answer form layout queries using standard text blocks. Always route via the 'detour_to_field' tool.
+- For explanation, generate 1-3 sentences directly answering the question. Do NOT replay the field's standard explanation.
 - Keep text parameters inside tools concise for natural text-to-speech rendering.
 - Preserve all interface and technical naming fields strictly in English language strings.`;
 }
@@ -629,7 +696,7 @@ export const askClarificationTool = new DynamicStructuredTool({
 export const detourToFieldTool = new DynamicStructuredTool({
   name: "detour_to_field",
   description:
-    "Detour to explain a specific field on the active form without filling it. Use this when the user asks a question about what a field means, what data goes into it, how to use it, etc. Do NOT answer inline with text.",
+    "Detour to focus on or visually highlight a specific field on the active form. Use this tool ONLY when the user explicitly requests navigation or visual highlight/focus for a field (e.g., 'where is the customer field?', 'show me order date', 'focus customer'). Do NOT use this tool for explanation questions about fields (e.g., 'what is customer?', 'why is orderDate required?'); instead, use the 'answer_question' tool to answer directly.",
   schema: z.object({
     fieldKey: z
       .string()
@@ -660,6 +727,7 @@ export const allTools = [
   detourToFieldTool,
   resumeWalkthroughTool,
 ];
+
 ================================================================================
 File: agent-backend/src/connectionManager.ts
 ================================================================================
@@ -701,6 +769,14 @@ class ConnectionManager {
       console.log(
         `[ConnectionManager] Client disconnected: ${sessionId} (total: ${this.connections.size})`
       );
+      // Dynamic import to avoid circular dependency (connectionManager ↔ voicePipeline)
+      import("./services/voicePipeline.js")
+        .then(({ cleanupSession }) => {
+          cleanupSession(sessionId);
+        })
+        .catch((err) => {
+          console.warn(`[ConnectionManager] Failed to cleanup session ${sessionId}:`, err);
+        });
     }
   }
 
@@ -841,6 +917,7 @@ export const TOOL_TYPES = {
   SELECT_ITEM: "select_item",
   CLICK_ELEMENT: "click_element",
   GET_OPTIONS_COUNT: "get_options_count",
+  STOP_AUDIO: "stop_audio", // Cuts off any playing audio on the frontend instantly (e.g. on barge-in)
 };
 
 // --- Incoming Messages (Frontend → Backend) ---
@@ -887,7 +964,8 @@ export interface ToolMessage {
 
 export interface TtsAudioMessage {
   type: "tts_audio";
-  audio: string; // base64 encoded MP3
+  audio?: string; // base64 encoded MP3 (optional if url is provided)
+  url?: string; // S3 presigned URL
   messageId: string;
   done?: boolean;
 }
@@ -983,12 +1061,7 @@ File: agent-backend/src/walkthrough/narrationService.ts
 import { connectionManager } from "../connectionManager.js";
 import type { StatusAwaiter } from "./statusAwaiter.js";
 import type { WalkthroughSession } from "./sessionManager.js";
-import { promises as fsPromises } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 import crypto from "crypto";
 
@@ -999,36 +1072,23 @@ export function interruptNarration(sessionId: string) {
   if (state) {
     state.interrupted = true;
   }
+  // Call interruptActiveTTS to detach any active ElevenLabs TTS fetch to the background
+  import("../services/elevenLabsTTS.js").then(({ interruptActiveTTS }) => {
+    interruptActiveTTS(sessionId);
+  }).catch((err) => {
+    console.error("[NarrationService] Failed to interrupt active TTS queue:", err);
+  });
+
+  import("./driver.js").then(({ walkthroughDriver }) => {
+    walkthroughDriver.rejectPendingNarration(sessionId);
+  }).catch((err) => {
+    console.error("[NarrationService] Failed to reject pending narration on walkthroughDriver:", err);
+  });
 }
 
-function getHash(text: string): string {
+function getHash(text: string, languageCode: string = "en"): string {
   const normalized = text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  return crypto.createHash("md5").update(normalized).digest("hex");
-}
-
-function applyFade(buffer: Buffer, sampleRate = 22050, fadeMs = 15): Buffer {
-  const sampleCount = buffer.length / 2;
-  const fadeSamples = Math.min(Math.floor(sampleRate * (fadeMs / 1000)), Math.floor(sampleCount / 2));
-  if (fadeSamples <= 0) return buffer;
-
-  for (let i = 0; i < fadeSamples; i++) {
-    const factor = i / fadeSamples;
-    
-    // Fade in at the beginning
-    const startOffset = i * 2;
-    if (startOffset + 1 < buffer.length) {
-      const startVal = buffer.readInt16LE(startOffset);
-      buffer.writeInt16LE(Math.round(startVal * factor), startOffset);
-    }
-    
-    // Fade out at the end
-    const endOffset = (sampleCount - 1 - i) * 2;
-    if (endOffset >= 0 && endOffset + 1 < buffer.length) {
-      const endVal = buffer.readInt16LE(endOffset);
-      buffer.writeInt16LE(Math.round(endVal * factor), endOffset);
-    }
-  }
-  return buffer;
+  return crypto.createHash("md5").update(`${normalized}_${languageCode}`).digest("hex");
 }
 
 export class NarrationService {
@@ -1049,72 +1109,93 @@ export class NarrationService {
     const state = { interrupted: false };
     activeNarrations.set(session.sessionId, state);
 
-    // Look for pre-recorded audio file matching the MD5 hash of the normalized text prompt
-    const hash = getHash(text);
-    const audioFilename = `${hash}.pcm`;
-    const filePath = join(__dirname, "../../voicefiles_pcm", audioFilename);
+    // Look for pre-recorded audio file matching the MD5 hash of the normalized text prompt + language
+    const hash = getHash(text, languageCode);
+    const s3Key = `walkthrough-audio/${hash}.mp3`;
 
+    let existsOnS3 = false;
+
+    // Check S3 directly for cached audios
     try {
-      const buffer = await fsPromises.readFile(filePath);
-      console.log(`[NarrationService] Cache hit! Streaming pre-recorded audio: ${audioFilename} for prompt: "${text.substring(0, 40)}..."`);
+      const { checkS3ObjectExists } = await import("../services/s3Service.js");
+      existsOnS3 = await checkS3ObjectExists(s3Key);
+    } catch (s3Err) {
+      console.warn(`[NarrationService] S3 check failed for ${s3Key}:`, s3Err);
+    }
 
-      // Apply linear fade-in and fade-out to prevent boundary pops/clicks (tup sound)
-      const rawPCM = applyFade(buffer);
+    if (existsOnS3) {
+      try {
+        const { getPresignedUrl } = await import("../services/s3Service.js");
+        const signedUrl = await getPresignedUrl(s3Key);
+        console.log(`[NarrationService] S3 Hit! Streaming presigned URL: ${signedUrl} for prompt: "${text.substring(0, 40)}..."`);
 
-      // Pacing parameters matching 22050Hz Mono 16-bit PCM:
-      // 8192 bytes = 4096 samples. 4096 / 22050 Hz = ~185.7ms.
-      const CHUNK_SIZE = 8192;
-      const DELAY_MS = 185;
-
-      let offset = 0;
-      while (offset < rawPCM.length) {
-        if (state.interrupted) {
-          console.log(`[NarrationService] Audio playback interrupted. Stopping stream for ${id}.`);
-          break;
+        if (!state.interrupted) {
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            url: signedUrl,
+            messageId: id,
+            done: true,
+          });
         }
 
-        const end = Math.min(offset + CHUNK_SIZE, rawPCM.length);
-        const chunk = rawPCM.subarray(offset, end);
-        const isDone = end === rawPCM.length;
-
-        connectionManager.send(session.sessionId, {
-          type: "tts_audio",
-          audio: chunk.toString("base64"),
-          messageId: id,
-          done: isDone,
-        });
-
-        offset = end;
-        if (!isDone) {
-          await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        if (activeNarrations.get(session.sessionId) === state) {
+          activeNarrations.delete(session.sessionId);
         }
-      }
-
-      if (activeNarrations.get(session.sessionId) === state) {
-        activeNarrations.delete(session.sessionId);
-      }
-      return id;
-    } catch (err: any) {
-      if (err && err.code === "ENOENT") {
-        console.log(`[NarrationService] Cache miss (no pre-recorded file for hash ${hash}). Falling back to live ElevenLabs TTS.`);
-      } else {
-        console.warn(`[NarrationService] Failed to read pre-recorded file ${audioFilename}:`, err);
+        return id;
+      } catch (err: any) {
+        console.warn(`[NarrationService] Failed to generate S3 presigned URL for ${s3Key}:`, err);
       }
     }
 
+    console.log(`[NarrationService] Cache miss (no S3 file for key ${s3Key}). Falling back to live ElevenLabs TTS.`);
+
     try {
       const { synthesizeStream } = await import("../services/ttsService.js");
+      const chunks: Buffer[] = [];
+
       await synthesizeStream(text, languageCode, (base64Chunk, isDone) => {
-        if (state.interrupted) {
-           return;
+        // Collect chunk for S3 caching
+        if (base64Chunk) {
+          chunks.push(Buffer.from(base64Chunk, "base64"));
         }
-        connectionManager.send(session.sessionId, {
-          type: "tts_audio",
-          audio: base64Chunk,
-          messageId: id,
-          done: isDone,
-        });
-      });
+
+        // Only stream to the frontend if the narration hasn't been interrupted
+        if (!state.interrupted) {
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            audio: base64Chunk,
+            messageId: id,
+            done: isDone,
+          });
+        } else if (isDone) {
+          // If interrupted but done, send empty complete chunk to ensure client doesn't hang
+          connectionManager.send(session.sessionId, {
+            type: "tts_audio",
+            audio: "",
+            messageId: id,
+            done: true,
+          });
+        }
+
+        // Once live synthesis finishes, upload the combined buffer to S3
+        if (isDone && chunks.length > 0) {
+          const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+          const combinedBuffer = Buffer.concat(chunks, totalLength);
+          
+          import("../services/s3Service.js").then(({ uploadToS3 }) => {
+            uploadToS3(s3Key, combinedBuffer, "audio/mpeg")
+              .then(() => {
+                console.log(`[NarrationService] Dynamically cached new audio to S3: ${s3Key}`);
+              })
+              .catch((uploadErr) => {
+                console.error(`[NarrationService] Failed to upload dynamic audio cache to S3: ${s3Key}`, uploadErr);
+              });
+          }).catch((importErr) => {
+            console.error("[NarrationService] Failed to import s3Service dynamically:", importErr);
+          });
+        }
+      }, session.sessionId);
+
       if (activeNarrations.get(session.sessionId) === state) {
          activeNarrations.delete(session.sessionId);
       }
@@ -1148,14 +1229,21 @@ export class NarrationService {
     }
 
     try {
+      const wordCount = text.split(/\s+/).length;
+      const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
       await this.statusAwaiter.waitForStatus(
         session,
         "tts_playback_complete",
-        15000,
+        dynamicTimeout,
         (data) => data.messageId === id
       );
-    } catch (err) {
-      console.warn(`[NarrationService] TTS playback timeout for ${id}, continuing...`);
+    } catch (err: any) {
+      if (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted")) {
+        console.log(`[NarrationService] TTS playback interrupted for ${id}`);
+        return id;
+      } else {
+        console.warn(`[NarrationService] TTS playback timeout for ${id}, continuing...`);
+      }
     }
 
     return id;
@@ -1186,17 +1274,17 @@ import { NarrationService } from "./narrationService.js";
 import type { OutgoingMessage } from "../types.js";
 
 const TIMEOUTS = {
-  NAVIGATE: 2000,
-  OPEN_DIALOG: 2000,
-  GO_TO_FIELD: 2000,
-  FILL_FIELD: 3000,
-  ADD_ITEM: 1000,
+  NAVIGATE: 5000,
+  OPEN_DIALOG: 4000,
+  GO_TO_FIELD: 4000,
+  FILL_FIELD: 5000,
+  ADD_ITEM: 3000,
   CLEAR_FIELDS: 3000,
   CLOSE_DIALOG: 3000,
   AUTO_POPULATION_WAIT: 1000,
   COMPLETION_PAUSE: 400,
   EXPLAIN_DISPLAY: 100,
-  FIELD_RENDER_WAIT: 100,
+  FIELD_RENDER_WAIT: 300,
   RETRY_DELAY: 200,
 };
 
@@ -1219,11 +1307,12 @@ class WalkthroughAbortError extends Error {
 }
 
 // --- Driver ---
-class WalkthroughDriver {
+export class WalkthroughDriver {
   private sessionManager = new SessionManager();
   private statusAwaiter = new StatusAwaiter();
   private toolMessenger = new ToolMessenger();
   private narrationService = new NarrationService(this.statusAwaiter);
+  private startingSessions = new Set<string>();
 
   public getSession(sessionId: string): WalkthroughSession | undefined {
     return this.sessionManager.get(sessionId);
@@ -1242,9 +1331,11 @@ class WalkthroughDriver {
   async start(
     formId: string,
     sessionId: string,
-    ttsEnabled: boolean = true
+    ttsEnabled: boolean = true,
+    introMessage?: string,
+    languageCode: string = "en"
   ): Promise<void> {
-    if (this.sessionManager.has(sessionId)) {
+    if (this.startingSessions.has(sessionId) || this.sessionManager.has(sessionId)) {
       this.send(sessionId, {
         type: "tool",
         tool: "respond",
@@ -1256,10 +1347,13 @@ class WalkthroughDriver {
       return;
     }
 
+    this.startingSessions.add(sessionId);
+
     let session: WalkthroughSession;
     try {
-      session = this.sessionManager.create(sessionId, formId, ttsEnabled);
+      session = this.sessionManager.create(sessionId, formId, ttsEnabled, languageCode);
     } catch {
+      this.startingSessions.delete(sessionId);
       const { getAvailableForms } = await import("./sessionManager.js");
       const available = getAvailableForms()
         .map((f) => f.name)
@@ -1277,7 +1371,7 @@ class WalkthroughDriver {
 
     console.log(`[Driver] Session created: ${sessionId} → form: ${formId}`);
 
-    this.run(session)
+    this.run(session, introMessage)
       .catch((error) => {
         if (error instanceof CancellationError) {
           console.log(`[Driver] Walkthrough cancelled: ${sessionId}`);
@@ -1309,6 +1403,7 @@ class WalkthroughDriver {
         }
         this.sessionManager.delete(sessionId);
         console.log(`[Driver] Session cleaned up: ${sessionId}`);
+        this.startingSessions.delete(sessionId);
       });
   }
 
@@ -1321,6 +1416,13 @@ class WalkthroughDriver {
     this.statusAwaiter.rejectPending(session, new CancellationError());
   }
 
+  rejectPendingNarration(sessionId: string): void {
+    const session = this.sessionManager.get(sessionId);
+    if (session) {
+      this.statusAwaiter.rejectPending(session, new CancellationError("Narration interrupted"));
+    }
+  }
+
   handleStatus(sessionId: string, event: string, data?: any): void {
     const session = this.sessionManager.get(sessionId);
     if (!session) return;
@@ -1331,7 +1433,7 @@ class WalkthroughDriver {
   // MAIN WALKTHROUGH LOOP
   // ========================================
 
-  private async run(session: WalkthroughSession): Promise<void> {
+  private async run(session: WalkthroughSession, introMessage?: string): Promise<void> {
     const { schema, stateMachine, sessionId } = session;
 
     stateMachine.transition("START_WALKTHROUGH", { formId: schema.id });
@@ -1343,6 +1445,18 @@ class WalkthroughDriver {
     });
 
     console.log(`[Driver] ▶ Starting walkthrough: ${schema.id}`);
+
+    if (introMessage) {
+      console.log(`[Driver] Speaking walkthrough intro message`);
+      await this.sendTool(
+        session,
+        "respond",
+        { message: introMessage, tts: session.ttsEnabled },
+        null,
+        0
+      );
+      await this.wait(TIMEOUTS.EXPLAIN_DISPLAY);
+    }
 
     console.log(`[Driver] Navigating to ${schema.route}`);
     await this.sendTool(
@@ -1546,7 +1660,7 @@ class WalkthroughDriver {
           await this.processField(session, field);
           await this.yieldToInterrupts(session);
           stateMachine.transition("FIELD_COMPLETE");
-          session.filledValues.set(field.key, field.demoValue);
+          session.filledValues.set(field.key, resolveDemoValue(field, session.filledValues));
         } catch (error) {
           if (error instanceof FieldSkipError) {
             console.log(`[Driver] Skipping field "${field.key}" — fill failed`);
@@ -1683,7 +1797,8 @@ class WalkthroughDriver {
       return;
     }
 
-    if (demoValue === undefined || demoValue === null) {
+    const resolvedDemoValue = resolveDemoValue(field, session.filledValues);
+    if (resolvedDemoValue === undefined || resolvedDemoValue === null) {
       await this.sendTool(
         session,
         "respond",
@@ -1706,7 +1821,7 @@ class WalkthroughDriver {
         await this.sendTool(
           session,
           "fill_field",
-          { fieldKey: key, label, type, value: String(demoValue) },
+          { fieldKey: key, label, type, value: String(resolvedDemoValue) },
           "field_filled",
           TIMEOUTS.FILL_FIELD
         );
@@ -1865,7 +1980,7 @@ class WalkthroughDriver {
                   fieldKey: field.key,
                   label: field.label,
                   type: field.type,
-                  value: String(field.demoValue),
+                  value: String(resolveDemoValue(field, session.filledValues) ?? ""),
                   subFormId: subForm.id,
                   itemIndex: itemIndex,
                 },
@@ -1882,7 +1997,7 @@ class WalkthroughDriver {
           stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
           session.filledValues.set(
             `${subForm.id}_${itemIndex}_${field.key}`,
-            field.demoValue
+            resolveDemoValue(field, session.filledValues)
           );
         } catch (error) {
           if (error instanceof FieldSkipError) {
@@ -1983,7 +2098,7 @@ class WalkthroughDriver {
                   fieldKey: field.key,
                   label: field.label,
                   type: field.type,
-                  value: String(field.demoValue),
+                  value: String(resolveDemoValue(field, session.filledValues) ?? ""),
                   subFormId: subForm.id,
                   itemIndex: itemIndex,
                 },
@@ -2000,7 +2115,7 @@ class WalkthroughDriver {
           stateMachine.transition("SUB_FORM_FIELD_COMPLETE");
           session.filledValues.set(
             `${subForm.id}_${itemIndex}_${field.key}`,
-            field.demoValue
+            resolveDemoValue(field, session.filledValues)
           );
         } catch (error) {
           if (error instanceof FieldSkipError) {
@@ -2066,17 +2181,18 @@ class WalkthroughDriver {
   // CONDITIONAL FIELD EVALUATION
   // ========================================
 
-  private isFieldVisible(
+  public static isFieldVisible(
     session: WalkthroughSession,
     field: FieldSchema | SubFormSchema
   ): boolean {
     const { visibleWhen } = field;
     if (!visibleWhen) return true;
-    const currentValue = session.filledValues.get(visibleWhen.field);
-    return currentValue === visibleWhen.value;
+    const vw = visibleWhen as any;
+    const currentValue = session.filledValues.get(vw.field);
+    return currentValue === vw.value;
   }
 
-  private isConditionMet(
+  public static isConditionMet(
     session: WalkthroughSession,
     field: FieldSchema | SubFormSchema
   ): boolean {
@@ -2084,6 +2200,20 @@ class WalkthroughDriver {
     if (!conditionalOn) return true;
     const currentValue = session.filledValues.get(conditionalOn.field);
     return conditionalOn.values.includes(String(currentValue));
+  }
+
+  private isFieldVisible(
+    session: WalkthroughSession,
+    field: FieldSchema | SubFormSchema
+  ): boolean {
+    return WalkthroughDriver.isFieldVisible(session, field);
+  }
+
+  private isConditionMet(
+    session: WalkthroughSession,
+    field: FieldSchema | SubFormSchema
+  ): boolean {
+    return WalkthroughDriver.isConditionMet(session, field);
   }
 
   // ========================================
@@ -2106,7 +2236,7 @@ class WalkthroughDriver {
         const messageId = String(args.messageId || crypto.randomUUID());
         args.messageId = messageId;
 
-        ttsPromise = this.narrationService.speakAndWait(session, textToSpeak, "en", messageId);
+        ttsPromise = this.narrationService.speakAndWait(session, textToSpeak, session.languageCode, messageId);
       }
     }
 
@@ -2202,6 +2332,39 @@ class WalkthroughDriver {
 
 export const walkthroughDriver = new WalkthroughDriver();
 
+export function resolveDemoValue(
+  field: FieldSchema,
+  filledValues: Map<string, unknown>,
+  branchOption?: string | null
+): unknown {
+  const dv = field.demoValue;
+  if (dv === undefined || dv === null) return undefined;
+  
+  if (typeof dv === "object" && dv !== null && !Array.isArray(dv)) {
+    const record = dv as Record<string, unknown>;
+    
+    // Explicit branch option (used by planner)
+    if (branchOption && branchOption in record) {
+      return record[branchOption];
+    }
+    
+    // Runtime resolution (used by driver)
+    const controller = field.dependsOn;
+    if (controller) {
+      const currentVal = String(filledValues.get(controller) ?? "");
+      if (currentVal in record) {
+        return record[currentVal];
+      }
+    }
+    
+    // Fallback: first value in the record
+    const firstKey = Object.keys(record)[0];
+    return firstKey ? record[firstKey] : undefined;
+  }
+  
+  return dv;
+}
+
 
 ================================================================================
 File: agent-backend/src/walkthrough/toolMessenger.ts
@@ -2224,8 +2387,8 @@ File: agent-backend/src/walkthrough/statusAwaiter.ts
 import type { WalkthroughSession, PendingStatus } from "./sessionManager.js";
 
 export class CancellationError extends Error {
-  constructor() {
-    super("Walkthrough cancelled");
+  constructor(message: string = "Walkthrough cancelled") {
+    super(message);
     this.name = "CancellationError";
   }
 }
@@ -2238,24 +2401,26 @@ export class StatusAwaiter {
     matcher?: (data: any) => boolean
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        session.pendingStatus = null;
+      const pending: any = {
+        expectedEvent,
+        matcher,
+        resolve: (data: any) => {
+          session.pendingStatuses = session.pendingStatuses.filter((p) => p !== pending);
+          resolve(data);
+        },
+        reject: (reason: any) => {
+          session.pendingStatuses = session.pendingStatuses.filter((p) => p !== pending);
+          reject(reason);
+        },
+        timer: null as any,
+      };
+
+      pending.timer = setTimeout(() => {
+        session.pendingStatuses = session.pendingStatuses.filter((p) => p !== pending);
         reject(new Error(`Timeout waiting for "${expectedEvent}" (${timeout}ms)`));
       }, timeout);
 
-      session.pendingStatus = {
-        expectedEvent,
-        matcher,
-        resolve: (data) => {
-          session.pendingStatus = null;
-          resolve(data);
-        },
-        reject: (reason) => {
-          session.pendingStatus = null;
-          reject(reason);
-        },
-        timer,
-      };
+      session.pendingStatuses.push(pending);
     });
   }
 
@@ -2279,23 +2444,30 @@ export class StatusAwaiter {
       session.isRegistered = true;
     }
 
-    // Expected confirmation → resolve pending wait
-    if (
-      session.pendingStatus &&
-      session.pendingStatus.expectedEvent === event &&
-      (!session.pendingStatus.matcher || session.pendingStatus.matcher(data))
-    ) {
-      clearTimeout(session.pendingStatus.timer);
-      session.pendingStatus.resolve(data);
-      session.pendingStatus = null;
+    // Expected confirmation → resolve pending waits
+    const matching = session.pendingStatuses.filter(
+      (p) =>
+        p.expectedEvent === event &&
+        (!p.matcher || p.matcher(data))
+    );
+
+    // Remove matched from array first
+    session.pendingStatuses = session.pendingStatuses.filter(
+      (p) => !matching.includes(p)
+    );
+
+    for (const match of matching) {
+      clearTimeout(match.timer);
+      match.resolve(data);
     }
   }
 
   rejectPending(session: WalkthroughSession, reason: any): void {
-    if (session.pendingStatus) {
-      clearTimeout(session.pendingStatus.timer);
-      session.pendingStatus.reject(reason);
-      session.pendingStatus = null;
+    const list = [...session.pendingStatuses];
+    session.pendingStatuses = [];
+    for (const pending of list) {
+      clearTimeout(pending.timer);
+      pending.reject(reason);
     }
   }
 }
@@ -2330,9 +2502,10 @@ export interface WalkthroughSession {
   filledValues: Map<string, unknown>;
   cancelled: boolean;
   errorCount: number;
-  pendingStatus: PendingStatus | null;
+  pendingStatuses: PendingStatus[];
   isRegistered: boolean;
   ttsEnabled: boolean;
+  languageCode: string;
 }
 
 export class SessionManager {
@@ -2346,7 +2519,7 @@ export class SessionManager {
     return this.sessions.get(sessionId);
   }
 
-  create(sessionId: string, formId: string, ttsEnabled: boolean = true): WalkthroughSession {
+  create(sessionId: string, formId: string, ttsEnabled: boolean = true, languageCode: string = "en"): WalkthroughSession {
     const schema = getSchema(formId);
     const session: WalkthroughSession = {
       sessionId,
@@ -2356,9 +2529,10 @@ export class SessionManager {
       filledValues: new Map(),
       cancelled: false,
       errorCount: 0,
-      pendingStatus: null,
+      pendingStatuses: [],
       isRegistered: false,
       ttsEnabled,
+      languageCode,
     };
     this.sessions.set(sessionId, session);
     return session;
@@ -2404,6 +2578,7 @@ File: agent-backend/src/walkthrough/planner.ts
 
 import type { FormSchema, FieldSchema } from "../schema/loader.js";
 import { TEMPLATES } from "./narrationTemplates.js";
+import { resolveDemoValue } from "./driver.js";
 
 export interface PlannerStep {
   cmd: 'go_to_field' | 'explain_field' | 'fill_field' | 'wait';
@@ -2517,12 +2692,7 @@ export class WalkthroughPlanner {
   }
 
   private getDemoValue(field: FieldSchema, branchOption: string | null) {
-    const dv = field.demoValue;
-    if (dv === undefined) return undefined;
-    if (typeof dv === 'object' && dv !== null && !Array.isArray(dv) && branchOption) {
-      return (dv as Record<string, unknown>)[branchOption];
-    }
-    return dv;
+    return resolveDemoValue(field, new Map(), branchOption);
   }
 
   private isVisible(field: FieldSchema, controllerOption: string): boolean {
@@ -2585,6 +2755,8 @@ export type WalkthroughEvent =
 export interface TransitionPayload {
   formId?: string;
   subFormId?: string;
+  fieldIndex?: number;
+  subFormFieldIndex?: number;
 }
 
 export interface WalkthroughContext {
@@ -2777,6 +2949,17 @@ export class WalkthroughStateMachine {
             subFormItemIndex: ctx.subFormItemIndex,
             subFormFieldIndex: ctx.subFormFieldIndex,
           };
+        }
+        if (payload?.fieldIndex !== undefined) {
+          ctx.fieldIndex = payload.fieldIndex;
+        }
+        if (payload?.subFormId !== undefined) {
+          ctx.subFormId = payload.subFormId;
+        } else if (payload?.fieldIndex !== undefined) {
+          ctx.subFormId = null;
+        }
+        if (payload?.subFormFieldIndex !== undefined) {
+          ctx.subFormFieldIndex = payload.subFormFieldIndex;
         }
         break;
 
@@ -3383,6 +3566,7 @@ File: agent-backend/src/schema/routeRegistry.json
   ]
 }
 
+
 ================================================================================
 File: agent-backend/src/schema/forms/createOrder.json
 ================================================================================
@@ -3886,9 +4070,6 @@ export async function handleVoice(message: IncomingMessage, context: HandlerCont
 File: agent-backend/src/services/elevenLabsSTT.ts
 ================================================================================
 
-import dotenv from "dotenv";
-dotenv.config();
-
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 
 type SpeechDetectedCallback = (sessionId: string) => void;
@@ -3979,7 +4160,7 @@ export async function transcribe(base64Audio: string): Promise<SttResult> {
 
   const form = new FormData();
   form.append("model_id", "scribe_v2");
-  form.append("file", new Blob([wavBytes], { type: "audio/wav" }), "audio.wav");
+  form.append("file", new Blob([Buffer.from(wavBytes)], { type: "audio/wav" }), "audio.wav");
 
   const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST",
@@ -4032,9 +4213,16 @@ export async function handleAudioChunk(sessionId: string, base64Chunk: string): 
     const maxAmp = maxVal / 32768;
     console.log(`[ElevenLabs STT Buffering] Chunk size: ${buf.length} bytes, Max Amplitude: ${maxAmp.toFixed(4)}`);
 
-    if (maxAmp > 0.05 && !session.speechDetected) {
+    const threshold = (() => {
+      if (process.env.BARGE_IN_THRESHOLD === undefined || process.env.BARGE_IN_THRESHOLD === null) {
+        return 0.05;
+      }
+      const val = Number(process.env.BARGE_IN_THRESHOLD);
+      return isNaN(val) || val < 0 || val > 1 ? 0.05 : val;
+    })();
+    if (maxAmp > threshold && !session.speechDetected) {
       session.speechDetected = true;
-      console.log(`[ElevenLabs STT Buffering] Speech detected for session ${sessionId} (barge-in triggered)`);
+      console.log(`[ElevenLabs STT Buffering] Speech detected for session ${sessionId} (barge-in triggered with threshold ${threshold})`);
       speechDetectedCallbacks.forEach(cb => cb(sessionId));
     }
   } catch (err) {
@@ -4061,7 +4249,7 @@ export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
 
   const form = new FormData();
   form.append("model_id", "scribe_v2");
-  form.append("file", new Blob([wavBytes], { type: "audio/wav" }), "audio.wav");
+  form.append("file", new Blob([Buffer.from(wavBytes)], { type: "audio/wav" }), "audio.wav");
 
   const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
     method: "POST",
@@ -4087,6 +4275,92 @@ export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
 
   console.log(`[ElevenLabs STT Buffering] Final Transcription: "${text}" (${languageCode})`);
   return { text, languageCode, confidence };
+}
+
+export function cleanupSession(sessionId: string) {
+  const deleted = activeSessions.delete(sessionId);
+  if (deleted) {
+    console.log(`[ElevenLabs STT] [Session: ${sessionId}] STT session state cleaned up.`);
+  }
+}
+
+
+================================================================================
+File: agent-backend/src/services/s3Service.ts
+================================================================================
+
+import { S3Client, HeadObjectCommand, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+const region = process.env.AWS_REGION;
+const bucketName = process.env.AWS_S3_BUCKET_NAME;
+
+const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+
+if (!accessKeyId || !secretAccessKey) {
+  console.warn("[S3Service] Warning: AWS credentials missing in .env!");
+}
+
+if (!region || !bucketName) {
+  console.warn("[S3Service] Warning: AWS_REGION or AWS_S3_BUCKET_NAME missing in .env!");
+}
+
+let s3Client: S3Client | null = null;
+
+function getClient(): S3Client {
+  if (!s3Client) {
+    s3Client = new S3Client({
+      region: region || "us-east-1",
+      credentials: accessKeyId && secretAccessKey ? {
+        accessKeyId,
+        secretAccessKey,
+      } : undefined,
+    });
+  }
+  return s3Client;
+}
+
+/**
+ * Checks whether an object exists in the S3 bucket.
+ */
+export async function checkS3ObjectExists(key: string): Promise<boolean> {
+  if (!bucketName) return false;
+  try {
+    await getClient().send(new HeadObjectCommand({ Bucket: bucketName, Key: key }));
+    return true;
+  } catch (err: any) {
+    if (err && (err.name === "NotFound" || err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404)) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Generates a presigned GET URL for an S3 object.
+ * Defaults to 10 minutes expiration.
+ */
+export async function getPresignedUrl(key: string, expiresSeconds: number = 600): Promise<string> {
+  if (!bucketName) throw new Error("AWS_S3_BUCKET_NAME is not configured");
+  const command = new GetObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+  });
+  return getSignedUrl(getClient(), command, { expiresIn: expiresSeconds });
+}
+
+/**
+ * Uploads a file buffer to the S3 bucket.
+ */
+export async function uploadToS3(key: string, body: Buffer, contentType: string = "audio/mpeg"): Promise<void> {
+  if (!bucketName) throw new Error("AWS_S3_BUCKET_NAME is not configured");
+  await getClient().send(new PutObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+  }));
 }
 
 
@@ -4116,7 +4390,7 @@ export function incrementRetry(sessionId: string): number {
 }
 
 export function resetRetry(sessionId: string): void {
-  retryCounts.set(sessionId, 0);
+  retryCounts.delete(sessionId);
 }
 
 export function getMaxRetries(): number {
@@ -4132,7 +4406,7 @@ File: agent-backend/src/services/voicePipeline.ts
 
 import type { VoiceMessage, HandlerContext } from "../types.js";
 import { orchestrate, orchestrateStream, type LLMStreamChunk, type LLMResult, type LLMToolCall } from "../../llm/orchestrator.js";
-import { walkthroughDriver } from "../walkthrough/driver.js";
+import { walkthroughDriver, WalkthroughDriver } from "../walkthrough/driver.js";
 import { interruptNarration } from "../walkthrough/narrationService.js";
 import * as sttService from "./sttService.js";
 import { onSpeechDetected } from "./sttService.js";
@@ -4143,6 +4417,45 @@ import { connectionManager } from "../connectionManager.js";
 
 const activeTTSQueues = new Map<string, SentenceTTSQueue>();
 const activeSpeakAndSend = new Map<string, { interrupted: boolean }>();
+
+export async function cleanupSession(sessionId: string): Promise<void> {
+  console.log(`[SessionCleanup] Cleaning up resources for session: ${sessionId}`);
+
+  // 1. Walkthrough session (cancel + session cleanup)
+  try {
+    const { walkthroughDriver } = await import("../walkthrough/driver.js");
+    walkthroughDriver.cancel(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cancel walkthrough:", err);
+  }
+
+  // 2. TTS engine state
+  try {
+    const { cleanupSession: cleanTTS } = await import("./elevenLabsTTS.js");
+    cleanTTS(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs TTS:", err);
+  }
+
+  // 3. Cleanup local voice pipeline maps
+  activeTTSQueues.delete(sessionId);
+  activeSpeakAndSend.delete(sessionId);
+
+  // 4. Cleanup STT buffer maps
+  try {
+    const { cleanupSession: cleanSTT } = await import("./elevenLabsSTT.js");
+    cleanSTT(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs STT:", err);
+  }
+
+  // 5. Reset STT retry counts
+  try {
+    sttService.resetRetry(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to reset STT retry count:", err);
+  }
+}
 
 export function interruptTTS(sessionId: string) {
   interruptNarration(sessionId);
@@ -4322,6 +4635,7 @@ class SentenceSplitter {
 class SentenceTTSQueue {
   private queue: Array<{ text: string; isLast: boolean }> = [];
   private processing = false;
+  private sessionId: string;
   private send: HandlerContext["send"];
   private languageCode: string;
   private messageId: string;
@@ -4332,7 +4646,8 @@ class SentenceTTSQueue {
   private hasToolCalls = false;
   public interrupted = false;
 
-  constructor(send: HandlerContext["send"], languageCode: string, messageId: string, tracker?: any) {
+  constructor(sessionId: string, send: HandlerContext["send"], languageCode: string, messageId: string, tracker?: any) {
+    this.sessionId = sessionId;
     this.send = send;
     this.languageCode = languageCode;
     this.messageId = messageId;
@@ -4415,7 +4730,7 @@ class SentenceTTSQueue {
         if (chunkDone || this.interrupted) {
           resolve();
         }
-      }).catch(err => {
+      }, this.sessionId).catch(err => {
         console.error("[SentenceTTSQueue] Synthesis failed for:", text, err);
         resolve();
       });
@@ -4439,7 +4754,7 @@ async function handleText(
 
   const llmStart = Date.now();
   const messageId = crypto.randomUUID();
-  const ttsQueue = new SentenceTTSQueue(send, lang, messageId, tracker);
+  const ttsQueue = new SentenceTTSQueue(sessionId, send, lang, messageId, tracker);
   activeTTSQueues.set(sessionId, ttsQueue);
 
   const splitter = new SentenceSplitter((sentence) => {
@@ -4480,6 +4795,9 @@ async function handleText(
 
   } catch (error) {
     console.error("[VoiceHandler] Orchestration stream failed:", error);
+    const errMsg = "Sorry, I'm having trouble connecting right now. Please try again.";
+    spoke = true;
+    await speakAndSend(send, errMsg, lang, tracker, sessionId);
   }
 
   for (const tc of toolCalls) {
@@ -4504,36 +4822,86 @@ async function handleText(
         const msg = String(tc.args.message || "Starting walkthrough");
         const formId = String(tc.args.formId);
         spoke = true;
-        await speakAndSend(send, msg, lang, tracker);
-        walkthroughDriver.start(formId, context.sessionId);
+        walkthroughDriver.start(formId, context.sessionId, true, msg, lang);
         break;
       }
       case "answer_question": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.response), lang, tracker);
+        await speakAndSend(send, String(tc.args.response), lang, tracker, sessionId);
         break;
       }
       case "detour_to_field": {
         const session = walkthroughDriver.getSession(sessionId);
         if (session) {
-          session.stateMachine.transition("DETOUR");
           const targetFieldKey = String(tc.args.fieldKey);
-          let matchedField = session.schema.fields.find(f => f.key === targetFieldKey);
-          if (!matchedField) {
-            for (const subForm of session.schema.subForms) {
-              const f = subForm.fields.find(field => field.key === targetFieldKey);
-              if (f) {
-                matchedField = f;
-                break;
+          const ctx = session.stateMachine.currentContext;
+
+          // 1. Check main fields first
+          let fieldIndex = session.schema.fields.findIndex(f => f.key === targetFieldKey);
+          let subFormId: string | null = null;
+          let subFormFieldIndex = 0;
+          let matchedField = fieldIndex !== -1 ? session.schema.fields[fieldIndex] : undefined;
+
+          // 2. If not in main fields, search sub-forms
+          if (fieldIndex === -1 && session.schema.subForms) {
+            // 2a. Check currently active sub-form first
+            if (ctx.subFormId) {
+              const activeSubForm = session.schema.subForms.find(sf => sf.id === ctx.subFormId);
+              if (activeSubForm) {
+                const idx = activeSubForm.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = activeSubForm.id;
+                  subFormFieldIndex = idx;
+                  matchedField = activeSubForm.fields[idx];
+                }
+              }
+            }
+
+            // 2b. If not in active sub-form, check visible sub-forms
+            if (!subFormId) {
+              const visibleSubForms = session.schema.subForms.filter(sf =>
+                WalkthroughDriver.isFieldVisible(session, sf) &&
+                WalkthroughDriver.isConditionMet(session, sf)
+              );
+              for (const sf of visibleSubForms) {
+                const idx = sf.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = sf.id;
+                  subFormFieldIndex = idx;
+                  matchedField = sf.fields[idx];
+                  break;
+                }
+              }
+            }
+
+            // 2c. Fallback: first match across ALL sub-forms
+            if (!subFormId) {
+              for (const sf of session.schema.subForms) {
+                const idx = sf.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = sf.id;
+                  subFormFieldIndex = idx;
+                  matchedField = sf.fields[idx];
+                  break;
+                }
               }
             }
           }
+
+          session.stateMachine.transition("DETOUR", {
+            fieldIndex: fieldIndex !== -1 ? fieldIndex : undefined,
+            subFormId: subFormId || undefined,
+            subFormFieldIndex: subFormId ? subFormFieldIndex : undefined,
+          });
+
           context.send({ type: "tool", tool: "detour_start", args: { fieldKey: targetFieldKey } });
           context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetFieldKey, label: matchedField?.label } });
 
-          const narrationText = matchedField?.explanation || "Let me highlight that field on your form.";
-          spoke = true;
-          await speakAndSend(send, narrationText, lang, tracker);
+          if (!spoke) {
+            const narrationText = matchedField ? `Here's the ${matchedField.label} field` : "Let me highlight that field on your form.";
+            spoke = true;
+            await speakAndSend(send, narrationText, lang, tracker, sessionId);
+          }
         }
         break;
       }
@@ -4544,7 +4912,7 @@ async function handleText(
       }
       case "ask_clarification": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.message), lang, tracker);
+        await speakAndSend(send, String(tc.args.message), lang, tracker, sessionId);
         break;
       }
     }
@@ -4608,7 +4976,7 @@ async function speakAndSend(
       if (messageId) {
         responseSender.sendTtsAudio(send, base64Chunk, messageId, isDone);
       }
-    });
+    }, sessionId);
   } catch (e) {
     console.error("[VoiceHandler] TTS streaming failed:", e);
     if (!firstChunkReceived) {
@@ -4632,9 +5000,16 @@ export async function executeAutoResume(
   }
 ): Promise<void> {
   const session = walkthroughDriver.getSession(context.sessionId);
-  if (session && session.stateMachine.currentState === "DETOUR_QA") {
+  if (!session) return;
+
+  const currentState = session.stateMachine.currentState;
+  if (currentState === "DETOUR_QA") {
     session.stateMachine.transition("DETOUR_COMPLETE");
-    if (session.stateMachine.currentState as string === "PAUSED") {
+    // Detour complete returns the state to the detourOrigin state.
+    // If the detour originated from WALKING_THROUGH or SUB_FORM, the state machine returns there directly.
+    // If it originated from PAUSED (e.g., user barge-in -> pause -> asked question), it returns to PAUSED,
+    // so we need to transition to RESUME to start running again.
+    if (session.stateMachine.currentState === "PAUSED") {
       session.stateMachine.transition("RESUME");
     }
     context.send({ type: "tool", tool: "detour_end", args: {} });
@@ -4657,16 +5032,28 @@ export async function executeAutoResume(
               itemIndex: originalCtx.subFormItemIndex,
             },
           });
-          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
+          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker, context.sessionId);
           return;
         }
       }
     }
-
+ 
     if (targetField) {
       context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetField.key, label: targetField.label } });
-      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
+      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker, context.sessionId);
     }
+  } else if (currentState === "PAUSED") {
+    session.stateMachine.transition("RESUME");
+    const originalCtx = session.stateMachine.currentContext;
+    let targetField = session.schema.fields[originalCtx.fieldIndex];
+    if (originalCtx.subFormId) {
+      const subForm = session.schema.subForms.find(sf => sf.id === originalCtx.subFormId);
+      if (subForm) {
+        targetField = subForm.fields[originalCtx.subFormFieldIndex];
+      }
+    }
+    const label = targetField?.label || "the current field";
+    await speakAndSend(context.send, `Resuming walkthrough at ${label}.`, "en", tracker, context.sessionId);
   }
 }
 
@@ -4674,9 +5061,6 @@ export async function executeAutoResume(
 ================================================================================
 File: agent-backend/src/services/elevenLabsTTS.ts
 ================================================================================
-
-import dotenv from "dotenv";
-dotenv.config();
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "YoPh8Er6cOk7bwEreyKu";
@@ -4688,32 +5072,116 @@ interface TTSJob {
   onChunk: (base64Chunk: string, isDone: boolean) => void;
   resolve: () => void;
   reject: (err: any) => void;
+  interrupted?: boolean;
 }
 
-const ttsQueue: TTSJob[] = [];
-let ttsBusy = false;
+interface SessionTTSState {
+  queue: TTSJob[];
+  busy: boolean;
+  activeJob: TTSJob | null;
+  abortController: AbortController | null;
+}
 
-async function processQueue() {
-  if (ttsBusy) return;
-  ttsBusy = true;
+const sessionStates = new Map<string, SessionTTSState>();
 
-  while (ttsQueue.length > 0) {
-    const job = ttsQueue.shift()!;
-    try {
-      await synthesizeStreamDirect(job.text, job.languageCode, job.onChunk);
-      job.resolve();
-    } catch (err) {
-      job.reject(err);
+function getSessionState(sessionId: string = "default"): SessionTTSState {
+  let state = sessionStates.get(sessionId);
+  if (!state) {
+    state = {
+      queue: [],
+      busy: false,
+      activeJob: null,
+      abortController: null,
+    };
+    sessionStates.set(sessionId, state);
+  }
+  return state;
+}
+
+export function interruptActiveTTS(sessionId: string = "default") {
+  const state = sessionStates.get(sessionId);
+  if (state) {
+    state.queue.length = 0;
+    if (state.activeJob) {
+      console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Interrupting active job (detaching stream fetch to background).`);
+      state.activeJob.interrupted = true;
+    }
+    if (state.abortController) {
+      console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Aborting active in-flight ElevenLabs synthesis request.`);
+      state.abortController.abort();
+      state.abortController = null;
     }
   }
+}
 
-  ttsBusy = false;
+export function abortActiveTTS(sessionId: string = "default") {
+  const state = sessionStates.get(sessionId);
+  if (state) {
+    state.queue.length = 0;
+    if (state.abortController) {
+      console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Aborting active in-flight ElevenLabs synthesis request.`);
+      state.abortController.abort();
+      state.abortController = null;
+    }
+  }
+}
+
+async function processQueue(sessionId: string = "default") {
+  const state = getSessionState(sessionId);
+  if (state.busy) return;
+  state.busy = true;
+
+  while (state.queue.length > 0) {
+    const job = state.queue.shift()!;
+    state.activeJob = job;
+
+    const promise = synthesizeStreamDirect(job.text, job.languageCode, job.onChunk, sessionId);
+
+    await new Promise<void>((resolveJob) => {
+      let resolved = false;
+
+      const interval = setInterval(() => {
+        if (job.interrupted && !resolved) {
+          resolved = true;
+          clearInterval(interval);
+          resolveJob();
+        }
+      }, 50);
+
+      promise.then(() => {
+        if (!resolved) {
+          resolved = true;
+          clearInterval(interval);
+          resolveJob();
+        }
+      }).catch((err) => {
+        if (!resolved) {
+          resolved = true;
+          clearInterval(interval);
+          job.reject(err);
+          resolveJob();
+        } else {
+          console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Background detached fetch finished with error after interruption:`, err.message || err);
+        }
+      });
+    });
+
+    state.activeJob = null;
+    job.resolve();
+  }
+
+  state.busy = false;
+
+  if (state.queue.length === 0 && !state.activeJob && !state.abortController) {
+    sessionStates.delete(sessionId);
+  }
 }
 
 async function synthesizeStreamDirect(
   text: string,
   languageCode: string,
   onChunk: (base64Chunk: string, isDone: boolean) => void,
+  sessionId: string = "default",
   attempt = 1
 ): Promise<void> {
   if (!ELEVENLABS_API_KEY) {
@@ -4724,89 +5192,76 @@ async function synthesizeStreamDirect(
   }
 
   const voiceId = ELEVENLABS_VOICE_ID;
+  const state = getSessionState(sessionId);
+  const controller = new AbortController();
+  state.abortController = controller;
+  const signal = controller.signal;
 
-  // Use pcm_22050 to align with the client-side AudioQueue which expects a 22050 Hz sample rate.
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=pcm_22050`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": ELEVENLABS_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text,
-      model_id: ELEVENLABS_TTS_MODEL,
-      voice_settings: { stability: 0.5, similarity_boost: 0.8 },
-    }),
-  });
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=mp3_44100_128`, {
+      method: "POST",
+      headers: {
+        "xi-api-key": ELEVENLABS_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: ELEVENLABS_TTS_MODEL,
+        voice_settings: { stability: 0.5, similarity_boost: 0.8 },
+      }),
+      signal,
+    });
 
-  if (res.status === 429 && attempt <= 2) {
-    console.warn(
-      `[ElevenLabs TTS] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
-    );
-    await new Promise((r) => setTimeout(r, 1000));
-    return synthesizeStreamDirect(text, languageCode, onChunk, attempt + 1);
-  }
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => "");
-    throw new Error(`ElevenLabs TTS failed ${res.status}: ${errorText}`);
-  }
-
-  if (!res.body) {
-    throw new Error("Response body is null");
-  }
-
-  const reader = res.body.getReader();
-  let residue: Uint8Array | null = null;
-  let lastChunk: Uint8Array | null = null;
-
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      break;
+    if (res.status === 429 && attempt <= 2) {
+      console.warn(
+        `[ElevenLabs TTS] [Session: ${sessionId}] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
+      );
+      await new Promise((r) => setTimeout(r, 1000));
+      if (signal.aborted) {
+        throw new DOMException("The user aborted a request.", "AbortError");
+      }
+      return synthesizeStreamDirect(text, languageCode, onChunk, sessionId, attempt + 1);
     }
 
-    let dataToProcess = value;
-    if (residue && residue.length > 0) {
-      const combined = new Uint8Array(residue.length + value.length);
-      combined.set(residue, 0);
-      combined.set(value, residue.length);
-      dataToProcess = combined;
-      residue = null;
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => "");
+      throw new Error(`ElevenLabs TTS failed ${res.status}: ${errorText}`);
     }
 
-    if (dataToProcess.length > 0) {
-      const remainder = dataToProcess.length % 2;
-      if (remainder > 0) {
-        residue = dataToProcess.slice(dataToProcess.length - remainder);
-        dataToProcess = dataToProcess.slice(0, dataToProcess.length - remainder);
+    if (!res.body) {
+      throw new Error("Response body is null");
+    }
+
+    const reader = res.body.getReader();
+    let lastChunk: Uint8Array | null = null;
+
+    while (true) {
+      if (signal.aborted) {
+        throw new DOMException("The user aborted a request.", "AbortError");
       }
 
-      if (dataToProcess.length > 0) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (value && value.length > 0) {
         if (lastChunk) {
           onChunk(Buffer.from(lastChunk).toString("base64"), false);
         }
-        lastChunk = dataToProcess;
+        lastChunk = value;
       }
     }
-  }
 
-  // Emit the final chunk
-  if (lastChunk) {
-    let finalBytes = lastChunk;
-    if (residue && residue.length > 0) {
-      const combined = new Uint8Array(lastChunk.length + residue.length);
-      combined.set(lastChunk, 0);
-      combined.set(residue, lastChunk.length);
-      finalBytes = combined;
-    }
-    onChunk(Buffer.from(finalBytes).toString("base64"), true);
-  } else {
-    if (residue && residue.length > 0) {
-      onChunk(Buffer.from(residue).toString("base64"), true);
+    if (lastChunk) {
+      onChunk(Buffer.from(lastChunk).toString("base64"), true);
     } else {
       onChunk("", true);
+    }
+  } finally {
+    if (state.abortController === controller) {
+      state.abortController = null;
     }
   }
 }
@@ -4814,76 +5269,24 @@ async function synthesizeStreamDirect(
 export function synthesizeStream(
   text: string,
   languageCode: string,
-  onChunk: (base64Chunk: string, isDone: boolean) => void
+  onChunk: (base64Chunk: string, isDone: boolean) => void,
+  sessionId: string = "default"
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    ttsQueue.push({ text, languageCode, onChunk, resolve, reject });
-    processQueue();
+    const state = getSessionState(sessionId);
+    state.queue.push({ text, languageCode, onChunk, resolve, reject });
+    processQueue(sessionId);
   });
 }
 
-function pcmToWav(pcmBuffer: Uint8Array, sampleRate = 22050): Uint8Array {
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-  const blockAlign = numChannels * (bitsPerSample / 8);
-  const dataSize = pcmBuffer.length;
-  const chunkSize = 36 + dataSize;
-
-  const wavHeader = new Uint8Array(44);
-  const view = new DataView(wavHeader.buffer);
-
-  // RIFF identifier
-  wavHeader[0] = 0x52; // R
-  wavHeader[1] = 0x49; // I
-  wavHeader[2] = 0x46; // F
-  wavHeader[3] = 0x46; // F
-
-  view.setUint32(4, chunkSize, true);
-
-  // WAVE identifier
-  wavHeader[8] = 0x57;  // W
-  wavHeader[9] = 0x41;  // A
-  wavHeader[10] = 0x56; // V
-  wavHeader[11] = 0x45; // E
-
-  // subchunk 1 identifier "fmt "
-  wavHeader[12] = 0x66; // f
-  wavHeader[13] = 0x6d; // m
-  wavHeader[14] = 0x74; // t
-  wavHeader[15] = 0x20; //  
-
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-
-  // subchunk 2 identifier "data"
-  wavHeader[36] = 0x64; // d
-  wavHeader[37] = 0x61; // a
-  wavHeader[38] = 0x74; // t
-  wavHeader[39] = 0x61; // a
-
-  view.setUint32(40, dataSize, true);
-
-  const wavFile = new Uint8Array(44 + dataSize);
-  wavFile.set(wavHeader, 0);
-  wavFile.set(pcmBuffer, 44);
-
-  return wavFile;
-}
-
-export async function synthesize(text: string, languageCode: string): Promise<string> {
+export async function synthesize(text: string, languageCode: string, sessionId: string = "default"): Promise<string> {
   const chunks: Uint8Array[] = [];
   await synthesizeStream(text, languageCode, (base64Chunk, isDone) => {
     if (base64Chunk) {
       const buffer = Buffer.from(base64Chunk, "base64");
       chunks.push(buffer);
     }
-  });
+  }, sessionId);
 
   const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
   const combined = new Uint8Array(totalLength);
@@ -4893,9 +5296,22 @@ export async function synthesize(text: string, languageCode: string): Promise<st
     offset += chunk.length;
   }
 
-  const wavBytes = pcmToWav(combined, 22050);
-  const base64 = Buffer.from(wavBytes).toString("base64");
-  return `data:audio/wav;base64,${base64}`;
+  const base64 = Buffer.from(combined).toString("base64");
+  return `data:audio/mpeg;base64,${base64}`;
+}
+
+export function cleanupSession(sessionId: string) {
+  const state = sessionStates.get(sessionId);
+  if (!state) return;
+
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+  }
+
+  state.queue.length = 0;
+  sessionStates.delete(sessionId);
+  console.log(`[ElevenLabs TTS] [Session: ${sessionId}] TTS session state cleaned up.`);
 }
 
 
@@ -4947,6 +5363,8 @@ export function sendStopAudio(
 ): void {
   send({ type: "tool", tool: "stop_audio", args: {} });
 }
+
+
 ================================================================================
 File: agent-backend/src/services/ttsService.ts
 ================================================================================
@@ -4955,9 +5373,10 @@ import { synthesize, synthesizeStream } from "./elevenLabsTTS.js";
 
 export async function synthesizeToBase64(
   text: string,
-  languageCode: string
+  languageCode: string,
+  sessionId?: string
 ): Promise<string> {
-  const audioDataUrl = await synthesize(text, languageCode);
+  const audioDataUrl = await synthesize(text, languageCode, sessionId);
   return audioDataUrl.split(",")[1];
 }
 

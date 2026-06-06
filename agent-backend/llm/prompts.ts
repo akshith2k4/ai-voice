@@ -5,7 +5,7 @@
 // ============================================
 
 import routeRegistry from "../src/schema/routeRegistry.json" with { type: "json" };
-import type { FormSchema } from "../src/schema/loader.js";
+import type { FormSchema, FieldSchema } from "../src/schema/loader.js";
 
 function formatRoutes(): string {
   return routeRegistry.routes
@@ -68,26 +68,81 @@ RESPONSE RULES:
  * Builds a highly optimized system prompt for active walkthrough sessions.
  * Compacts the field list to remain well under the token performance threshold.
  */
-export function buildWalkthroughPrompt(schema: FormSchema, currentFieldKey: string): string {
-  const simplifiedFields = schema.fields.map(f => ({
-    key: f.key,
-    label: f.label,
-    aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || []
-  }));
+export function buildWalkthroughPrompt(schema: FormSchema, currentField: FieldSchema | undefined): string {
+  // Collect simplified schema for ALL fields (both main form and sub-forms)
+  const allFieldsSimplified: Array<{ key: string; label: string; explanation?: string; options?: string[]; aliases: string[] }> = [];
+
+  for (const f of schema.fields) {
+    allFieldsSimplified.push({
+      key: f.key,
+      label: f.label,
+      explanation: f.explanation,
+      options: f.options ?? undefined,
+      aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || [],
+    });
+  }
+
+  if (schema.subForms) {
+    for (const sf of schema.subForms) {
+      for (const f of sf.fields) {
+        allFieldsSimplified.push({
+          key: f.key,
+          label: f.label,
+          explanation: f.explanation,
+          options: f.options ?? undefined,
+          aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || [],
+        });
+      }
+    }
+  }
+
+  const currentFieldKey = currentField?.key || "unknown";
+  
+  let currentFieldContextBlock = "";
+  if (currentField) {
+    const contextObj: Record<string, any> = {
+      key: currentField.key,
+      label: currentField.label,
+      type: currentField.type,
+      required: currentField.required ?? false,
+    };
+    if (currentField.options !== undefined && currentField.options !== null) {
+      contextObj.options = currentField.options;
+    }
+    contextObj.explanation = currentField.explanation;
+    if (currentField.tips) {
+      contextObj.tips = currentField.tips;
+    }
+    if (currentField.commonQuestions && currentField.commonQuestions.length > 0) {
+      contextObj.commonQuestions = currentField.commonQuestions;
+    }
+    currentFieldContextBlock = `CURRENT FIELD FULL CONTEXT:
+${JSON.stringify(contextObj, null, 2)}`;
+  } else {
+    currentFieldContextBlock = "CURRENT FIELD FULL CONTEXT: No active field context available.";
+  }
 
   return `You are an overlay monitor guiding a user through the "${schema.name}" form dialog.
 CURRENT ACTION FRAME: The user is currently looking at the field: "${currentFieldKey}".
 
-OPERATIONAL CAPABILITIES:
-1. The user can interrupt to ask questions about the active field, previous fields, or upcoming fields.
-2. If they ask a question regarding what a field means, how to use it, or what data goes into it, you MUST select the 'detour_to_field' tool. Do NOT answer inline with text.
-3. If they say "continue", "next", or indicate they are ready to proceed, select the 'resume_walkthrough' tool.
+${currentFieldContextBlock}
 
-CRITICAL FIELD DIRECTORY MAP (Select the exact 'fieldKey' from this map):
-${JSON.stringify(simplifiedFields)}
+DECISION GUIDE:
+Choose the appropriate tool based on the user's intent:
+1. Navigation / Focus: The user wants to locate, highlight, focus on, or go to a field (e.g., "show me the customer field", "where is the order date?", "highlight order reference id").
+   - Action: Select the 'detour_to_field' tool with the target fieldKey.
+2. Explanation / Q&A: The user asks a question about what a field means, how to use it, why it is needed, its options, or comparative questions (e.g., "what is this?", "what is the customer field?", "why do we use leasing?", "how do I use this?", "why do I need this?").
+   - Action: Use the 'answer_question' tool and synthesize a tailored response using the explanations and options provided in the prompt. Do NOT call the 'detour_to_field' tool (do not navigate to the field).
+3. Continue: The user indicates they are ready to proceed (e.g., "ok", "next", "got it", "continue").
+   - Action: Select the 'resume_walkthrough' tool.
+4. Off-topic: The user asks about something unrelated (e.g., "what's the weather?").
+   - Action: Say you can't help with that, and add a polite, brief redirect back to the walkthrough.
+
+CRITICAL FIELD DIRECTORY MAP:
+${JSON.stringify(allFieldsSimplified)}
 
 RESPONSE RULES:
-- Never answer form layout queries using standard text blocks. Always route via the 'detour_to_field' tool.
+- For explanation, generate 1-3 sentences directly answering the question. Do NOT replay the field's standard explanation.
 - Keep text parameters inside tools concise for natural text-to-speech rendering.
 - Preserve all interface and technical naming fields strictly in English language strings.`;
 }

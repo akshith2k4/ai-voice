@@ -1,6 +1,3 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "YoPh8Er6cOk7bwEreyKu";
 const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_flash_v2_5";
@@ -14,27 +11,57 @@ interface TTSJob {
   interrupted?: boolean;
 }
 
-const ttsQueue: TTSJob[] = [];
-let ttsBusy = false;
-let activeJob: TTSJob | null = null;
+interface SessionTTSState {
+  queue: TTSJob[];
+  busy: boolean;
+  activeJob: TTSJob | null;
+  abortController: AbortController | null;
+}
 
-export function interruptActiveTTS() {
-  ttsQueue.length = 0;
-  if (activeJob) {
-    console.log("[ElevenLabs TTS] Interrupting active job (detaching stream fetch to background).");
-    activeJob.interrupted = true;
+const sessionStates = new Map<string, SessionTTSState>();
+
+function getSessionState(sessionId: string = "default"): SessionTTSState {
+  let state = sessionStates.get(sessionId);
+  if (!state) {
+    state = {
+      queue: [],
+      busy: false,
+      activeJob: null,
+      abortController: null,
+    };
+    sessionStates.set(sessionId, state);
+  }
+  return state;
+}
+
+export function interruptActiveTTS(sessionId: string = "default") {
+  const state = sessionStates.get(sessionId);
+  if (state) {
+    state.queue.length = 0;
+    if (state.activeJob) {
+      console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Interrupting active job (detaching stream fetch to background).`);
+      state.activeJob.interrupted = true;
+    }
+    if (state.abortController) {
+      console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Aborting active in-flight ElevenLabs synthesis request.`);
+      state.abortController.abort();
+      state.abortController = null;
+    }
   }
 }
 
-async function processQueue() {
-  if (ttsBusy) return;
-  ttsBusy = true;
 
-  while (ttsQueue.length > 0) {
-    const job = ttsQueue.shift()!;
-    activeJob = job;
 
-    const promise = synthesizeStreamDirect(job.text, job.languageCode, job.onChunk);
+async function processQueue(sessionId: string = "default") {
+  const state = getSessionState(sessionId);
+  if (state.busy) return;
+  state.busy = true;
+
+  while (state.queue.length > 0) {
+    const job = state.queue.shift()!;
+    state.activeJob = job;
+
+    const promise = synthesizeStreamDirect(job.text, job.languageCode, job.onChunk, sessionId);
 
     await new Promise<void>((resolveJob) => {
       let resolved = false;
@@ -60,29 +87,19 @@ async function processQueue() {
           job.reject(err);
           resolveJob();
         } else {
-          console.log("[ElevenLabs TTS] Background detached fetch finished with error after interruption:", err.message || err);
+          console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Background detached fetch finished with error after interruption:`, err.message || err);
         }
       });
     });
 
-    activeJob = null;
+    state.activeJob = null;
     job.resolve();
   }
 
-  ttsBusy = false;
-}
+  state.busy = false;
 
-let activeAbortController: AbortController | null = null;
-
-/**
- * Aborts any currently active ElevenLabs TTS fetch request and clears the queue.
- */
-export function abortActiveTTS() {
-  ttsQueue.length = 0;
-  if (activeAbortController) {
-    console.log("[ElevenLabs TTS] Aborting active in-flight ElevenLabs synthesis request.");
-    activeAbortController.abort();
-    activeAbortController = null;
+  if (state.queue.length === 0 && !state.activeJob && !state.abortController) {
+    sessionStates.delete(sessionId);
   }
 }
 
@@ -90,6 +107,7 @@ async function synthesizeStreamDirect(
   text: string,
   languageCode: string,
   onChunk: (base64Chunk: string, isDone: boolean) => void,
+  sessionId: string = "default",
   attempt = 1
 ): Promise<void> {
   if (!ELEVENLABS_API_KEY) {
@@ -100,12 +118,12 @@ async function synthesizeStreamDirect(
   }
 
   const voiceId = ELEVENLABS_VOICE_ID;
-
-  activeAbortController = new AbortController();
-  const signal = activeAbortController.signal;
+  const state = getSessionState(sessionId);
+  const controller = new AbortController();
+  state.abortController = controller;
+  const signal = controller.signal;
 
   try {
-    // Use mp3_44100_128 to get high quality MP3 stream directly.
     const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=mp3_44100_128`, {
       method: "POST",
       headers: {
@@ -122,13 +140,13 @@ async function synthesizeStreamDirect(
 
     if (res.status === 429 && attempt <= 2) {
       console.warn(
-        `[ElevenLabs TTS] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
+        `[ElevenLabs TTS] [Session: ${sessionId}] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
       );
       await new Promise((r) => setTimeout(r, 1000));
       if (signal.aborted) {
         throw new DOMException("The user aborted a request.", "AbortError");
       }
-      return synthesizeStreamDirect(text, languageCode, onChunk, attempt + 1);
+      return synthesizeStreamDirect(text, languageCode, onChunk, sessionId, attempt + 1);
     }
 
     if (!res.ok) {
@@ -162,15 +180,14 @@ async function synthesizeStreamDirect(
       }
     }
 
-    // Emit final chunk
     if (lastChunk) {
       onChunk(Buffer.from(lastChunk).toString("base64"), true);
     } else {
       onChunk("", true);
     }
   } finally {
-    if (activeAbortController?.signal === signal) {
-      activeAbortController = null;
+    if (state.abortController === controller) {
+      state.abortController = null;
     }
   }
 }
@@ -178,22 +195,25 @@ async function synthesizeStreamDirect(
 export function synthesizeStream(
   text: string,
   languageCode: string,
-  onChunk: (base64Chunk: string, isDone: boolean) => void
+  onChunk: (base64Chunk: string, isDone: boolean) => void,
+  sessionId: string = "default"
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    ttsQueue.push({ text, languageCode, onChunk, resolve, reject });
-    processQueue();
+    const state = getSessionState(sessionId);
+    state.queue.push({ text, languageCode, onChunk, resolve, reject });
+    processQueue(sessionId);
   });
 }
 
-export async function synthesize(text: string, languageCode: string): Promise<string> {
+/*
+export async function synthesize(text: string, languageCode: string, sessionId: string = "default"): Promise<string> {
   const chunks: Uint8Array[] = [];
   await synthesizeStream(text, languageCode, (base64Chunk, isDone) => {
     if (base64Chunk) {
       const buffer = Buffer.from(base64Chunk, "base64");
       chunks.push(buffer);
     }
-  });
+  }, sessionId);
 
   const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
   const combined = new Uint8Array(totalLength);
@@ -205,4 +225,19 @@ export async function synthesize(text: string, languageCode: string): Promise<st
 
   const base64 = Buffer.from(combined).toString("base64");
   return `data:audio/mpeg;base64,${base64}`;
+}
+*/
+
+export function cleanupSession(sessionId: string) {
+  const state = sessionStates.get(sessionId);
+  if (!state) return;
+
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+  }
+
+  state.queue.length = 0;
+  sessionStates.delete(sessionId);
+  console.log(`[ElevenLabs TTS] [Session: ${sessionId}] TTS session state cleaned up.`);
 }

@@ -14,15 +14,21 @@ export function interruptNarration(sessionId: string) {
   }
   // Call interruptActiveTTS to detach any active ElevenLabs TTS fetch to the background
   import("../services/elevenLabsTTS.js").then(({ interruptActiveTTS }) => {
-    interruptActiveTTS();
+    interruptActiveTTS(sessionId);
   }).catch((err) => {
     console.error("[NarrationService] Failed to interrupt active TTS queue:", err);
   });
+
+  import("./driver.js").then(({ walkthroughDriver }) => {
+    walkthroughDriver.rejectPendingNarration(sessionId);
+  }).catch((err) => {
+    console.error("[NarrationService] Failed to reject pending narration on walkthroughDriver:", err);
+  });
 }
 
-function getHash(text: string): string {
+function getHash(text: string, languageCode: string = "en"): string {
   const normalized = text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  return crypto.createHash("md5").update(normalized).digest("hex");
+  return crypto.createHash("md5").update(`${normalized}_${languageCode}`).digest("hex");
 }
 
 export class NarrationService {
@@ -43,10 +49,9 @@ export class NarrationService {
     const state = { interrupted: false };
     activeNarrations.set(session.sessionId, state);
 
-    // Look for pre-recorded audio file matching the MD5 hash of the normalized text prompt
-    const hash = getHash(text);
-    const audioFilename = `${hash}.mp3`;
-    const s3Key = `walkthrough-audio/${audioFilename}`;
+    // Look for pre-recorded audio file matching the MD5 hash of the normalized text prompt + language
+    const hash = getHash(text, languageCode);
+    const s3Key = `walkthrough-audio/${hash}.mp3`;
 
     let existsOnS3 = false;
 
@@ -129,7 +134,7 @@ export class NarrationService {
             console.error("[NarrationService] Failed to import s3Service dynamically:", importErr);
           });
         }
-      });
+      }, session.sessionId);
 
       if (activeNarrations.get(session.sessionId) === state) {
          activeNarrations.delete(session.sessionId);
@@ -164,14 +169,21 @@ export class NarrationService {
     }
 
     try {
+      const wordCount = text.split(/\s+/).length;
+      const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
       await this.statusAwaiter.waitForStatus(
         session,
         "tts_playback_complete",
-        60000,
+        dynamicTimeout,
         (data) => data.messageId === id
       );
-    } catch (err) {
-      console.warn(`[NarrationService] TTS playback timeout for ${id}, continuing...`);
+    } catch (err: any) {
+      if (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted")) {
+        console.log(`[NarrationService] TTS playback interrupted for ${id}`);
+        return id;
+      } else {
+        console.warn(`[NarrationService] TTS playback timeout for ${id}, continuing...`);
+      }
     }
 
     return id;

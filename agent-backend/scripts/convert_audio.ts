@@ -19,9 +19,9 @@ function normalizeText(text: string): string {
   return text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function getHash(text: string): string {
+function getHash(text: string, languageCode: string = "en"): string {
   const normalized = normalizeText(text);
-  return crypto.createHash("md5").update(normalized).digest("hex");
+  return crypto.createHash("md5").update(`${normalized}_${languageCode}`).digest("hex");
 }
 
 interface WalkthroughPrompt {
@@ -231,7 +231,7 @@ for (const file of files) {
     continue;
   }
 
-  const hashName = getHash(matchedPrompt.text);
+  const hashName = getHash(matchedPrompt.text, "en");
   const srcPath = join(srcDir, file);
   const destPath = join(destDir, `${hashName}.mp3`);
 
