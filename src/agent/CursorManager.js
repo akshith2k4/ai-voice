@@ -91,7 +91,7 @@ async function loadKeystrokeBuffer() {
       window.audioContext = ctx;
     }
     try {
-      const response = await fetch("sounds/soft-keyboard_8fFhjVZq.mp3");
+      const response = await fetch("/sounds/generate-a-single-me-2-1780897822936_p5cVxQ5N.mp3");
       const arrayBuffer = await response.arrayBuffer();
       keystrokeBuffer = await ctx.decodeAudioData(arrayBuffer);
       return keystrokeBuffer;

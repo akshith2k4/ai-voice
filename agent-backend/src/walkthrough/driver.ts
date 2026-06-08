@@ -45,7 +45,7 @@ const MAX_ERRORS_BEFORE_ABORT = 10;
 // --- Driver ---
 export class WalkthroughDriver {
   private sessionManager = new SessionManager();
-  private statusAwaiter = new StatusAwaiter();
+  public statusAwaiter = new StatusAwaiter();
   private toolMessenger = new ToolMessenger();
   private narrationService = new NarrationService(this.statusAwaiter);
   private startingSessions = new Set<string>();

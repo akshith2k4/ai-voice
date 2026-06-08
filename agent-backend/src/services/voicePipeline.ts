@@ -2,6 +2,7 @@ import type { VoiceMessage, HandlerContext } from "../types.js";
 import { orchestrateStream, type LLMStreamChunk, type LLMResult, type LLMToolCall } from "../../llm/orchestrator.js";
 import { walkthroughDriver, WalkthroughDriver } from "../walkthrough/driver.js";
 import { interruptNarration } from "../walkthrough/narrationService.js";
+import { CancellationError } from "../walkthrough/statusAwaiter.js";
 import * as sttService from "./sttService.js";
 import { onSpeechDetected } from "./sttService.js";
 import * as ttsService from "./ttsService.js";
@@ -236,6 +237,30 @@ async function handleText(
     ttsQueue.markAllPushed(toolCalls.length > 0);
     setTimeout(() => { if (activeTTSQueues.get(sessionId) === ttsQueue) activeTTSQueues.delete(sessionId); }, 15000); // Cleanup
 
+    // If the LLM streamed a text response, wait for the client to finish playing it
+    // before we execute any associated tool calls (to avoid racing cursor focus/actions)
+    const session = walkthroughDriver.getSession(sessionId);
+    if (spoke && session && messageId) {
+      const wordCount = rawContent.split(/\s+/).length;
+      const dynamicTimeout = Math.max(8000, (wordCount / 2.5) * 1000 * 2);
+      try {
+        await walkthroughDriver.statusAwaiter.waitForStatus(
+          session,
+          "tts_playback_complete",
+          dynamicTimeout,
+          (data: any) => data.messageId === messageId
+        );
+      } catch (err: any) {
+        const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+        if (isCancellation) {
+          console.log(`[VoicePipeline] Streamed text playback interrupted for ${messageId}`);
+          return;
+        } else {
+          console.warn(`[VoicePipeline] Streamed text playback timeout for ${messageId}, continuing...`);
+        }
+      }
+    }
+
   } catch (error) {
     console.error("[VoiceHandler] Orchestration stream failed:", error);
     const errMsg = "Sorry, I'm having trouble connecting right now. Please try again.";
@@ -349,8 +374,8 @@ async function handleText(
         break;
       }
       case "resume_walkthrough": {
+        await executeAutoResume(context, tracker, spoke);
         spoke = true;
-        await executeAutoResume(context, tracker);
         break;
       }
       case "ask_clarification": {
@@ -383,10 +408,10 @@ async function speakAndSend(
     ttsDuration: number;
   },
   sessionId?: string
-): Promise<void> {
+): Promise<string> {
   const ttsStart = Date.now();
   let firstChunkReceived = false;
-  let messageId: string | null = null;
+  let messageId: string = crypto.randomUUID();
   
   const state = { interrupted: false };
   if (sessionId) {
@@ -410,24 +435,28 @@ async function speakAndSend(
 -----------------------------------------`
           );
         }
-        messageId = responseSender.sendRespond(send, text, true, undefined, undefined);
+        responseSender.sendRespond(send, text, true, messageId, undefined);
       }
       if (state.interrupted) {
-         if (messageId) responseSender.sendStopAudio(send);
+         responseSender.sendStopAudio(send);
          return;
       }
-      if (messageId) {
-        responseSender.sendTtsAudio(send, base64Chunk, messageId, isDone);
-      }
+      responseSender.sendTtsAudio(send, base64Chunk, messageId, isDone);
     }, sessionId);
   } catch (e) {
     console.error("[VoiceHandler] TTS streaming failed:", e);
     if (!firstChunkReceived) {
-      responseSender.sendRespond(send, text, false, undefined, undefined);
-    } else if (messageId) {
+      responseSender.sendRespond(send, text, false, messageId, undefined);
+    } else {
       responseSender.sendTtsAudio(send, "", messageId, true);
     }
+  } finally {
+    if (sessionId) {
+      activeSpeakAndSend.delete(sessionId);
+    }
   }
+
+  return messageId;
 }
 
 /**
@@ -440,23 +469,14 @@ export async function executeAutoResume(
     sttDuration: number;
     llmDuration: number;
     ttsDuration: number;
-  }
+  },
+  skipSpeech = false
 ): Promise<void> {
   const session = walkthroughDriver.getSession(context.sessionId);
   if (!session) return;
 
   const currentState = session.stateMachine.currentState;
   if (currentState === "DETOUR_QA") {
-    session.stateMachine.transition("DETOUR_COMPLETE");
-    // Detour complete returns the state to the detourOrigin state.
-    // If the detour originated from WALKING_THROUGH or SUB_FORM, the state machine returns there directly.
-    // If it originated from PAUSED (e.g., user barge-in -> pause -> asked question), it returns to PAUSED,
-    // so we need to transition to RESUME to start running again.
-    if (session.stateMachine.currentState === "PAUSED") {
-      session.stateMachine.transition("RESUME");
-    }
-    context.send({ type: "tool", tool: "detour_end", args: {} });
-
     const originalCtx = session.stateMachine.currentContext;
     let targetField = session.schema.fields[originalCtx.fieldIndex];
 
@@ -475,7 +495,40 @@ export async function executeAutoResume(
               itemIndex: originalCtx.subFormItemIndex,
             },
           });
-          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker, context.sessionId);
+
+          const explanation = targetField.explanation ? ` ${targetField.explanation}` : "";
+          const speechText = skipSpeech
+            ? `Let's look at ${targetField.label}.${explanation}`
+            : `Returning to our walkthrough. Let's look at ${targetField.label}.${explanation}`;
+
+          const msgId = await speakAndSend(context.send, speechText, "en", tracker, context.sessionId);
+
+          if (msgId) {
+            const wordCount = speechText.split(/\s+/).length;
+            const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
+            try {
+              await walkthroughDriver.statusAwaiter.waitForStatus(
+                session,
+                "tts_playback_complete",
+                dynamicTimeout,
+                (data: any) => data.messageId === msgId
+              );
+            } catch (err: any) {
+              const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+              if (isCancellation) {
+                console.log(`[VoicePipeline] executeAutoResume playback interrupted for ${msgId}`);
+                return;
+              } else {
+                console.warn(`[VoicePipeline] executeAutoResume playback timeout for ${msgId}, continuing...`);
+              }
+            }
+          }
+          
+          session.stateMachine.transition("DETOUR_COMPLETE");
+          if (session.stateMachine.currentState === "PAUSED") {
+            session.stateMachine.transition("RESUME");
+          }
+          context.send({ type: "tool", tool: "detour_end", args: {} });
           return;
         }
       }
@@ -483,10 +536,42 @@ export async function executeAutoResume(
  
     if (targetField) {
       context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetField.key, label: targetField.label } });
-      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker, context.sessionId);
+
+      const explanation = targetField.explanation ? ` ${targetField.explanation}` : "";
+      const speechText = skipSpeech
+        ? `Let's look at ${targetField.label}.${explanation}`
+        : `Returning to our walkthrough. Let's look at ${targetField.label}.${explanation}`;
+
+      const msgId = await speakAndSend(context.send, speechText, "en", tracker, context.sessionId);
+
+      if (msgId) {
+        const wordCount = speechText.split(/\s+/).length;
+        const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
+        try {
+          await walkthroughDriver.statusAwaiter.waitForStatus(
+            session,
+            "tts_playback_complete",
+            dynamicTimeout,
+            (data: any) => data.messageId === msgId
+          );
+        } catch (err: any) {
+          const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+          if (isCancellation) {
+            console.log(`[VoicePipeline] executeAutoResume playback interrupted for ${msgId}`);
+            return;
+          } else {
+            console.warn(`[VoicePipeline] executeAutoResume playback timeout for ${msgId}, continuing...`);
+          }
+        }
+      }
     }
+
+    session.stateMachine.transition("DETOUR_COMPLETE");
+    if (session.stateMachine.currentState === "PAUSED") {
+      session.stateMachine.transition("RESUME");
+    }
+    context.send({ type: "tool", tool: "detour_end", args: {} });
   } else if (currentState === "PAUSED") {
-    session.stateMachine.transition("RESUME");
     const originalCtx = session.stateMachine.currentContext;
     let targetField = session.schema.fields[originalCtx.fieldIndex];
     if (originalCtx.subFormId) {
@@ -496,6 +581,34 @@ export async function executeAutoResume(
       }
     }
     const label = targetField?.label || "the current field";
-    await speakAndSend(context.send, `Resuming walkthrough at ${label}.`, "en", tracker, context.sessionId);
+    const explanation = targetField?.explanation ? ` ${targetField.explanation}` : "";
+    const speechText = skipSpeech
+      ? `Resuming at ${label}.${explanation}`
+      : `Resuming walkthrough at ${label}.${explanation}`;
+    
+    const msgId = await speakAndSend(context.send, speechText, "en", tracker, context.sessionId);
+
+    if (msgId) {
+      const wordCount = speechText.split(/\s+/).length;
+      const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
+      try {
+        await walkthroughDriver.statusAwaiter.waitForStatus(
+          session,
+          "tts_playback_complete",
+          dynamicTimeout,
+          (data: any) => data.messageId === msgId
+        );
+      } catch (err: any) {
+        const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+        if (isCancellation) {
+          console.log(`[VoicePipeline] executeAutoResume playback interrupted for ${msgId}`);
+          return;
+        } else {
+          console.warn(`[VoicePipeline] executeAutoResume playback timeout for ${msgId}, continuing...`);
+        }
+      }
+    }
+    
+    session.stateMachine.transition("RESUME");
   }
 }

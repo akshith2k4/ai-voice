@@ -13,10 +13,11 @@ export function sendRespond(
   }
 ): string {
   const id = messageId || crypto.randomUUID();
+  const cleanMessage = message.replace(/\[[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
   send({
     type: "tool",
     tool: "respond",
-    args: { message, tts, messageId: id, latency },
+    args: { message: cleanMessage, tts, messageId: id, latency },
   });
   return id;
 }

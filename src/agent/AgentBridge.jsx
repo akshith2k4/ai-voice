@@ -24,6 +24,7 @@ const AgentContext = createContext({
   clearMessages: () => {},
   pendingNavigation: null,
   pendingTool: null,
+  isWalkthroughActive: false,
   clearPendingNavigation: () => {},
   addMessage: () => {},
   clearPendingTool: () => {},
@@ -48,6 +49,7 @@ export function AgentBridgeProvider({ children }) {
   const [pendingTool, setPendingTool] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
   const [audioQueueFinishedEvent, setAudioQueueFinishedEvent] = useState(0);
+  const [isWalkthroughActive, setIsWalkthroughActive] = useState(false);
 
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef(null);
@@ -57,6 +59,13 @@ export function AgentBridgeProvider({ children }) {
   const statusRef = useRef(STATUS.DISCONNECTED);
   useEffect(() => {
     statusRef.current = connectionStatus;
+  }, [connectionStatus]);
+
+  // Reset walkthrough state if disconnected
+  useEffect(() => {
+    if (connectionStatus !== STATUS.CONNECTED) {
+      setIsWalkthroughActive(false);
+    }
   }, [connectionStatus]);
 
   // ---- Message handling ----
@@ -105,10 +114,11 @@ export function AgentBridgeProvider({ children }) {
         setIsProcessing,
         setPendingNavigation,
         setPendingTool,
+        setIsWalkthroughActive,
         audioQueue: audioQueueRef.current,
       });
     },
-    [addMessage]
+    [addMessage, setIsWalkthroughActive]
   );
 
   // Stable refs for connection event listeners to avoid infinite loops and stale state
@@ -236,6 +246,7 @@ export function AgentBridgeProvider({ children }) {
     setIsPaused,
     stopAudio,
     audioQueueFinishedEvent,
+    isWalkthroughActive,
   };
 
   return (

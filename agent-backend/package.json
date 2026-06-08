@@ -14,7 +14,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1062.0",
     "@elevenlabs/elevenlabs-js": "^2.47.0",
     "@langchain/core": "^1.1.46",
-    "@langchain/google-genai": "^2.1.30",
+    "@langchain/openai": "^1.4.7",
     "@types/ws": "^8.18.1",
     "dotenv": "^17.4.2",
     "langchain": "^0.3.0",

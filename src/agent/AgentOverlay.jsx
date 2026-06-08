@@ -60,6 +60,8 @@ export default function AgentOverlay() {
     sendMessage,
     addMessage,
     isPaused,
+    pendingTool,
+    isWalkthroughActive,
   } = useAgent();
 
   const [expanded, setExpanded] = useState(false);
@@ -74,6 +76,13 @@ export default function AgentOverlay() {
   const chunksRef = useRef([]);
   const messagesEndRef = useRef(null);
   const recordingActiveRef = useRef(false);
+
+  // Collapse chat window when walkthrough starts
+  useEffect(() => {
+    if (pendingTool && (pendingTool.type === "start_walkthrough" || pendingTool.type === "begin_walkthrough")) {
+      setExpanded(false);
+    }
+  }, [pendingTool]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -268,26 +277,47 @@ export default function AgentOverlay() {
         />
 
         {/* Mic orb */}
-        <Paper
-          elevation={4}
-          sx={{
-            width: 56,
-            height: 56,
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: isConnected ? "#0f172a" : "#374151",
-            color: "#fff",
-            transition: "all 0.2s ease",
-            "&:hover": {
-              transform: "scale(1.05)",
-              boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
-            },
-          }}
-        >
-          <MicIcon sx={{ fontSize: 28 }} />
-        </Paper>
+        <Box sx={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {isWalkthroughActive && isAgentSpeaking && !isRecording && (
+            <Box
+              className="siri-glow-aura"
+              sx={{
+                position: "absolute",
+                top: -3,
+                left: -3,
+                width: 62,
+                height: 62,
+                borderRadius: "50%",
+                background: "linear-gradient(45deg, #a855f7, #3b82f6, #06b6d4, #ec4899)",
+                backgroundSize: "400% 400%",
+                zIndex: 1,
+              }}
+            />
+          )}
+          <Paper
+            elevation={4}
+            className={isWalkthroughActive && isAgentSpeaking && !isRecording ? "siri-orb-glow" : ""}
+            sx={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: isConnected ? "#0f172a" : "#374151",
+              color: "#fff",
+              position: "relative",
+              zIndex: 2,
+              transition: "all 0.2s ease",
+              "&:hover": {
+                transform: "scale(1.05)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+              },
+            }}
+          >
+            <MicIcon sx={{ fontSize: 28 }} />
+          </Paper>
+        </Box>
       </Box>
     );
   }

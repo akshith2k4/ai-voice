@@ -8,7 +8,7 @@
     "selector": "[data-agent-action='add-order']",
     "fallbackText": "+ Add Order"
   },
-  "overview": "[excited] Okay, so we're on the Order form now! Think of this as the plan that tells us what linen goes out, what comes back, and when. [friendly] Let's walk through it together — it's pretty straightforward once you see it![laughs]",
+  "overview": "[excited] Okay..., so we're on the Order form now! Think of this as the plan that tells us what linen goes out..., what comes back..., and when. [friendly] Let's walk through it together — it's pretty straightforward once you see it![chuckles]",
   "fields": [
     {
       "key": "orderReferenceId",
@@ -39,7 +39,7 @@
       "visibleWhen": null,
       "explanation": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up… they might be inactive.",
       "tips": "[thoughtful] Head over to the Customers page and make sure they're marked as active — that's usually the reason.",
-      "waitAfterFillMs": 4000,
+      "waitAfterFillMs": 1000,
       "commonQuestions": [
         {
           "question": "Why can't I find my customer?",

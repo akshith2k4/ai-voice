@@ -54,6 +54,7 @@ export function routeIncomingMessage(
     setIsProcessing,
     setPendingNavigation,
     setPendingTool,
+    setIsWalkthroughActive,
     audioQueue
   }
 ) {
@@ -74,6 +75,14 @@ export function routeIncomingMessage(
         if (message.args !== undefined && (typeof message.args !== "object" || message.args === null)) {
           console.warn("[AgentBridge] Invalid tool message: 'args' must be an object.");
           break;
+        }
+
+        if (setIsWalkthroughActive) {
+          if (message.tool === TOOL_TYPES.START_WALKTHROUGH || message.tool === TOOL_TYPES.BEGIN_WALKTHROUGH) {
+            setIsWalkthroughActive(true);
+          } else if (message.tool === TOOL_TYPES.CANCEL_WALKTHROUGH || message.tool === "walkthrough_finished") {
+            setIsWalkthroughActive(false);
+          }
         }
 
         const handler = TOOL_HANDLERS[message.tool];

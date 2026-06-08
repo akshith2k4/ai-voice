@@ -97,3 +97,37 @@
   }
 }
 
+/* Siri Glow Aura - spinning & gradient shifting behind the mic orb */
+.siri-glow-aura {
+  animation: siri-gradient-shift 4s ease infinite, siri-pulse-blur 2s ease-in-out infinite;
+}
+
+@keyframes siri-gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes siri-pulse-blur {
+  0%, 100% {
+    transform: scale(1);
+    filter: blur(4px);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.15);
+    filter: blur(8px);
+    opacity: 1;
+  }
+}
+
+/* Siri Orb Glow - subtle edge glow on the orb paper container itself */
+.siri-orb-glow {
+  box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.5),
+              0 0 24px 4px rgba(59, 130, 246, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
