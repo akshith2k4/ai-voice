@@ -1,13 +1,97 @@
 import type { VoiceMessage, HandlerContext } from "../types.js";
-import { orchestrate } from "../../llm/orchestrator.js";
-import { walkthroughDriver } from "../walkthrough/driver.js";
+import { orchestrateStream, type LLMStreamChunk, type LLMResult, type LLMToolCall } from "../../llm/orchestrator.js";
+import { walkthroughDriver, WalkthroughDriver } from "../walkthrough/driver.js";
+import { interruptNarration } from "../walkthrough/narrationService.js";
+import { CancellationError } from "../walkthrough/statusAwaiter.js";
 import * as sttService from "./sttService.js";
+import { onSpeechDetected } from "./sttService.js";
 import * as ttsService from "./ttsService.js";
 import * as responseSender from "./responseSender.js";
+import { connectionManager } from "../connectionManager.js";
+import { SentenceSplitter } from "./sentenceSplitter.js";
+import { SentenceTTSQueue } from "./sentenceTtsQueue.js";
+
+
+const activeTTSQueues = new Map<string, SentenceTTSQueue>();
+const activeSpeakAndSend = new Map<string, { interrupted: boolean }>();
+
+export async function cleanupSession(sessionId: string): Promise<void> {
+  console.log(`[SessionCleanup] Cleaning up resources for session: ${sessionId}`);
+
+  // 1. Walkthrough session (cancel + session cleanup)
+  try {
+    const { walkthroughDriver } = await import("../walkthrough/driver.js");
+    walkthroughDriver.cancel(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cancel walkthrough:", err);
+  }
+
+  // 2. TTS engine state
+  try {
+    const { cleanupSession: cleanTTS } = await import("./elevenLabsTTS.js");
+    cleanTTS(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs TTS:", err);
+  }
+
+  // 3. Cleanup local voice pipeline maps
+  activeTTSQueues.delete(sessionId);
+  activeSpeakAndSend.delete(sessionId);
+
+  // 4. Cleanup STT buffer maps
+  try {
+    const { cleanupSession: cleanSTT } = await import("./elevenLabsSTT.js");
+    cleanSTT(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs STT:", err);
+  }
+
+  // 5. Reset STT retry counts
+  try {
+    sttService.resetRetry(sessionId);
+  } catch (err) {
+    console.warn("[SessionCleanup] Failed to reset STT retry count:", err);
+  }
+}
+
+export function interruptTTS(sessionId: string) {
+  interruptNarration(sessionId);
+  
+  // Send stop_audio immediately to the frontend so it cuts off any playing audio
+  connectionManager.send(sessionId, { type: "tool", tool: "stop_audio", args: {} });
+  
+  const queue = activeTTSQueues.get(sessionId);
+  if (queue) {
+    queue.interrupt();
+  }
+  const sas = activeSpeakAndSend.get(sessionId);
+  if (sas) {
+    sas.interrupted = true;
+  }
+  
+  const session = walkthroughDriver.getSession(sessionId);
+  if (session) {
+    const state = session.stateMachine.currentState;
+    if (state !== "DETOUR_QA" && state !== "PAUSED") {
+      console.log(`[Barge-in] Pausing walkthrough for ${sessionId}`);
+      try {
+        session.stateMachine.transition("PAUSE");
+      } catch (e) {
+        console.warn("[Barge-in] Failed to pause state machine:", e);
+      }
+    }
+  }
+}
+
+onSpeechDetected((sessionId) => {
+  console.log(`[Barge-in] Speech detected for ${sessionId}. Interrupting TTS...`);
+  interruptTTS(sessionId);
+});
 
 export async function handleVoiceMessage(
   message: VoiceMessage,
-  context: HandlerContext
+  context: HandlerContext,
+  preTranscribedResult?: any
 ): Promise<void> {
   const { sessionId, send } = context;
 
@@ -26,18 +110,22 @@ export async function handleVoiceMessage(
   }
 
   // Text path for dev testing
-  if (message.text && !message.audio) {
+  if (message.text && !message.audio && !preTranscribedResult) {
     await handleText(message.text, undefined, context, tracker);
     return;
   }
 
-  // Audio path
-  if (!message.audio) return;
-
   try {
-    const sttStart = Date.now();
-    const stt = await sttService.transcribeAudio(message.audio);
-    tracker.sttDuration = Date.now() - sttStart;
+    let stt;
+    if (preTranscribedResult) {
+      stt = preTranscribedResult;
+      tracker.sttDuration = 0;
+    } else {
+      if (!message.audio) return;
+      const sttStart = Date.now();
+      stt = await sttService.transcribeAudio(message.audio);
+      tracker.sttDuration = Date.now() - sttStart;
+    }
 
     if (!stt.text) {
       const count = sttService.incrementRetry(sessionId);
@@ -89,6 +177,8 @@ export async function handleVoiceMessage(
   }
 }
 
+
+
 async function handleText(
   text: string,
   languageCode: string | undefined,
@@ -101,15 +191,82 @@ async function handleText(
   }
 ): Promise<void> {
   const { send, sessionId } = context;
-  const lang = languageCode || "en";
-
-  const llmStart = Date.now();
-  const { toolCalls, rawContent } = await orchestrate(text, sessionId, languageCode);
-  if (tracker) {
-    tracker.llmDuration = Date.now() - llmStart;
+  let lang = languageCode || "en";
+  if (lang.toLowerCase() === "eng" || lang.toLowerCase().startsWith("en")) {
+    lang = "en";
   }
 
+  const llmStart = Date.now();
+  const messageId = crypto.randomUUID();
+  const ttsQueue = new SentenceTTSQueue(sessionId, send, lang, messageId, tracker);
+  activeTTSQueues.set(sessionId, ttsQueue);
+
+  const splitter = new SentenceSplitter((sentence) => {
+    ttsQueue.push(sentence, false);
+  });
+
+  const toolCalls: LLMToolCall[] = [];
+  let rawContent = "";
   let spoke = false;
+
+  try {
+    const generator = orchestrateStream(text, sessionId, lang);
+
+    while (true) {
+      const { done, value } = await generator.next();
+
+      if (done) {
+        const result = value as LLMResult;
+        toolCalls.push(...result.toolCalls);
+        rawContent = result.rawContent || "";
+        break;
+      }
+
+      const chunk = value as LLMStreamChunk;
+      if (chunk.type === "text" && chunk.text) {
+        spoke = true;
+        splitter.push(chunk.text);
+      }
+    }
+
+    if (tracker) {
+      tracker.llmDuration = Date.now() - llmStart;
+    }
+
+    splitter.flush();
+    ttsQueue.markAllPushed(toolCalls.length > 0);
+    setTimeout(() => { if (activeTTSQueues.get(sessionId) === ttsQueue) activeTTSQueues.delete(sessionId); }, 15000); // Cleanup
+
+    // If the LLM streamed a text response, wait for the client to finish playing it
+    // before we execute any associated tool calls (to avoid racing cursor focus/actions)
+    const session = walkthroughDriver.getSession(sessionId);
+    if (spoke && session && messageId) {
+      const wordCount = rawContent.split(/\s+/).length;
+      const dynamicTimeout = Math.max(8000, (wordCount / 2.5) * 1000 * 2);
+      try {
+        await walkthroughDriver.statusAwaiter.waitForStatus(
+          session,
+          "tts_playback_complete",
+          dynamicTimeout,
+          (data: any) => data.messageId === messageId
+        );
+      } catch (err: any) {
+        const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+        if (isCancellation) {
+          console.log(`[VoicePipeline] Streamed text playback interrupted for ${messageId}`);
+          return;
+        } else {
+          console.warn(`[VoicePipeline] Streamed text playback timeout for ${messageId}, continuing...`);
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error("[VoiceHandler] Orchestration stream failed:", error);
+    const errMsg = "Sorry, I'm having trouble connecting right now. Please try again.";
+    spoke = true;
+    await speakAndSend(send, errMsg, lang, tracker, sessionId);
+  }
 
   for (const tc of toolCalls) {
     switch (tc.name) {
@@ -133,55 +290,110 @@ async function handleText(
         const msg = String(tc.args.message || "Starting walkthrough");
         const formId = String(tc.args.formId);
         spoke = true;
-        await speakAndSend(send, msg, lang, tracker);
-        walkthroughDriver.start(formId, context.sessionId);
+        walkthroughDriver.start(formId, context.sessionId, true, msg, lang);
         break;
       }
       case "answer_question": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.response), lang, tracker);
+        await speakAndSend(send, String(tc.args.response), lang, tracker, sessionId);
         break;
       }
       case "detour_to_field": {
         const session = walkthroughDriver.getSession(sessionId);
         if (session) {
-          session.stateMachine.transition("DETOUR");
           const targetFieldKey = String(tc.args.fieldKey);
-          let matchedField = session.schema.fields.find(f => f.key === targetFieldKey);
-          if (!matchedField) {
-            for (const subForm of session.schema.subForms) {
-              const f = subForm.fields.find(field => field.key === targetFieldKey);
-              if (f) {
-                matchedField = f;
-                break;
+          const ctx = session.stateMachine.currentContext;
+
+          // 1. Check main fields first
+          let fieldIndex = session.schema.fields.findIndex(f => f.key === targetFieldKey);
+          let subFormId: string | null = null;
+          let subFormFieldIndex = 0;
+          let matchedField = fieldIndex !== -1 ? session.schema.fields[fieldIndex] : undefined;
+
+          // 2. If not in main fields, search sub-forms
+          if (fieldIndex === -1 && session.schema.subForms) {
+            // 2a. Check currently active sub-form first
+            if (ctx.subFormId) {
+              const activeSubForm = session.schema.subForms.find(sf => sf.id === ctx.subFormId);
+              if (activeSubForm) {
+                const idx = activeSubForm.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = activeSubForm.id;
+                  subFormFieldIndex = idx;
+                  matchedField = activeSubForm.fields[idx];
+                }
+              }
+            }
+
+            // 2b. If not in active sub-form, check visible sub-forms
+            if (!subFormId) {
+              const visibleSubForms = session.schema.subForms.filter(sf =>
+                WalkthroughDriver.isFieldVisible(session, sf) &&
+                WalkthroughDriver.isConditionMet(session, sf)
+              );
+              for (const sf of visibleSubForms) {
+                const idx = sf.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = sf.id;
+                  subFormFieldIndex = idx;
+                  matchedField = sf.fields[idx];
+                  break;
+                }
+              }
+            }
+
+            // 2c. Fallback: first match across ALL sub-forms
+            if (!subFormId) {
+              for (const sf of session.schema.subForms) {
+                const idx = sf.fields.findIndex(f => f.key === targetFieldKey);
+                if (idx !== -1) {
+                  subFormId = sf.id;
+                  subFormFieldIndex = idx;
+                  matchedField = sf.fields[idx];
+                  break;
+                }
               }
             }
           }
+
+          session.stateMachine.transition("DETOUR", {
+            fieldIndex: fieldIndex !== -1 ? fieldIndex : undefined,
+            subFormId: subFormId || undefined,
+            subFormFieldIndex: subFormId ? subFormFieldIndex : undefined,
+          });
+
           context.send({ type: "tool", tool: "detour_start", args: { fieldKey: targetFieldKey } });
           context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetFieldKey, label: matchedField?.label } });
 
-          const narrationText = matchedField?.explanation || "Let me highlight that field on your form.";
-          spoke = true;
-          await speakAndSend(send, narrationText, lang, tracker);
+          if (!spoke) {
+            const narrationText = matchedField ? `Here's the ${matchedField.label} field` : "Let me highlight that field on your form.";
+            spoke = true;
+            await speakAndSend(send, narrationText, lang, tracker, sessionId);
+          }
         }
         break;
       }
       case "resume_walkthrough": {
+        await executeAutoResume(context, tracker, spoke);
         spoke = true;
-        await executeAutoResume(context, tracker);
         break;
       }
       case "ask_clarification": {
         spoke = true;
-        await speakAndSend(send, String(tc.args.message), lang, tracker);
+        await speakAndSend(send, String(tc.args.message), lang, tracker, sessionId);
         break;
       }
     }
   }
 
   if (toolCalls.length === 0 && rawContent) {
-    spoke = true;
-    await speakAndSend(send, rawContent, lang, tracker);
+    const latency = tracker ? {
+      stt: tracker.sttDuration,
+      llm: tracker.llmDuration,
+      tts: tracker.ttsDuration,
+      total: Date.now() - tracker.startTime,
+    } : undefined;
+    responseSender.sendRespond(send, rawContent, true, messageId, latency);
   }
 }
 
@@ -194,44 +406,57 @@ async function speakAndSend(
     sttDuration: number;
     llmDuration: number;
     ttsDuration: number;
-  }
-): Promise<void> {
+  },
+  sessionId?: string
+): Promise<string> {
   const ttsStart = Date.now();
-  let base64 = "";
+  let firstChunkReceived = false;
+  let messageId: string = crypto.randomUUID();
+  
+  const state = { interrupted: false };
+  if (sessionId) {
+    activeSpeakAndSend.set(sessionId, state);
+  }
+
   try {
-    base64 = await ttsService.synthesizeToBase64(text, languageCode);
-    if (tracker) {
-      tracker.ttsDuration = Date.now() - ttsStart;
-    }
-  } catch (e) {
-    console.error("[VoiceHandler] TTS failed:", e);
-  }
-
-  const totalDuration = tracker ? (Date.now() - tracker.startTime) : 0;
-  const latency = tracker ? {
-    stt: tracker.sttDuration,
-    llm: tracker.llmDuration,
-    tts: tracker.ttsDuration,
-    total: totalDuration,
-  } : undefined;
-
-  const messageId = responseSender.sendRespond(send, text, !!base64, undefined, latency);
-
-  if (base64) {
-    responseSender.sendTtsAudio(send, base64, messageId);
-  }
-
-  if (tracker) {
-    console.log(
-      `[Latency Breakdown] 🔊 Speech Response: "${text}"
+    await ttsService.synthesizeStream(text, languageCode, (base64Chunk, isDone) => {
+      if (!firstChunkReceived) {
+        firstChunkReceived = true;
+        if (tracker) {
+          tracker.ttsDuration = Date.now() - ttsStart;
+          const totalDuration = Date.now() - tracker.startTime;
+          console.log(
+            `[Latency Breakdown] 🔊 Speech Response (First Chunk): "${text}"
 -----------------------------------------
 🎙️ STT:   ${tracker.sttDuration}ms
 🧠 LLM:   ${tracker.llmDuration}ms
 🔊 TTS:   ${tracker.ttsDuration}ms
 ⏱️ Total: ${totalDuration}ms
 -----------------------------------------`
-    );
+          );
+        }
+        responseSender.sendRespond(send, text, true, messageId, undefined);
+      }
+      if (state.interrupted) {
+         responseSender.sendStopAudio(send);
+         return;
+      }
+      responseSender.sendTtsAudio(send, base64Chunk, messageId, isDone);
+    }, sessionId);
+  } catch (e) {
+    console.error("[VoiceHandler] TTS streaming failed:", e);
+    if (!firstChunkReceived) {
+      responseSender.sendRespond(send, text, false, messageId, undefined);
+    } else {
+      responseSender.sendTtsAudio(send, "", messageId, true);
+    }
+  } finally {
+    if (sessionId) {
+      activeSpeakAndSend.delete(sessionId);
+    }
   }
+
+  return messageId;
 }
 
 /**
@@ -244,13 +469,14 @@ export async function executeAutoResume(
     sttDuration: number;
     llmDuration: number;
     ttsDuration: number;
-  }
+  },
+  skipSpeech = false
 ): Promise<void> {
   const session = walkthroughDriver.getSession(context.sessionId);
-  if (session && session.stateMachine.currentState === "DETOUR_QA") {
-    session.stateMachine.transition("DETOUR_COMPLETE");
-    context.send({ type: "tool", tool: "detour_end", args: {} });
+  if (!session) return;
 
+  const currentState = session.stateMachine.currentState;
+  if (currentState === "DETOUR_QA") {
     const originalCtx = session.stateMachine.currentContext;
     let targetField = session.schema.fields[originalCtx.fieldIndex];
 
@@ -269,15 +495,120 @@ export async function executeAutoResume(
               itemIndex: originalCtx.subFormItemIndex,
             },
           });
-          await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
+
+          const explanation = targetField.explanation ? ` ${targetField.explanation}` : "";
+          const speechText = skipSpeech
+            ? `Let's look at ${targetField.label}.${explanation}`
+            : `Returning to our walkthrough. Let's look at ${targetField.label}.${explanation}`;
+
+          const msgId = await speakAndSend(context.send, speechText, "en", tracker, context.sessionId);
+
+          if (msgId) {
+            const wordCount = speechText.split(/\s+/).length;
+            const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
+            try {
+              await walkthroughDriver.statusAwaiter.waitForStatus(
+                session,
+                "tts_playback_complete",
+                dynamicTimeout,
+                (data: any) => data.messageId === msgId
+              );
+            } catch (err: any) {
+              const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+              if (isCancellation) {
+                console.log(`[VoicePipeline] executeAutoResume playback interrupted for ${msgId}`);
+                return;
+              } else {
+                console.warn(`[VoicePipeline] executeAutoResume playback timeout for ${msgId}, continuing...`);
+              }
+            }
+          }
+          
+          session.stateMachine.transition("DETOUR_COMPLETE");
+          if (session.stateMachine.currentState === "PAUSED") {
+            session.stateMachine.transition("RESUME");
+          }
+          context.send({ type: "tool", tool: "detour_end", args: {} });
           return;
         }
       }
     }
-
+ 
     if (targetField) {
       context.send({ type: "tool", tool: "go_to_field", args: { fieldKey: targetField.key, label: targetField.label } });
-      await speakAndSend(context.send, `Returning to our walkthrough. Let's look at ${targetField.label}.`, "en", tracker);
+
+      const explanation = targetField.explanation ? ` ${targetField.explanation}` : "";
+      const speechText = skipSpeech
+        ? `Let's look at ${targetField.label}.${explanation}`
+        : `Returning to our walkthrough. Let's look at ${targetField.label}.${explanation}`;
+
+      const msgId = await speakAndSend(context.send, speechText, "en", tracker, context.sessionId);
+
+      if (msgId) {
+        const wordCount = speechText.split(/\s+/).length;
+        const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
+        try {
+          await walkthroughDriver.statusAwaiter.waitForStatus(
+            session,
+            "tts_playback_complete",
+            dynamicTimeout,
+            (data: any) => data.messageId === msgId
+          );
+        } catch (err: any) {
+          const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+          if (isCancellation) {
+            console.log(`[VoicePipeline] executeAutoResume playback interrupted for ${msgId}`);
+            return;
+          } else {
+            console.warn(`[VoicePipeline] executeAutoResume playback timeout for ${msgId}, continuing...`);
+          }
+        }
+      }
     }
+
+    session.stateMachine.transition("DETOUR_COMPLETE");
+    if (session.stateMachine.currentState === "PAUSED") {
+      session.stateMachine.transition("RESUME");
+    }
+    context.send({ type: "tool", tool: "detour_end", args: {} });
+  } else if (currentState === "PAUSED") {
+    const originalCtx = session.stateMachine.currentContext;
+    let targetField = session.schema.fields[originalCtx.fieldIndex];
+    if (originalCtx.subFormId) {
+      const subForm = session.schema.subForms.find(sf => sf.id === originalCtx.subFormId);
+      if (subForm) {
+        targetField = subForm.fields[originalCtx.subFormFieldIndex];
+      }
+    }
+    const label = targetField?.label || "the current field";
+    const explanation = targetField?.explanation ? ` ${targetField.explanation}` : "";
+    const speechText = skipSpeech
+      ? `Resuming at ${label}.${explanation}`
+      : `Resuming walkthrough at ${label}.${explanation}`;
+    
+    const msgId = await speakAndSend(context.send, speechText, "en", tracker, context.sessionId);
+
+    if (msgId) {
+      const wordCount = speechText.split(/\s+/).length;
+      const dynamicTimeout = Math.max(5000, (wordCount / 2.5) * 1000 * 2);
+      try {
+        await walkthroughDriver.statusAwaiter.waitForStatus(
+          session,
+          "tts_playback_complete",
+          dynamicTimeout,
+          (data: any) => data.messageId === msgId
+        );
+      } catch (err: any) {
+        const isCancellation = err instanceof CancellationError || (err instanceof Error && (err.name === "CancellationError" || err.message === "Narration interrupted"));
+        if (isCancellation) {
+          console.log(`[VoicePipeline] executeAutoResume playback interrupted for ${msgId}`);
+          return;
+        } else {
+          console.warn(`[VoicePipeline] executeAutoResume playback timeout for ${msgId}, continuing...`);
+        }
+      }
+    }
+    
+    session.stateMachine.transition("RESUME");
   }
 }

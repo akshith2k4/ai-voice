@@ -1,8 +1,8 @@
 import type { WalkthroughSession, PendingStatus } from "./sessionManager.js";
 
 export class CancellationError extends Error {
-  constructor() {
-    super("Walkthrough cancelled");
+  constructor(message: string = "Walkthrough cancelled") {
+    super(message);
     this.name = "CancellationError";
   }
 }
@@ -15,24 +15,26 @@ export class StatusAwaiter {
     matcher?: (data: any) => boolean
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        session.pendingStatus = null;
+      const pending: any = {
+        expectedEvent,
+        matcher,
+        resolve: (data: any) => {
+          session.pendingStatuses = session.pendingStatuses.filter((p) => p !== pending);
+          resolve(data);
+        },
+        reject: (reason: any) => {
+          session.pendingStatuses = session.pendingStatuses.filter((p) => p !== pending);
+          reject(reason);
+        },
+        timer: null as any,
+      };
+
+      pending.timer = setTimeout(() => {
+        session.pendingStatuses = session.pendingStatuses.filter((p) => p !== pending);
         reject(new Error(`Timeout waiting for "${expectedEvent}" (${timeout}ms)`));
       }, timeout);
 
-      session.pendingStatus = {
-        expectedEvent,
-        matcher,
-        resolve: (data) => {
-          session.pendingStatus = null;
-          resolve(data);
-        },
-        reject: (reason) => {
-          session.pendingStatus = null;
-          reject(reason);
-        },
-        timer,
-      };
+      session.pendingStatuses.push(pending);
     });
   }
 
@@ -56,23 +58,30 @@ export class StatusAwaiter {
       session.isRegistered = true;
     }
 
-    // Expected confirmation → resolve pending wait
-    if (
-      session.pendingStatus &&
-      session.pendingStatus.expectedEvent === event &&
-      (!session.pendingStatus.matcher || session.pendingStatus.matcher(data))
-    ) {
-      clearTimeout(session.pendingStatus.timer);
-      session.pendingStatus.resolve(data);
-      session.pendingStatus = null;
+    // Expected confirmation → resolve pending waits
+    const matching = session.pendingStatuses.filter(
+      (p) =>
+        p.expectedEvent === event &&
+        (!p.matcher || p.matcher(data))
+    );
+
+    // Remove matched from array first
+    session.pendingStatuses = session.pendingStatuses.filter(
+      (p) => !matching.includes(p)
+    );
+
+    for (const match of matching) {
+      clearTimeout(match.timer);
+      match.resolve(data);
     }
   }
 
   rejectPending(session: WalkthroughSession, reason: any): void {
-    if (session.pendingStatus) {
-      clearTimeout(session.pendingStatus.timer);
-      session.pendingStatus.reject(reason);
-      session.pendingStatus = null;
+    const list = [...session.pendingStatuses];
+    session.pendingStatuses = [];
+    for (const pending of list) {
+      clearTimeout(pending.timer);
+      pending.reject(reason);
     }
   }
 }

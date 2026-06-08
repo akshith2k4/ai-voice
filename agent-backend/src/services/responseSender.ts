@@ -13,10 +13,11 @@ export function sendRespond(
   }
 ): string {
   const id = messageId || crypto.randomUUID();
+  const cleanMessage = message.replace(/\[[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
   send({
     type: "tool",
     tool: "respond",
-    args: { message, tts, messageId: id, latency },
+    args: { message: cleanMessage, tts, messageId: id, latency },
   });
   return id;
 }
@@ -31,7 +32,14 @@ export function sendNavigate(
 export function sendTtsAudio(
   send: HandlerContext["send"],
   base64: string,
-  messageId: string
+  messageId: string,
+  done?: boolean
 ): void {
-  send({ type: "tts_audio", audio: base64, messageId });
+  send({ type: "tts_audio", audio: base64, messageId, done });
+}
+
+export function sendStopAudio(
+  send: HandlerContext["send"]
+): void {
+  send({ type: "tool", tool: "stop_audio", args: {} });
 }

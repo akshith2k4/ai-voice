@@ -18,6 +18,7 @@ export function handleStatus(
       (fieldKey ? ` | field: ${fieldKey}` : "") +
       (value ? ` | value: ${value}` : "") +
       (reason ? ` | reason: ${reason}` : "") +
+      (message.messageId ? ` | messageId: ${message.messageId}` : "") +
       ` | from: ${context.sessionId}`
   );
 

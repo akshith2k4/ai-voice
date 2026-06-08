@@ -40,6 +40,11 @@ const TOOL_HANDLERS = {
   [TOOL_TYPES.CANCEL_WALKTHROUGH]: (_, { setPendingTool }) => {
     setPendingTool({ type: TOOL_TYPES.CANCEL_WALKTHROUGH, uuid: crypto.randomUUID() });
   },
+  "stop_audio": (_, { audioQueue }) => {
+    if (audioQueue) {
+      audioQueue.clear(true);
+    }
+  }
 };
 
 export function routeIncomingMessage(
@@ -49,6 +54,7 @@ export function routeIncomingMessage(
     setIsProcessing,
     setPendingNavigation,
     setPendingTool,
+    setIsWalkthroughActive,
     audioQueue
   }
 ) {
@@ -71,8 +77,16 @@ export function routeIncomingMessage(
           break;
         }
 
+        if (setIsWalkthroughActive) {
+          if (message.tool === TOOL_TYPES.START_WALKTHROUGH || message.tool === TOOL_TYPES.BEGIN_WALKTHROUGH) {
+            setIsWalkthroughActive(true);
+          } else if (message.tool === TOOL_TYPES.CANCEL_WALKTHROUGH || message.tool === "walkthrough_finished") {
+            setIsWalkthroughActive(false);
+          }
+        }
+
         const handler = TOOL_HANDLERS[message.tool];
-        const context = { addMessage, setIsProcessing, setPendingNavigation, setPendingTool };
+        const context = { addMessage, setIsProcessing, setPendingNavigation, setPendingTool, audioQueue };
 
         if (handler) {
           handler(message.args, context);
@@ -85,16 +99,30 @@ export function routeIncomingMessage(
       }
 
       case MESSAGE_TYPES.TTS_AUDIO: {
-        const { audio, messageId } = message;
-        if (typeof audio !== 'string' || audio.length === 0) {
-          console.warn("[AgentBridge] Invalid tts_audio message: 'audio' must be a non-empty string.");
-          break;
-        }
+        const { audio, url, messageId, done } = message;
         if (typeof messageId !== 'string' && typeof messageId !== 'number') {
           console.warn("[AgentBridge] Invalid tts_audio message: 'messageId' must be a string or number.");
           break;
         }
-        audioQueue?.enqueue(audio, messageId);
+
+        if (url) {
+          if (typeof url !== 'string') {
+            console.warn("[AgentBridge] Invalid tts_audio message: 'url' must be a string.");
+            break;
+          }
+          audioQueue?.enqueueUrl(url, messageId);
+          break;
+        }
+
+        if (typeof audio !== 'string') {
+          console.warn("[AgentBridge] Invalid tts_audio message: 'audio' must be a string.");
+          break;
+        }
+        if (audio.length === 0 && !done) {
+          console.warn("[AgentBridge] Invalid tts_audio message: empty audio chunk but not done.");
+          break;
+        }
+        audioQueue?.enqueue(audio, messageId, done);
         break;
       }
 

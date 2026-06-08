@@ -93,7 +93,7 @@ export const askClarificationTool = new DynamicStructuredTool({
 export const detourToFieldTool = new DynamicStructuredTool({
   name: "detour_to_field",
   description:
-    "Detour to explain a specific field on the active form without filling it. Use this when the user asks a question about what a field means, what data goes into it, how to use it, etc. Do NOT answer inline with text.",
+    "Detour to focus on or visually highlight a specific field on the active form. Use this tool ONLY when the user explicitly requests navigation or visual highlight/focus for a field (e.g., 'where is the customer field?', 'show me order date', 'focus customer'). Do NOT use this tool for explanation questions about fields (e.g., 'what is customer?', 'why is orderDate required?'); instead, use the 'answer_question' tool to answer directly.",
   schema: z.object({
     fieldKey: z
       .string()

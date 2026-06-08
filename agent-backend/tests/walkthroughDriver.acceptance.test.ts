@@ -29,8 +29,21 @@ const mockSynthesize = mock(async (text: string, lang: string) => {
   return "data:audio/mpeg;base64,aGVsbG8=";
 });
 
-mock.module("../src/services/elevenLabsTTS.js", () => ({
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+  const result = await mockSynthesize(text, lang);
+  const base64 = result.split(",")[1];
+  onChunk(base64, true);
+});
+
+mock.module("../src/services/ttsService.js", () => ({
   synthesize: mockSynthesize,
+  synthesizeStream: mockSynthesizeStream,
+}));
+
+mock.module("../src/services/s3Service.js", () => ({
+  checkS3ObjectExists: mock(async () => false),
+  getPresignedUrl: mock(async () => "https://mocked-s3-url.com/audio.mp3"),
+  uploadToS3: mock(async () => {}),
 }));
 
 const ORDER_SCHEMA = {
@@ -39,7 +52,7 @@ const ORDER_SCHEMA = {
   mode: "guided",
   route: "/orders",
   openAction: { type: "click", fallbackText: "Create Order" },
-  overview: "This is the order creation form. Let me walk you through each field.",
+  overview: "Unique order creation form testing overview.",
   fields: [
     {
       key: "customer",
@@ -84,6 +97,7 @@ function sentMessages(sessionId: string): any[] {
 function resetAllMocks() {
   mockConnectionSend.mockReset();
   mockSynthesize.mockReset();
+  mockSynthesizeStream.mockReset();
   mockConnectionSend.mockImplementation((sessionId: string, msg: any) => {
     if (msg && msg.type === "tts_audio") {
       setTimeout(() => {
@@ -93,6 +107,11 @@ function resetAllMocks() {
     return true;
   });
   mockSynthesize.mockImplementation(async () => "data:audio/mpeg;base64,aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+    const result = await mockSynthesize(text, lang);
+    const base64 = result.split(",")[1];
+    onChunk(base64, true);
+  });
 }
 
 /**
@@ -437,6 +456,22 @@ describe("WalkthroughDriver — acceptance tests", () => {
       );
       expect(goToFieldMsg).toBeDefined();
       expect(goToFieldMsg.args.fieldKey).toBe("customer");
+    });
+
+    test("speaks introMessage first if provided", async () => {
+      const sid = "intro-msg-session";
+      walkthroughDriver.start("createOrder", sid, true, "Welcome to the create order walkthrough!");
+      await delay(200);
+
+      const msgs = sentMessages(sid);
+      const introMsg = msgs.find(
+        (m: any) =>
+          m.type === "tool" &&
+          m.tool === "respond" &&
+          m.args?.tts === true &&
+          m.args.message === "Welcome to the create order walkthrough!"
+      );
+      expect(introMsg).toBeDefined();
     });
   });
 });

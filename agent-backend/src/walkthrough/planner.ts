@@ -5,6 +5,7 @@
 
 import type { FormSchema, FieldSchema } from "../schema/loader.js";
 import { TEMPLATES } from "./narrationTemplates.js";
+import { resolveDemoValue } from "./evaluator.js";
 
 export interface PlannerStep {
   cmd: 'go_to_field' | 'explain_field' | 'fill_field' | 'wait';
@@ -118,12 +119,7 @@ export class WalkthroughPlanner {
   }
 
   private getDemoValue(field: FieldSchema, branchOption: string | null) {
-    const dv = field.demoValue;
-    if (dv === undefined) return undefined;
-    if (typeof dv === 'object' && dv !== null && !Array.isArray(dv) && branchOption) {
-      return (dv as Record<string, unknown>)[branchOption];
-    }
-    return dv;
+    return resolveDemoValue(field, new Map(), branchOption);
   }
 
   private isVisible(field: FieldSchema, controllerOption: string): boolean {

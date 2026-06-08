@@ -35,6 +35,14 @@ class ConnectionManager {
       console.log(
         `[ConnectionManager] Client disconnected: ${sessionId} (total: ${this.connections.size})`
       );
+      // Dynamic import to avoid circular dependency (connectionManager ↔ voicePipeline)
+      import("./services/voicePipeline.js")
+        .then(({ cleanupSession }) => {
+          cleanupSession(sessionId);
+        })
+        .catch((err) => {
+          console.warn(`[ConnectionManager] Failed to cleanup session ${sessionId}:`, err);
+        });
     }
   }
 

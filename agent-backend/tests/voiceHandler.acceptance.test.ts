@@ -17,27 +17,65 @@ const mockOrchestrate = mock(async (text: string, sessionId: string, lang?: stri
   rawContent: null as string | null,
 }));
 
+const mockOrchestrateStream = mock(async function* (text: string, sessionId: string, lang?: string) {
+  const res = await mockOrchestrate(text, sessionId, lang);
+  if (res.rawContent) {
+    yield { type: "text", text: res.rawContent };
+  }
+  for (const tc of res.toolCalls) {
+    yield { type: "tool_call", toolCall: tc };
+  }
+  return res;
+});
+
 const mockDriverStart = mock((formId: string, sessionId: string) => {});
 const mockGetSession = mock((sessionId: string) => null as any);
 
-// Mock the service modules that voicePipeline imports
+const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+  const base64 = await mockSynthesizeToBase64(text, lang);
+  onChunk(base64, true);
+});
+
 mock.module("../src/services/sttService.js", () => ({
   transcribeAudio: mockTranscribeAudio,
   getRetryCount: mock(() => 0),
   incrementRetry: mock((sid: string) => 1),
   resetRetry: mock(() => {}),
   getMaxRetries: mock(() => 2),
+  handleAudioChunk: mock(async () => {}),
+  handleAudioEnd: mock(async () => ({
+    text: "hello world",
+    languageCode: "en",
+    confidence: 0.95,
+  })),
+  onSpeechDetected: mock(() => {}),
 }));
 
 mock.module("../src/services/ttsService.js", () => ({
   synthesizeToBase64: mockSynthesizeToBase64,
+  synthesizeStream: mockSynthesizeStream,
 }));
 
 mock.module("../llm/orchestrator.js", () => ({
   orchestrate: mockOrchestrate,
+  orchestrateStream: mockOrchestrateStream,
 }));
 
 mock.module("../src/walkthrough/driver.js", () => ({
+  WalkthroughDriver: {
+    isFieldVisible: (session: any, field: any) => {
+      const { visibleWhen } = field;
+      if (!visibleWhen) return true;
+      const currentValue = session.filledValues.get(visibleWhen.field);
+      return currentValue === visibleWhen.value;
+    },
+    isConditionMet: (session: any, field: any) => {
+      const { conditionalOn } = field;
+      if (!conditionalOn) return true;
+      const currentValue = session.filledValues.get(conditionalOn.field);
+      return conditionalOn.values.includes(String(currentValue));
+    },
+  },
   walkthroughDriver: {
     start: mockDriverStart,
     getSession: mockGetSession,
@@ -61,7 +99,9 @@ function createCtx(overrides?: Record<string, unknown>) {
 function resetAllMocks() {
   mockTranscribeAudio.mockReset();
   mockSynthesizeToBase64.mockReset();
+  mockSynthesizeStream.mockReset();
   mockOrchestrate.mockReset();
+  mockOrchestrateStream.mockReset();
   mockDriverStart.mockReset();
   mockGetSession.mockReset();
 
@@ -71,10 +111,24 @@ function resetAllMocks() {
     confidence: 0.95,
   }));
   mockSynthesizeToBase64.mockImplementation(async () => "aGVsbG8=");
+  mockSynthesizeStream.mockImplementation(async (text: string, lang: string, onChunk: (base64: string, done: boolean) => void) => {
+    const base64 = await mockSynthesizeToBase64(text, lang);
+    onChunk(base64, true);
+  });
   mockOrchestrate.mockImplementation(async () => ({
     toolCalls: [],
     rawContent: null,
   }));
+  mockOrchestrateStream.mockImplementation(async function* (text: string, sessionId: string, lang?: string) {
+    const res = await mockOrchestrate(text, sessionId, lang);
+    if (res.rawContent) {
+      yield { type: "text", text: res.rawContent };
+    }
+    for (const tc of res.toolCalls) {
+      yield { type: "tool_call", toolCall: tc };
+    }
+    return res;
+  });
 
   // Reset the real sttService retry counts by re-importing (sttService is already mocked)
   // We need to track retry behavior through the mocked sttService
@@ -151,7 +205,7 @@ describe("VoiceHandler — acceptance tests", () => {
       await handleVoice({ type: "voice", text: "navigate to orders" }, ctx as any);
 
       expect(mockTranscribeAudio).not.toHaveBeenCalled();
-      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", "test-session-1", undefined);
+      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", "test-session-1", "en");
     });
 
     test("text path sends rawContent as respond with TTS when no tool calls", async () => {
@@ -340,7 +394,7 @@ describe("VoiceHandler — acceptance tests", () => {
       expect(navMsg.args.route).toBe("/orders");
     });
 
-    test("start_walkthrough sends spoken intro with TTS before starting driver", async () => {
+    test("start_walkthrough delegates spoken intro to the walkthrough driver start method", async () => {
       mockOrchestrate.mockImplementation(async () => ({
         toolCalls: [
           {
@@ -355,24 +409,8 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "show me orders" }, ctx as any);
 
-      // Should have: respond with tts:true + tts_audio + driver.start
-      const respondMsg = ctx.sent.find(
-        (m: any) => m.type === "tool" && m.tool === "respond" && m.args.tts === true
-      );
-      expect(respondMsg).toBeDefined();
-      expect(respondMsg.args.message).toBe("Let me show you the order form.");
-      expect(respondMsg.args.messageId).toBeDefined();
-
-      const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
-      expect(ttsMsg).toBeDefined();
-      expect(ttsMsg.messageId).toBe(respondMsg.args.messageId);
-
-      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1");
-
-      // Verify order: respond BEFORE driver.start
-      const respondIdx = ctx.sent.indexOf(respondMsg);
-      const ttsIdx = ctx.sent.indexOf(ttsMsg);
-      expect(ttsIdx).toBe(respondIdx + 1);
+      expect(mockDriverStart).toHaveBeenCalledTimes(1);
+      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", true, "Let me show you the order form.", "en");
     });
 
     test("answer_question sends respond with TTS", async () => {
@@ -522,6 +560,30 @@ describe("VoiceHandler — acceptance tests", () => {
   });
 
   // =============================================
+  // CONTRACT 10: LLM stream error handling
+  // =============================================
+  describe("LLM stream error handling", () => {
+    test("LLM orchestration stream error sends voice error message", async () => {
+      mockOrchestrateStream.mockImplementation(async function* () {
+        throw new Error("Gemini quota exceeded 429");
+      });
+      mockSynthesizeToBase64.mockImplementation(async () => "ZXJyb3I=");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "hello" }, ctx as any);
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe(
+        "Sorry, I'm having trouble connecting right now. Please try again."
+      );
+      expect(respondMsg.args.tts).toBe(true);
+    });
+  });
+
+  // =============================================
   // CONTRACT 9: Detours & Resumption
   // =============================================
   describe("Detours and Resumption", () => {
@@ -554,7 +616,11 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "what is customer field?" }, ctx as any);
 
-      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR");
+      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR", {
+        fieldIndex: 0,
+        subFormId: undefined,
+        subFormFieldIndex: undefined,
+      });
 
       const detourStartMsg = ctx.sent.find(
         (m: any) => m.type === "tool" && m.tool === "detour_start"
@@ -573,8 +639,66 @@ describe("VoiceHandler — acceptance tests", () => {
         (m: any) => m.type === "tool" && m.tool === "respond"
       );
       expect(respondMsg).toBeDefined();
-      expect(respondMsg.args.message).toBe("Select the customer name");
+      expect(respondMsg.args.message).toBe("Here's the Customer field");
       expect(respondMsg.args.tts).toBe(true);
+    });
+
+    test("detour_to_field when spoke is true (LLM generates text) does not send generic intro", async () => {
+      const mockSMTransition = mock((state: string) => {});
+      const mockSession = {
+        sessionId: "test-session-1",
+        schema: {
+          fields: [
+            { key: "customer", label: "Customer", explanation: "Select the customer name" },
+          ],
+          subForms: [],
+        },
+        stateMachine: {
+          currentState: "FIELD_EXPLAIN",
+          currentContext: { fieldIndex: 0 },
+          transition: mockSMTransition,
+        },
+      };
+      mockGetSession.mockReturnValue(mockSession);
+
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "detour_to_field", args: { fieldKey: "customer" } },
+        ],
+        rawContent: "I'll highlight the customer field for you.",
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "ZGV0b3Vy");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "what is customer field?" }, ctx as any);
+
+      expect(mockSMTransition).toHaveBeenCalledWith("DETOUR", {
+        fieldIndex: 0,
+        subFormId: undefined,
+        subFormFieldIndex: undefined,
+      });
+
+      const detourStartMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "detour_start"
+      );
+      expect(detourStartMsg).toBeDefined();
+
+      const goToFieldMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      );
+      expect(goToFieldMsg).toBeDefined();
+
+      // Ensure that tts_audio was sent for the streamed custom text
+      const ttsMsg = ctx.sent.find(
+        (m: any) => m.type === "tts_audio"
+      );
+      expect(ttsMsg).toBeDefined();
+
+      // Ensure that "Here's the Customer field" or "Select the customer name" was NOT sent
+      const genericMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond" && (m.args.message.includes("Here's the Customer") || m.args.message.includes("Select the customer"))
+      );
+      expect(genericMsg).toBeUndefined();
     });
 
     test("resume_walkthrough transitions state and returns to original field", async () => {
@@ -624,6 +748,44 @@ describe("VoiceHandler — acceptance tests", () => {
       );
       expect(respondMsg).toBeDefined();
       expect(respondMsg.args.message).toContain("Returning to our walkthrough");
+    });
+
+    test("resume_walkthrough when currentState is PAUSED transitions to RESUME and narrates", async () => {
+      const mockSMTransition = mock((state: string) => {});
+      const mockSession = {
+        sessionId: "test-session-1",
+        schema: {
+          fields: [
+            { key: "customer", label: "Customer", explanation: "Select the customer name" },
+          ],
+          subForms: [],
+        },
+        stateMachine: {
+          currentState: "PAUSED",
+          currentContext: { fieldIndex: 0 },
+          transition: mockSMTransition,
+        },
+      };
+      mockGetSession.mockReturnValue(mockSession);
+
+      mockOrchestrate.mockImplementation(async () => ({
+        toolCalls: [
+          { name: "resume_walkthrough", args: {} },
+        ],
+        rawContent: null,
+      }));
+      mockSynthesizeToBase64.mockImplementation(async () => "cmVzdW1l");
+
+      const ctx = createCtx();
+      await handleVoice({ type: "voice", text: "continue" }, ctx as any);
+
+      expect(mockSMTransition).toHaveBeenCalledWith("RESUME");
+
+      const respondMsg = ctx.sent.find(
+        (m: any) => m.type === "tool" && m.tool === "respond"
+      );
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toContain("Resuming walkthrough at Customer");
     });
   });
 });

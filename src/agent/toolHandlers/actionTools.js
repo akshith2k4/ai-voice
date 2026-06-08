@@ -6,11 +6,21 @@ import { sendStatus, sendError } from "../wsConnection";
 import { wait } from "../utils";
 import { CursorManager } from "../CursorManager";
 
+async function waitForElement(selector, timeout = 3000, interval = 100) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const el = document.querySelector(selector);
+    if (el) return el;
+    await wait(interval);
+  }
+  return null;
+}
+
 registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
   let success = false;
 
   if (args.selector) {
-    const el = document.querySelector(args.selector);
+    const el = await waitForElement(args.selector);
     if (el) {
       await CursorManager.animateToAndClick(el);
       el.click();
@@ -55,7 +65,7 @@ registerTool(TOOL_TYPES.SELECT_ITEM, async (args, { send }) => {
   let success = false;
 
   if (args.selector) {
-    const el = document.querySelector(args.selector);
+    const el = await waitForElement(args.selector);
     if (el) {
       await CursorManager.animateToAndClick(el);
       el.click();
@@ -87,7 +97,7 @@ registerTool(TOOL_TYPES.CLICK_ELEMENT, async (args, { send }) => {
   let clicked = false;
 
   if (args.selector) {
-    const el = document.querySelector(args.selector);
+    const el = await waitForElement(args.selector);
     if (el) {
       await CursorManager.animateToAndClick(el);
       el.click();
