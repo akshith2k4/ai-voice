@@ -85,8 +85,9 @@ registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
     element = filler.findField(fieldKey, label, subFormId, itemIndex, container);
   }
 
+  const skipFocusClick = type === "text";
   if (element) {
-    await CursorManager.animateToAndClick(element);
+    await CursorManager.animateToAndClick(element, skipFocusClick);
   }
 
   try {
@@ -102,6 +103,11 @@ registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
         } else {
            const result = await fillRegistryField(formId, fieldKey, value, itemIndex);
            if (!result.success) throw new Error(result.reason);
+           
+           // Play typing sounds for text fields in registry mode
+           if (type === "text") {
+             await CursorManager.playKeystrokeSequence(Math.min(String(value).length, 4));
+           }
         }
       } catch (regError) {
         console.warn(`[WalkthroughHandler] Registry fill failed for ${fieldKey}, falling back to DOM:`, regError);
@@ -110,6 +116,7 @@ registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
     } else {
       await fillViaDOM(fieldKey, label, type, value, subFormId, itemIndex);
     }
+
     sendStatus(STATUS_EVENTS.FIELD_FILLED, { fieldKey, value });
   } catch (err) {
     console.error(`[WalkthroughHandler] fill_field failed: ${fieldKey}`, err.message);

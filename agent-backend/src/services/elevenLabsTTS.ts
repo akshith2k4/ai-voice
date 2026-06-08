@@ -1,6 +1,6 @@
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "YoPh8Er6cOk7bwEreyKu";
-const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_flash_v2_5";
+const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_v3";
 
 interface TTSJob {
   text: string;
@@ -124,7 +124,8 @@ async function synthesizeStreamDirect(
   const signal = controller.signal;
 
   try {
-    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&output_format=mp3_44100_128`, {
+    const latencyParam = ELEVENLABS_TTS_MODEL === "eleven_v3" ? "" : "optimize_streaming_latency=3&";
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?${latencyParam}output_format=mp3_44100_128`, {
       method: "POST",
       headers: {
         "xi-api-key": ELEVENLABS_API_KEY,
@@ -133,7 +134,7 @@ async function synthesizeStreamDirect(
       body: JSON.stringify({
         text,
         model_id: ELEVENLABS_TTS_MODEL,
-        voice_settings: { stability: 0.5, similarity_boost: 0.8 },
+        voice_settings: { stability: 0.5, use_speaker_boost: true, similarity_boost: 0.75, style: 0, speed: 1 },
       }),
       signal,
     });

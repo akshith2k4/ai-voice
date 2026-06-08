@@ -8,7 +8,7 @@
     "selector": "[data-agent-action='add-order']",
     "fallbackText": "+ Add Order"
   },
-  "overview": "Hmm... ALRIGHT! So, we're on the Order form now. An Order is basically how we keep track of linen pickups and deliveries for a customer. Think of it as the plan that tells us what needs to go out, what needs to come back, and when all of that should happen! Alright... let's create one together!",
+  "overview": "[excited] Okay, so we're on the Order form now! Think of this as the plan that tells us what linen goes out, what comes back, and when. [friendly] Let's walk through it together — it's pretty straightforward once you see it![laughs]",
   "fields": [
     {
       "key": "orderReferenceId",
@@ -17,8 +17,8 @@
       "readOnly": false,
       "demoValue": "ORD-2026-001",
       "visibleWhen": null,
-      "explanation": "Okay... first up is Order Reference ID. This is just a unique name or number for the order. You can enter your own reference if your team follows a specific format. And if you don't want to worry about it... that's completely fine too. The system can generate one automatically when you save!",
-      "tips": "Use a consistent naming pattern like ORD-YYYY-NNN so your team can quickly identify orders.",
+      "explanation": "[casual] This is just a unique name for the order. You can type your own… or leave it blank and the system will generate one for you automatically.",
+      "tips": "[thoughtful] Something like ORD-2026-001 works really well — keeps things nice and easy to find later.",
       "commonQuestions": [
         {
           "question": "What happens if I leave this blank?",
@@ -37,8 +37,8 @@
       "required": true,
       "demoValue": "Arama Suites",
       "visibleWhen": null,
-      "explanation": "Moving on... let's choose the Customer. This is the customer we're creating the order for. Just start typing the name and the system will help you find the right one. If you can't find a customer here... they're usually inactive or haven't been created yet!",
-      "tips": "If a customer doesn't show up, check if they are marked as active in the Customers section.",
+      "explanation": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up… they might be inactive.",
+      "tips": "[thoughtful] Head over to the Customers page and make sure they're marked as active — that's usually the reason.",
       "waitAfterFillMs": 4000,
       "commonQuestions": [
         {
@@ -57,8 +57,8 @@
       "type": "date",
       "demoValue": "2026-01-15",
       "visibleWhen": null,
-      "explanation": "Next, we have Order Date. This is simply the date on which the order is being created. Most of the time, today's date is EXACTLY what you need, so you can leave it as is. But if you're entering an older order... you can change it here.",
-      "tips": "If you set this to a past date, the pickup and delivery dates will shift accordingly. This is useful for backdating orders.",
+      "explanation": "[casual] This is just the date the order's being created. It defaults to today… so most of the time, you won't even need to touch it.",
+      "tips": "[thoughtful] Only change it if you're backdating an older order that was missed.",
       "commonQuestions": [
         {
           "question": "Can I set a past date?",
@@ -78,8 +78,8 @@
       ],
       "demoValue": "LEASING",
       "visibleWhen": null,
-      "explanation": "Now this one is EXTREMELY important... Order Type. This tells the system what kind of work we're doing. Leasing is the most common option. Rental is usually for short-term usage, and Washing is when the customer sends their own linen to be cleaned. Depending on what you choose here... you'll notice some fields appear or disappear further down the form.",
-      "tips": "Most orders in this system are Leasing orders. Only choose Rental or Washing if your business specifically uses those workflows.",
+      "explanation": "[curious] Okay, THIS one is really important. It tells the whole system what kind of order this is. Leasing is your everyday order… Rental is for short-term use… and Washing is when a customer sends in their OWN linen to be cleaned.",
+      "tips": "[thoughtful] Whatever you pick here will actually change which fields appear below — so make sure it's right before moving on.",
       "commonQuestions": [
         {
           "question": "What is the difference between Leasing and Rental?",
@@ -97,8 +97,8 @@
       "type": "toggle",
       "demoValue": false,
       "visibleWhen": null,
-      "explanation": "You'll also see Adjustment Order. In most cases, you can leave this turned OFF. This is only used when you're correcting or updating an existing order instead of creating a completely new one.",
-      "tips": "Only use this when correcting a previous order. New orders should have this turned off.",
+      "explanation": "[casual] For a brand new order… just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
+      "tips": "When in doubt, leave it off — it's rarely needed for day-to-day orders. [chuckles]",
       "commonQuestions": [
         {
           "question": "When should I use Adjustment Order?",
@@ -120,8 +120,8 @@
         "field": "orderType",
         "value": "LEASING"
       },
-      "explanation": "Now, let's figure out how the movement of items will happen. Do we ONLY need to deliver items? ONLY pick them up? Or do BOTH in the same visit?? Most leasing customers usually use Both, because fresh linen is delivered while used linen is collected at the same time.",
-      "tips": "Most Leasing orders use 'Both' because you deliver fresh linen and pick up the used ones in the same trip.",
+      "explanation": "[curious] So… are we dropping off linen, picking it up, or doing BOTH in the same trip? For most leasing customers, it's Both — fresh linen goes out while the used stuff comes back.",
+      "tips": "[friendly] If you're not sure, Both is almost always the right call for leasing orders.",
       "commonQuestions": [
         {
           "question": "What if I only need to pick up items?",
@@ -145,8 +145,8 @@
           "BOTH"
         ]
       },
-      "explanation": "Now for the Pickup Date. This is when your team will go to collect the used linen. It usually defaults to tomorrow, but you can change it as needed. Just be careful not to schedule it on a weekend unless your team is working.",
-      "tips": "Make sure pickup dates don't fall on weekends or holidays unless your team operates on those days.",
+      "explanation": "[casual] This is the day your team heads out to collect the used linen. It defaults to tomorrow… just change it if your schedule's different.",
+      "tips": "[thoughtful] Just double-check it's not landing on a weekend or holiday… unless your team's working that day.",
       "commonQuestions": [
         {
           "question": "Can the pickup date be before the order date?",
@@ -170,8 +170,8 @@
           "BOTH"
         ]
       },
-      "explanation": "And the Delivery Date. This is when you'll drop off the fresh linen. Again, it usually defaults to tomorrow. Just make sure your warehouse has enough time to prepare everything by this date.",
-      "tips": "Delivery dates should account for processing time. Make sure your warehouse has enough stock to fulfill the order by this date.",
+      "explanation": "[casual] And this is when the fresh linen gets delivered to the customer. Also defaults to tomorrow — adjust it if needed.",
+      "tips": "[thoughtful] Make sure the warehouse has enough time to get everything ready before this date rolls around.",
       "commonQuestions": [
         {
           "question": "What if delivery is delayed?",
@@ -207,8 +207,8 @@
           "BOTH"
         ]
       },
-      "explanationForMultiple": "You can add multiple items to a single order. Let me add a second one to show you.",
-      "explanation": "Finally, let's add the actual items to be delivered to the customer! These are the linen products they will receive.",
+      "explanationForMultiple": "[friendly] You can add as many items as the order needs — let me show you a second one real quick.",
+      "explanation": "[excited] Now we're adding the actual linen items going out to the customer! Good news — these usually fill in automatically based on what's in their agreement.",
       "fields": [
         {
           "key": "product",
@@ -216,7 +216,7 @@
           "type": "select",
           "autoFilled": true,
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "What product are we delivering? For leasing customers, this list only shows items reserved in their agreement. The system often fills this in automatically.",
+          "explanation": "[casual] Pick the product being delivered. Only items from the customer's agreement will show up here.",
           "commonQuestions": []
         },
         {
@@ -224,7 +224,7 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "50",
-          "explanation": "How many of these do they need for this delivery cycle? Just enter the number here.",
+          "explanation": "How many are going out this cycle? Just type the number.",
           "commonQuestions": []
         },
         {
@@ -232,7 +232,7 @@
           "label": "Remarks",
           "type": "text",
           "demoValue": "Premium quality required",
-          "explanation": "Any special notes for this item? Maybe something like 'handle with care' or 'premium quality requested'.",
+          "explanation": "[casual] Got any special instructions for this item? Things like quality requirements or handling notes — pop them in here.",
           "commonQuestions": []
         }
       ]
@@ -263,15 +263,15 @@
         },
         "checkboxLabel": "Use same items and quantities as Delivery"
       },
-      "explanationForMultiple": "Let me add a second pickup item to show you.",
-      "explanation": "These are the items being picked up from the customer. You can add them manually, or use the 'Use same items as Delivery' checkbox to copy the delivery items automatically.",
+      "explanationForMultiple": "[friendly] Let me add a second pickup item to show you how it works.",
+      "explanation": "[casual] Now for what's coming BACK. If it's the same items as the delivery… just tick that checkbox and it'll copy everything over automatically. Super handy!",
       "fields": [
         {
           "key": "product",
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "Which product are we picking up? Usually, this is the exact same type of item we delivered to them previously.",
+          "explanation": "Which product are we collecting from the customer?",
           "commonQuestions": []
         },
         {
@@ -279,7 +279,7 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "50",
-          "explanation": "And how many are we collecting? This might be different from the delivery amount if they're still using some of the items.",
+          "explanation": "[thoughtful] How many are we picking up? This can be different from the delivery if they're still holding onto some.",
           "commonQuestions": []
         },
         {
@@ -287,7 +287,7 @@
           "label": "Remarks",
           "type": "text",
           "demoValue": "For washing",
-          "explanation": "Need to add any notes? Like 'customer reported 5 damaged items' or anything else the team should know.",
+          "explanation": "[casual] Anything the team should know on the way back? Damaged items, special handling — just note it here.",
           "commonQuestions": []
         }
       ]
@@ -303,14 +303,14 @@
         "field": "orderType",
         "value": "RENTAL"
       },
-      "explanation": "Now let's add the items being rented out. Just select the item, enter the quantity, and specify how long the customer will keep it.",
+      "explanation": "[friendly] Here's where we add what's being rented out — the product, how many, and how long they're keeping it. Easy stuff!",
       "fields": [
         {
           "key": "product",
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "What product is being rented out?",
+          "explanation": "What product is going out on rental?",
           "commonQuestions": []
         },
         {
@@ -318,7 +318,7 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "100",
-          "explanation": "How many are they renting?",
+          "explanation": "How many units are they renting?",
           "commonQuestions": []
         },
         {
@@ -326,7 +326,7 @@
           "label": "Rental Duration (days)",
           "type": "text",
           "demoValue": "30",
-          "explanation": "How long are they renting this for? Enter the duration in days.",
+          "explanation": "[casual] And how many days are they keeping it? Just type the number of days.",
           "commonQuestions": []
         }
       ]
@@ -342,14 +342,14 @@
         "field": "orderType",
         "value": "WASHING"
       },
-      "explanation": "For Washing orders, this section is used to capture the items the customer wants cleaned. Simply choose the product and enter the quantity being sent for washing.",
+      "explanation": "[casual] For a washing order, just add what the customer sent in to be cleaned — the product type and how many pieces. That's all there is to it.",
       "fields": [
         {
           "key": "product",
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "Which product did they send to be washed?",
+          "explanation": "Which product did they send in for washing?",
           "commonQuestions": []
         },
         {
@@ -357,11 +357,11 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "200",
-          "explanation": "How many of these items did they send?",
+          "explanation": "And how many pieces came in? Just type the count.",
           "commonQuestions": []
         }
       ]
     }
   ],
-  "wrapUp": "Perfect... that's everything you need to create an Order. We've selected a customer, chosen the order type, set the required dates, and added the necessary items. This was only a walkthrough, so no actual data has been saved. Whenever you're ready, you can create a real order! And if you'd like help with another form... just let me know and we'll go through that one as well."
+  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We covered the customer, order type, dates, and all the items. Nothing was actually saved during this walkthrough… so whenever you're ready, go ahead and create your first REAL order. You've got this!"
 }

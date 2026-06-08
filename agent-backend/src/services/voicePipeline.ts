@@ -190,7 +190,10 @@ async function handleText(
   }
 ): Promise<void> {
   const { send, sessionId } = context;
-  const lang = languageCode || "en";
+  let lang = languageCode || "en";
+  if (lang.toLowerCase() === "eng" || lang.toLowerCase().startsWith("en")) {
+    lang = "en";
+  }
 
   const llmStart = Date.now();
   const messageId = crypto.randomUUID();
@@ -206,7 +209,7 @@ async function handleText(
   let spoke = false;
 
   try {
-    const generator = orchestrateStream(text, sessionId, languageCode);
+    const generator = orchestrateStream(text, sessionId, lang);
 
     while (true) {
       const { done, value } = await generator.next();

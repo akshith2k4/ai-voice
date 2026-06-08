@@ -1,4 +1,5 @@
 import { setNativeValue } from "./nativeSetValue";
+import { CursorManager } from "../CursorManager";
 
 export async function fillTextField(element, value) {
   const input = element.querySelector('input:not([type="hidden"]), textarea');
@@ -9,8 +10,22 @@ export async function fillTextField(element, value) {
   input.focus();
   await new Promise(r => setTimeout(r, 50)); // Small delay for focus state to settle
 
-  setNativeValue(input, String(value));
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  const str = String(value);
+  for (let i = 0; i < str.length; i++) {
+    const partial = str.slice(0, i + 1);
+    setNativeValue(input, partial);
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      data: str[i],
+      inputType: "insertText"
+    }));
+
+    // Play keystroke sound
+    CursorManager.playSingleKeystroke();
+
+    await new Promise(r => setTimeout(r, 60));
+  }
+
   input.dispatchEvent(new Event("change", { bubbles: true }));
 
   // For some React versions, we need to blur to trigger final change

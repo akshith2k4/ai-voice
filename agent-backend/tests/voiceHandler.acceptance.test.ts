@@ -205,7 +205,7 @@ describe("VoiceHandler — acceptance tests", () => {
       await handleVoice({ type: "voice", text: "navigate to orders" }, ctx as any);
 
       expect(mockTranscribeAudio).not.toHaveBeenCalled();
-      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", "test-session-1", undefined);
+      expect(mockOrchestrate).toHaveBeenCalledWith("navigate to orders", "test-session-1", "en");
     });
 
     test("text path sends rawContent as respond with TTS when no tool calls", async () => {

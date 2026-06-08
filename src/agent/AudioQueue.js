@@ -12,6 +12,7 @@ export class AudioQueue {
       window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
     this.audioContext = window.audioContext;
+    window.audioQueue = this;
 
     // Timeline scheduling state
     this.nextPlaybackTime = 0;

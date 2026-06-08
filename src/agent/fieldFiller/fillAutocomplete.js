@@ -1,5 +1,6 @@
 import { setNativeValue } from "./nativeSetValue";
 import { TIMING } from "../protocol";
+import { CursorManager } from "../CursorManager";
 
 export async function doFillAutocomplete(element, value) {
   const root = element.closest(".MuiAutocomplete-root") || element;
@@ -27,6 +28,7 @@ export async function doFillAutocomplete(element, value) {
       data: str[i],
       inputType: "insertText"
     }));
+
     await new Promise(r => setTimeout(r, 80));
   }
 

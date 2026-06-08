@@ -24,11 +24,112 @@ function getOrCreateCursor() {
   return cursorEl;
 }
 
-function playRipple(x, y) {
+let clickBuffer = null;
+let clickLoadingPromise = null;
+
+async function loadClickBuffer() {
+  if (clickBuffer) return clickBuffer;
+  if (clickLoadingPromise) return clickLoadingPromise;
+
+  clickLoadingPromise = (async () => {
+    const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (!window.audioContext) {
+      window.audioContext = ctx;
+    }
+    try {
+      const response = await fetch("/sounds/mouse_click_better.mp3");
+      const arrayBuffer = await response.arrayBuffer();
+      clickBuffer = await ctx.decodeAudioData(arrayBuffer);
+      return clickBuffer;
+    } catch (err) {
+      console.warn("[CursorManager] Failed to load click buffer:", err);
+      clickLoadingPromise = null;
+      return null;
+    }
+  })();
+
+  return clickLoadingPromise;
+}
+
+async function playClickSound() {
+  if (window.audioQueue && window.audioQueue.isPlaying) {
+    return;
+  }
+
+  try {
+    const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (!window.audioContext) {
+      window.audioContext = ctx;
+    }
+
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
+    const buffer = await loadClickBuffer();
+    if (!buffer) return;
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  } catch (err) {
+    console.warn("[CursorManager] Failed to play click sound:", err);
+  }
+}
+
+let keystrokeBuffer = null;
+let keystrokeLoadingPromise = null;
+
+async function loadKeystrokeBuffer() {
+  if (keystrokeBuffer) return keystrokeBuffer;
+  if (keystrokeLoadingPromise) return keystrokeLoadingPromise;
+
+  keystrokeLoadingPromise = (async () => {
+    const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (!window.audioContext) {
+      window.audioContext = ctx;
+    }
+    try {
+      const response = await fetch("sounds/soft-keyboard_8fFhjVZq.mp3");
+      const arrayBuffer = await response.arrayBuffer();
+      keystrokeBuffer = await ctx.decodeAudioData(arrayBuffer);
+      return keystrokeBuffer;
+    } catch (err) {
+      console.warn("[CursorManager] Failed to load keystroke buffer:", err);
+      keystrokeLoadingPromise = null;
+      return null;
+    }
+  })();
+
+  return keystrokeLoadingPromise;
+}
+
+async function preloadClickSound() {
+  try {
+    await loadClickBuffer();
+    await loadKeystrokeBuffer();
+  } catch (err) {
+    // Ignore initial preload errors
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("click", () => {
+    preloadClickSound();
+  }, { once: true });
+}
+
+function playRipple(x, y, skipSound = false) {
   const ripple = document.createElement("div");
   ripple.className = "agent-click-ripple";
   ripple.style.transform = `translate3d(${x}px, ${y}px, 0)`;
   document.body.appendChild(ripple);
+
+  // Play audio click sound
+  if (!skipSound) {
+    playClickSound();
+  }
 
   // Remove ripple element after animation finishes
   setTimeout(() => {
@@ -37,7 +138,42 @@ function playRipple(x, y) {
 }
 
 export const CursorManager = {
-  async animateToAndClick(element) {
+  async playSingleKeystroke() {
+    if (window.audioQueue && window.audioQueue.isPlaying) {
+      return;
+    }
+
+    try {
+      const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+      if (!window.audioContext) {
+        window.audioContext = ctx;
+      }
+
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+
+      const buffer = await loadKeystrokeBuffer();
+      if (!buffer) return;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch (err) {
+      console.warn("[CursorManager] Failed to play keystroke:", err);
+    }
+  },
+
+  async playKeystrokeSequence(count = 3) {
+    for (let i = 0; i < count; i++) {
+      this.playSingleKeystroke();
+      const delay = 70 + Math.random() * 45; // Staggered typing speed (70ms - 115ms)
+      await new Promise(r => setTimeout(r, delay));
+    }
+  },
+
+  async animateToAndClick(element, skipSound = false) {
     if (!element) return;
 
     const cursor = getOrCreateCursor();
@@ -58,7 +194,7 @@ export const CursorManager = {
 
     if (isAlreadyAtElement) {
       // Fast path: cursor is already on the element! Play ripple and proceed quickly.
-      playRipple(targetX, targetY);
+      playRipple(targetX, targetY, skipSound);
       await new Promise((resolve) => setTimeout(resolve, 80));
       return;
     }
@@ -88,7 +224,7 @@ export const CursorManager = {
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     // Play click ripple
-    playRipple(finalX, finalY);
+    playRipple(finalX, finalY, skipSound);
 
     // Wait for click visual feedback before proceeding (reduced from 400ms to 120ms)
     await new Promise((resolve) => setTimeout(resolve, 120));
