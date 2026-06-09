@@ -12,8 +12,8 @@ export function interruptNarration(sessionId: string) {
   if (state) {
     state.interrupted = true;
   }
-  // Call interruptActiveTTS to detach any active ElevenLabs TTS fetch to the background
-  import("../services/elevenLabsTTS.js").then(({ interruptActiveTTS }) => {
+  // Call interruptActiveTTS to detach any active TTS fetch to the background
+  import("../services/ttsService.js").then(({ interruptActiveTTS }) => {
     interruptActiveTTS(sessionId);
   }).catch((err) => {
     console.error("[NarrationService] Failed to interrupt active TTS queue:", err);

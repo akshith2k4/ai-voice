@@ -10,6 +10,7 @@ import * as responseSender from "./responseSender.js";
 import { connectionManager } from "../connectionManager.js";
 import { SentenceSplitter } from "./sentenceSplitter.js";
 import { SentenceTTSQueue } from "./sentenceTtsQueue.js";
+import { isQuestion, selectFiller } from "./fillerService.js";
 
 
 const activeTTSQueues = new Map<string, SentenceTTSQueue>();
@@ -28,10 +29,10 @@ export async function cleanupSession(sessionId: string): Promise<void> {
 
   // 2. TTS engine state
   try {
-    const { cleanupSession: cleanTTS } = await import("./elevenLabsTTS.js");
+    const { cleanupSession: cleanTTS } = await import("./ttsService.js");
     cleanTTS(sessionId);
   } catch (err) {
-    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs TTS:", err);
+    console.warn("[SessionCleanup] Failed to cleanup TTS:", err);
   }
 
   // 3. Cleanup local voice pipeline maps
@@ -40,10 +41,10 @@ export async function cleanupSession(sessionId: string): Promise<void> {
 
   // 4. Cleanup STT buffer maps
   try {
-    const { cleanupSession: cleanSTT } = await import("./elevenLabsSTT.js");
+    const { cleanupSession: cleanSTT } = await import("./sttService.js");
     cleanSTT(sessionId);
   } catch (err) {
-    console.warn("[SessionCleanup] Failed to cleanup ElevenLabs STT:", err);
+    console.warn("[SessionCleanup] Failed to cleanup STT:", err);
   }
 
   // 5. Reset STT retry counts
@@ -194,6 +195,19 @@ async function handleText(
   let lang = languageCode || "en";
   if (lang.toLowerCase() === "eng" || lang.toLowerCase().startsWith("en")) {
     lang = "en";
+  }
+
+  // Play filler if language is English and input is classified as a question
+  if (lang === "en" && isQuestion(text)) {
+    const filler = selectFiller(text, sessionId);
+    if (filler) {
+      const fillerMessageId = crypto.randomUUID();
+      console.log(`[VoicePipeline] Playing conversational filler: "${filler.text}" for question: "${text}"`);
+      // Update UI with the filler text
+      responseSender.sendRespond(send, filler.text, true, fillerMessageId);
+      // Play the filler audio
+      responseSender.sendTtsAudio(send, filler.base64, fillerMessageId, true);
+    }
   }
 
   const llmStart = Date.now();

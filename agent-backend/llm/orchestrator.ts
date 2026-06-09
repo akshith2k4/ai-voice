@@ -1,35 +1,37 @@
 // ============================================
 // LLM Orchestrator
-// LangChain + OpenAI setup + invocation
+// LangChain setup + invocation
 // ============================================
 
-import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { allTools } from "./tools.js";
 import { buildIdlePrompt, buildWalkthroughPrompt } from "./prompts.js";
 import { walkthroughDriver } from "../src/walkthrough/driver.js";
+import { LLMProvider } from "../src/services/providersConfig.js";
+import { OpenAILLM } from "./providers/openAiLLM.js";
+import { ClaudeLLM } from "./providers/claudeLLM.js";
+import { ILLMService } from "../src/services/interfaces.js";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+const providers = new Map<LLMProvider, ILLMService>();
 
-let model: ReturnType<typeof createModel> | null = null;
-
-function createModel() {
-  if (!OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY not configured");
+function getLLMProvider(): LLMProvider {
+  const envVal = process.env.LLM_PROVIDER;
+  if (envVal === LLMProvider.CLAUDE) {
+    return LLMProvider.CLAUDE;
   }
-  return new ChatOpenAI({
-    model: OPENAI_MODEL,
-    temperature: 0,
-    apiKey: OPENAI_API_KEY,
-  }).bindTools(allTools);
+  return LLMProvider.OPEN_AI;
 }
 
-function getModel() {
-  if (!model) {
-    model = createModel();
+export function getLLMService(): ILLMService {
+  const provider = getLLMProvider();
+  let service = providers.get(provider);
+  if (!service) {
+    if (provider === LLMProvider.CLAUDE) {
+      service = new ClaudeLLM();
+    } else {
+      service = new OpenAILLM();
+    }
+    providers.set(provider, service);
   }
-  return model;
+  return service;
 }
 
 export interface LLMToolCall {
@@ -77,43 +79,23 @@ export async function* orchestrateStream(
   let rawContent = "";
 
   try {
-    const stream = await getModel().stream([
-      new SystemMessage(systemPrompt + languageHint),
-      new HumanMessage(userText),
-    ]);
+    const generator = getLLMService().generateStream(systemPrompt, userText, languageHint);
 
-    let finalMessage: any = null;
+    while (true) {
+      const { done, value } = await generator.next();
 
-    for await (const chunk of stream) {
-      finalMessage = finalMessage ? finalMessage.concat(chunk) : chunk;
-
-      let textContent = "";
-      if (typeof chunk.content === "string") {
-        textContent = chunk.content;
-      } else if (Array.isArray(chunk.content)) {
-        for (const block of chunk.content) {
-          if (typeof block === "string") {
-            textContent += block;
-          } else if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
-            textContent += block.text;
-          }
-        }
+      if (done) {
+        const result = value as LLMResult;
+        toolCalls.push(...result.toolCalls);
+        rawContent = result.rawContent || "";
+        break;
       }
 
-      if (textContent) {
-        rawContent += textContent;
-        yield { type: "text", text: textContent };
-      }
-    }
-
-    if (finalMessage && finalMessage.tool_calls && finalMessage.tool_calls.length > 0) {
-      for (const tc of finalMessage.tool_calls) {
-        const toolCall = {
-          name: tc.name,
-          args: tc.args as Record<string, unknown>,
-        };
-        toolCalls.push(toolCall);
-        yield { type: "tool_call", toolCall };
+      const chunk = value as LLMStreamChunk;
+      if (chunk.type === "text" && chunk.text) {
+        yield { type: "text", text: chunk.text };
+      } else if (chunk.type === "tool_call" && chunk.toolCall) {
+        yield { type: "tool_call", toolCall: chunk.toolCall };
       }
     }
 

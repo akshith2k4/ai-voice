@@ -8,8 +8,11 @@ import type { ClientData, OutgoingMessage } from "./src/types.js";
 // ============================================
 import { loadAllSchemas, getAvailableForms } from "./src/schema/loader";
 import { resolve } from "path";
+import { initializeFillers } from "./src/services/fillerService.js";
+
 loadAllSchemas(resolve(import.meta.dir, "src/schema/forms"));
 console.log("Available forms:", getAvailableForms());
+await initializeFillers();
 const PORT = parseInt(process.env.PORT || "3001");
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
 
