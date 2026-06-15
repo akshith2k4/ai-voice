@@ -1,4 +1,5 @@
 import { ILLMService, LLMStreamChunk, LLMResult } from "../../src/services/interfaces.js";
+import { config } from "../../src/config.js";
 
 // Note: To use ChatAnthropic in production, install `@langchain/anthropic`
 // and import: import { ChatAnthropic } from "@langchain/anthropic";
@@ -13,7 +14,7 @@ export class ClaudeLLM implements ILLMService {
   ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
     console.log("[ClaudeLLM] Streaming started (boilerplate/placeholder active)");
 
-    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+    const ANTHROPIC_API_KEY = config.anthropic.apiKey;
     if (!ANTHROPIC_API_KEY) {
       throw new Error("ANTHROPIC_API_KEY not configured");
     }

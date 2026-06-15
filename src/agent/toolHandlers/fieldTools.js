@@ -6,6 +6,7 @@ import { fillRegistryField, findRegistryField } from "../formExecutor";
 import { SpotlightManager } from "../SpotlightManager";
 import { sendStatus, sendError } from "../wsConnection";
 import { CursorManager } from "../CursorManager";
+import { walkthroughEngine } from "../WalkthroughEngine";
 
 function getActiveContainer() {
   const dialogs = document.querySelectorAll(".MuiDialog-paper");
@@ -149,6 +150,86 @@ registerTool(TOOL_TYPES.EXPLAIN_FIELD, async (args, { send, add }) => {
     add("agent", args.text);
   }
   sendStatus(STATUS_EVENTS.EXPLAIN_COMPLETE, { fieldKey: args.fieldKey });
+});
+
+registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
+  const { fieldKey, label, fillValue, fillType, repeatingId, itemIndex, speechMessageId } = args;
+
+  // Navigate to field
+  let element = null;
+  if (formId && agentFormRegistry.has(formId)) {
+    try {
+      const form = agentFormRegistry.get(formId);
+      if (form) {
+        const field = findRegistryField(form, fieldKey);
+        if (field?.getElement) element = field.getElement(itemIndex);
+      }
+    } catch (e) {
+      console.warn("[field_step] Registry findField failed:", e);
+    }
+  }
+  if (!element) {
+    const container = getActiveContainer();
+    element = filler.findField(fieldKey, label, repeatingId, itemIndex, container);
+  }
+  if (element) {
+    await CursorManager.animateToAndClick(element);
+    SpotlightManager.setSpotlight(element);
+  }
+
+  // Fill if value was provided
+  if (fillValue != null && fillType) {
+    try {
+      if (formId && agentFormRegistry.has(formId)) {
+        try {
+          if (fillType === "autocomplete") {
+            const { searchRegistryField, waitForRegistryOption } = await import("../formExecutor");
+            searchRegistryField(formId, fieldKey, fillValue);
+            const match = await waitForRegistryOption(formId, fieldKey, fillValue);
+            if (!match) throw new Error(`No autocomplete results for: ${fillValue}`);
+            const result = await fillRegistryField(formId, fieldKey, match, itemIndex);
+            if (!result.success) throw new Error(result.reason);
+          } else {
+            const result = await fillRegistryField(formId, fieldKey, fillValue, itemIndex);
+            if (!result.success) throw new Error(result.reason);
+            if (fillType === "text") {
+              await CursorManager.playKeystrokeSequence(Math.min(String(fillValue).length, 4));
+            }
+          }
+        } catch (regError) {
+          console.warn(`[field_step] Registry fill failed for ${fieldKey}, falling back to DOM:`, regError);
+          await fillViaDOM(fieldKey, label, fillType, fillValue, repeatingId, itemIndex);
+        }
+      } else {
+        await fillViaDOM(fieldKey, label, fillType, fillValue, repeatingId, itemIndex);
+      }
+    } catch (err) {
+      console.warn(`[field_step] Fill failed for ${fieldKey}:`, err.message);
+    }
+  }
+
+  if (speechMessageId) {
+    walkthroughEngine.onAudioComplete(String(speechMessageId), () => {
+      console.log(`[field_step] audio done — sending field_done for ${fieldKey}`);
+      sendStatus("field_done", { fieldKey });
+    });
+  } else {
+    sendStatus("field_done", { fieldKey });
+  }
+});
+
+// Wait for the exact TTS audio for this speak step, then signal the backend.
+// Uses messageId (included in speak tool args) so we don't react to LLM response TTS
+// or other concurrent audio finishing first.
+registerTool(TOOL_TYPES.SPEAK, (args) => {
+  const { messageId } = args;
+  if (messageId) {
+    walkthroughEngine.onAudioComplete(String(messageId), () => {
+      sendStatus("walkthrough_speak_done");
+    });
+  } else {
+    sendStatus("walkthrough_speak_done");
+  }
 });
 
 registerTool(TOOL_TYPES.GET_OPTIONS_COUNT, async (args, { send, formId }) => {

@@ -1,11 +1,8 @@
 import { S3Client, HeadObjectCommand, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { config } from "../config.js";
 
-const region = process.env.AWS_REGION;
-const bucketName = process.env.AWS_S3_BUCKET_NAME;
-
-const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+const { region, bucketName, accessKeyId, secretAccessKey } = config.aws;
 
 if (!accessKeyId || !secretAccessKey) {
   console.warn("[S3Service] Warning: AWS credentials missing in .env!");

@@ -3,14 +3,28 @@
   "name": "Create Hotel",
   "mode": "create",
   "route": "/hotels",
-  "openAction": {
-    "type": "button",
-    "selector": "[data-agent-action='add-hotel']",
-    "fallbackText": "Add Hotel"
-  },
-  "overview": "A hotel is a customer in the LinenGrass system. Each hotel has basic contact details, tax registration numbers, billing and shipping addresses, and contact persons. Once created, you can create orders and agreements for this hotel.",
-  "fields": [
+  "setupSteps": [
     {
+      "tool": "navigate",
+      "args": {
+        "route": "/hotels"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='add-hotel']",
+        "fallbackText": "Add Hotel"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "A hotel is a customer in the LinenGrass system. Each hotel has basic contact details, tax registration numbers, billing and shipping addresses, and contact persons. Once created, you can create orders and agreements for this hotel.",
+  "nodes": [
+    {
+      "nodeType": "field",
       "key": "name",
       "label": "Hotel Name",
       "type": "text",
@@ -19,10 +33,14 @@
       "explanation": "This is the name of the hotel or customer. It appears on invoices, orders, and throughout the system. Use the official business name.",
       "tips": "Use the full official name. You can always search by partial name later.",
       "commonQuestions": [
-        { "question": "Can I change the name later?", "answer": "Yes, you can edit the hotel details after creation." }
+        {
+          "question": "Can I change the name later?",
+          "answer": "Yes, you can edit the hotel details after creation."
+        }
       ]
     },
     {
+      "nodeType": "field",
       "key": "phone",
       "label": "Contact Phone",
       "type": "text",
@@ -31,6 +49,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "email",
       "label": "Contact Email",
       "type": "text",
@@ -40,19 +59,27 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "status",
       "label": "Status",
       "type": "select",
       "required": true,
-      "options": ["ACTIVE", "INACTIVE"],
+      "options": [
+        "ACTIVE",
+        "INACTIVE"
+      ],
       "demoValue": "ACTIVE",
       "explanation": "This controls whether the hotel is active in the system. Only active hotels appear when creating orders. Set to Inactive if the hotel has stopped doing business with you.",
       "tips": "New hotels should always be Active. Use Inactive only when the relationship has ended.",
       "commonQuestions": [
-        { "question": "What happens if I set a hotel to Inactive?", "answer": "Existing orders and data are preserved, but you cannot create new orders for this hotel. It will not appear in the customer dropdown." }
+        {
+          "question": "What happens if I set a hotel to Inactive?",
+          "answer": "Existing orders and data are preserved, but you cannot create new orders for this hotel. It will not appear in the customer dropdown."
+        }
       ]
     },
     {
+      "nodeType": "field",
       "key": "type",
       "label": "Customer Type",
       "type": "select",
@@ -63,6 +90,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "gstin",
       "label": "GSTIN Number",
       "type": "text",
@@ -70,10 +98,14 @@
       "explanation": "The GST Identification Number for this hotel. This is required for tax compliance and appears on invoices. It is a 15-character alphanumeric code.",
       "tips": "Verify the GSTIN on the government GST portal before entering. An incorrect GSTIN will cause invoice mismatches.",
       "commonQuestions": [
-        { "question": "Is GSTIN mandatory?", "answer": "It depends on your tax configuration. If your business is GST-registered, you should enter the customer's GSTIN for proper invoicing." }
+        {
+          "question": "Is GSTIN mandatory?",
+          "answer": "It depends on your tax configuration. If your business is GST-registered, you should enter the customer's GSTIN for proper invoicing."
+        }
       ]
     },
     {
+      "nodeType": "field",
       "key": "pan",
       "label": "PAN Number",
       "type": "text",
@@ -82,6 +114,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "billingAddressLine1",
       "label": "Address Line 1",
       "type": "text",
@@ -90,6 +123,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "billingAddressLine2",
       "label": "Address Line 2",
       "type": "text",
@@ -98,6 +132,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "billingCity",
       "label": "City",
       "type": "text",
@@ -106,15 +141,17 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "billingState",
       "label": "State",
       "type": "text",
       "demoValue": "Maharashtra",
-      "explanation": "The state for the billing address. This affects GST calculation — interstate and intrastate deliveries have different tax rates.",
+      "explanation": "The state for the billing address. This affects GST calculation \u2014 interstate and intrastate deliveries have different tax rates.",
       "tips": "Make sure the state matches the GSTIN registration state for correct tax calculation.",
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "billingPincode",
       "label": "ZIP Code",
       "type": "text",
@@ -123,6 +160,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "billingCountry",
       "label": "Country",
       "type": "text",
@@ -131,16 +169,21 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "shippingAddressLine1",
       "label": "Address Line 1",
       "type": "text",
       "demoValue": "Off Western Express Highway",
       "explanation": "The first line of the shipping address. This is where deliveries will be sent. It can be the same as the billing address or a different location.",
       "commonQuestions": [
-        { "question": "Is the shipping address the same as billing?", "answer": "It can be. Many hotels use the same address for both. If deliveries go to a different entrance or location, enter that address here." }
+        {
+          "question": "Is the shipping address the same as billing?",
+          "answer": "It can be. Many hotels use the same address for both. If deliveries go to a different entrance or location, enter that address here."
+        }
       ]
     },
     {
+      "nodeType": "field",
       "key": "shippingAddressLine2",
       "label": "Address Line 2",
       "type": "text",
@@ -149,6 +192,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "shippingCity",
       "label": "City",
       "type": "text",
@@ -157,6 +201,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "shippingState",
       "label": "State",
       "type": "text",
@@ -165,6 +210,7 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "shippingPincode",
       "label": "ZIP Code",
       "type": "text",
@@ -173,25 +219,26 @@
       "commonQuestions": []
     },
     {
+      "nodeType": "field",
       "key": "shippingCountry",
       "label": "Country",
       "type": "text",
       "demoValue": "India",
       "explanation": "The country for the shipping address.",
       "commonQuestions": []
-    }
-  ],
-  "subForms": [
+    },
     {
+      "nodeType": "repeating",
       "id": "contactPerson",
       "name": "Contact Person",
       "triggerText": "Add Contact Person",
       "repeatable": true,
       "demoItemCount": 1,
-      "explanation": "Contact persons are the people at this hotel you communicate with directly — the linen manager, housekeeping head, or procurement officer. Adding them here makes it easy to track who you coordinate with.",
+      "explanation": "Contact persons are the people at this hotel you communicate with directly \u2014 the linen manager, housekeeping head, or procurement officer. Adding them here makes it easy to track who you coordinate with.",
       "explanationForMultiple": "Let me add a second contact person to show you.",
-      "fields": [
+      "children": [
         {
+          "nodeType": "field",
           "key": "contactName",
           "label": "Name",
           "type": "text",
@@ -200,6 +247,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "contactPhone",
           "label": "Phone",
           "type": "text",
@@ -208,6 +256,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "contactEmail",
           "label": "Email",
           "type": "text",
@@ -216,6 +265,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "contactTag",
           "label": "Tag",
           "type": "text",
@@ -226,5 +276,15 @@
       ]
     }
   ],
-  "wrapUp": "That covers all the fields for creating a hotel! You've seen how to enter basic details, tax information, addresses, and contact persons. Remember, this was a demo — all the data has been cleared. When you're ready, you can create a real hotel entry."
+  "wrapUp": "That covers all the fields for creating a hotel! You've seen how to enter basic details, tax information, addresses, and contact persons. Remember, this was a demo \u2014 all the data has been cleared. When you're ready, you can create a real hotel entry.",
+  "aliases": [
+    "create hotel",
+    "new hotel",
+    "add hotel",
+    "create a hotel",
+    "create customer",
+    "new customer",
+    "add customer"
+  ],
+  "description": "Walkthrough for creating a new hotel or customer"
 }

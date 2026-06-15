@@ -1,30 +1,21 @@
 import type { IncomingMessage, HandlerContext } from "./types";
-import { handleVoice } from "./handlers/voiceHandler.js";
-import { handleStatus } from "./handlers/statusHandler.js";
-import { walkthroughDriver } from "./walkthrough/driver.js";
+import { handleIncoming } from "./adapters/voiceAdapter.js";
+import { walkthroughExecutor } from "./walkthrough/executor.js";
 
-export function routeMessage(
-  message: IncomingMessage,
-  context: HandlerContext
-): void {
+export function routeMessage(message: IncomingMessage, context: HandlerContext): void {
   switch (message.type) {
     case "voice":
     case "audio_chunk":
     case "audio_end":
-      handleVoice(message, context);
+      handleIncoming(message, context);
       break;
-    case "status":
-      handleStatus(message, context);
-      walkthroughDriver.handleStatus(
-        context.sessionId,
-        message.event,
-        message
-      );
+    case "event":
+      if (!walkthroughExecutor.getSession(context.sessionId)) break;
+      walkthroughExecutor.handleEvent(context.sessionId, message.name, message);
+      context.send({ type: "event_ack", name: message.name });
       break;
     default:
-      console.warn(
-        `[Router] Unknown type: "${(message as any).type}" from ${context.sessionId}`
-      );
+      console.warn(`[Router] Unknown type: "${(message as any).type}" from ${context.sessionId}`);
       context.send({
         type: "error",
         message: `Unknown message type: "${(message as any).type}"`,

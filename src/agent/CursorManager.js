@@ -1,4 +1,5 @@
 import { TIMING } from "./protocol";
+import { audioQueue } from "./AudioQueue";
 
 let cursorEl = null;
 let lastX = window.innerWidth - 100; // Start near the bottom-right, near the overlay
@@ -52,7 +53,7 @@ async function loadClickBuffer() {
 }
 
 async function playClickSound() {
-  if (window.audioQueue && window.audioQueue.isPlaying) {
+  if (audioQueue && audioQueue.isPlaying) {
     return;
   }
 
@@ -139,7 +140,7 @@ function playRipple(x, y, skipSound = false) {
 
 export const CursorManager = {
   async playSingleKeystroke() {
-    if (window.audioQueue && window.audioQueue.isPlaying) {
+    if (audioQueue && audioQueue.isPlaying) {
       return;
     }
 

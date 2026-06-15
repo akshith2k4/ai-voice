@@ -1,248 +1,164 @@
-import { sendStatus } from "./wsConnection";
-import { STATUS_EVENTS } from "./protocol";
-
 export class AudioQueue {
   constructor() {
-    this.queue = [];
     this.isPlaying = false;
-    this.onPlaybackStateChange = null; // callback for isAgentSpeaking
 
-    // Initialize a single, persistent window.AudioContext on connection.
     if (!window.audioContext) {
       window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
     this.audioContext = window.audioContext;
-    window.audioQueue = this;
 
-    // Timeline scheduling state
     this.nextPlaybackTime = 0;
-    this.activeSources = [];
-    this.isProcessingQueue = false;
-    this.pendingBuffers = new Map();
-    this.fetchControllers = new Map(); // messageId -> AbortController
-    this.activeAudios = new Map(); // messageId -> HTML5 Audio
+    this._pendingBuffers = new Map();  // messageId -> ArrayBuffer[] (accumulating chunks)
+    this._playing = new Set();         // messageIds currently making sound
+    this._audioElements = new Map();   // messageId -> HTML5 Audio
+    this._audioSources = new Map();    // messageId -> BufferSourceNode
+
+    // ── Events ────────────────────────────────────────────────────────────────
+    // Caller registers via onPlaybackChange(cb) — supports multiple listeners
+    this._playbackListeners = new Set();
+    // Single callback — only WalkthroughEngine subscribes
+    this.onMessageEnded = null;  // (messageId) => void
+    this.onCleared = null;       // () => void
   }
 
-  concatArrayBuffers(buffers) {
-    let totalLength = 0;
-    for (const b of buffers) {
-      totalLength += b.byteLength;
-    }
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const b of buffers) {
-      result.set(new Uint8Array(b), offset);
-      offset += b.byteLength;
-    }
-    return result.buffer;
+  // ── Playback state subscription ───────────────────────────────────────────
+
+  onPlaybackChange(cb) {
+    this._playbackListeners.add(cb);
+    return () => this._playbackListeners.delete(cb);
   }
+
+  // ── Play URL audio (S3 presigned — HTML5 Audio) ───────────────────────────
+
+  async enqueueUrl(url, messageId) {
+    console.log(`[AudioQueue] enqueueUrl: ${messageId}`);
+    const arrivedAt = Date.now();
+    const audio = new Audio(url);
+    this._audioElements.set(messageId, audio);
+    this._onStarted(messageId);
+
+    audio.onended = () => {
+      console.log(`[AudioQueue] url ended: ${messageId} (${Date.now() - arrivedAt}ms)`);
+      this._onEnded(messageId);
+    };
+    audio.onerror = (err) => {
+      console.error(`[AudioQueue] url error: ${messageId}`, err);
+      this._onEnded(messageId);
+    };
+    try {
+      await audio.play();
+    } catch (err) {
+      console.error(`[AudioQueue] play() failed: ${messageId}`, err);
+      this._onEnded(messageId);
+    }
+  }
+
+  // ── Play base64 audio (streaming chunks → Web Audio API) ─────────────────
 
   async enqueue(base64Audio, messageId, done) {
-    console.log(`[AudioQueue] Enqueue: messageId=${messageId}, done=${done}`);
-    
-    // Resume AudioContext if it's suspended (autoplay policy)
     if (this.audioContext.state === "suspended") {
-      try {
-        await this.audioContext.resume();
-      } catch (e) {
-        console.warn("[AudioQueue] Failed to resume AudioContext:", e);
-      }
+      try { await this.audioContext.resume(); } catch (e) {}
     }
 
-    // Decode base64 to ArrayBuffer
     let arrayBuffer;
     try {
-      arrayBuffer = this.base64ToArrayBuffer(base64Audio);
-    } catch (error) {
-      console.error("[AudioQueue] Base64 decoding failed:", error);
-      if (done !== false) {
-        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
-      }
+      arrayBuffer = this._base64ToArrayBuffer(base64Audio);
+    } catch (err) {
+      console.error(`[AudioQueue] base64 decode failed: ${messageId}`, err);
+      if (done !== false) this._onEnded(messageId);
       return;
     }
 
-    if (!this.pendingBuffers.has(messageId)) {
-      this.pendingBuffers.set(messageId, []);
-    }
-
-    if (arrayBuffer.byteLength > 0) {
-      this.pendingBuffers.get(messageId).push(arrayBuffer);
-    }
+    if (!this._pendingBuffers.has(messageId)) this._pendingBuffers.set(messageId, []);
+    if (arrayBuffer.byteLength > 0) this._pendingBuffers.get(messageId).push(arrayBuffer);
 
     if (done !== false) {
-      const buffers = this.pendingBuffers.get(messageId) || [];
-      this.pendingBuffers.delete(messageId);
+      const buffers = this._pendingBuffers.get(messageId) || [];
+      this._pendingBuffers.delete(messageId);
+      if (buffers.length === 0) { this._onEnded(messageId); return; }
 
-      if (buffers.length === 0) {
-        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
-        return;
-      }
-
-      const combinedBuffer = this.concatArrayBuffers(buffers);
-      
+      const combined = this._concatArrayBuffers(buffers);
       try {
-        const audioBuffer = await this.audioContext.decodeAudioData(combinedBuffer);
-        this.schedulePlayback(audioBuffer, messageId, true);
-      } catch (decodeError) {
-        console.error("[AudioQueue] MP3 decoding failed:", decodeError);
-        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+        const audioBuffer = await this.audioContext.decodeAudioData(combined);
+        this._schedulePlayback(audioBuffer, messageId);
+      } catch (err) {
+        console.error(`[AudioQueue] decode failed: ${messageId}`, err);
+        this._onEnded(messageId);
       }
     }
   }
 
-  async enqueueUrl(url, messageId) {
-    console.log(`[AudioQueue] EnqueueUrl (HTML5 Audio): messageId=${messageId}, url=${url}`);
+  // ── Stop everything ───────────────────────────────────────────────────────
 
-    if (this.audioContext.state === "suspended") {
-      try {
-        await this.audioContext.resume();
-      } catch (e) {
-        console.warn("[AudioQueue] Failed to resume AudioContext:", e);
-      }
-    }
-
-    const audio = new Audio(url);
-    this.activeAudios.set(messageId, audio);
-
-    this.isPlaying = true;
-    this.onPlaybackStateChange?.(true);
-
-    audio.onended = () => {
-      console.log(`[AudioQueue] AudioUrl Ended: messageId=${messageId}`);
-      this.activeAudios.delete(messageId);
-      if (this.activeAudios.size === 0 && this.activeSources.length === 0) {
-        this.isPlaying = false;
-        this.onPlaybackStateChange?.(false);
-      }
-      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
-    };
-
-    audio.onerror = (err) => {
-      console.error(`[AudioQueue] AudioUrl Error for messageId=${messageId}:`, err);
-      this.activeAudios.delete(messageId);
-      if (this.activeAudios.size === 0 && this.activeSources.length === 0) {
-        this.isPlaying = false;
-        this.onPlaybackStateChange?.(false);
-      }
-      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
-    };
-
-    try {
-      await audio.play();
-    } catch (playError) {
-      console.error("[AudioQueue] AudioUrl play() failed:", playError);
-      this.activeAudios.delete(messageId);
-      if (this.activeAudios.size === 0 && this.activeSources.length === 0) {
-        this.isPlaying = false;
-        this.onPlaybackStateChange?.(false);
-      }
-      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
-    }
-  }
-
-  base64ToArrayBuffer(base64) {
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  }
-
-  schedulePlayback(audioBuffer, messageId, done) {
-    this.isPlaying = true;
-    this.onPlaybackStateChange?.(true);
-
-    let bufferToUse = audioBuffer;
-    if (!bufferToUse) {
-      // Create a tiny silent buffer for empty completion chunks
-      bufferToUse = this.audioContext.createBuffer(1, 1, this.audioContext.sampleRate);
-    }
-
-    const source = this.audioContext.createBufferSource();
-    source.buffer = bufferToUse;
-    source.connect(this.audioContext.destination);
-
-    const sourceItem = { source, messageId, done, completed: false };
-    this.activeSources.push(sourceItem);
-
-    const now = this.audioContext.currentTime;
-    // Schedule node on the timeline
-    let startTime = Math.max(now, this.nextPlaybackTime);
-    source.start(startTime);
-
-    // Update next playback time based on duration
-    this.nextPlaybackTime = startTime + bufferToUse.duration;
-
-    const cleanUp = () => {
+  clear() {
+    this._pendingBuffers.clear();
+    this._audioElements.forEach(audio => { try { audio.pause(); } catch (e) {} });
+    this._audioElements.clear();
+    this._audioSources.forEach(source => {
       source.onended = null;
-      this.activeSources = this.activeSources.filter((s) => s !== sourceItem);
-      if (this.activeSources.length === 0) {
-        this.isPlaying = false;
-        this.nextPlaybackTime = 0; // Reset timeline since queue has finished
-        this.onPlaybackStateChange?.(false);
-      }
-    };
-
-    source.onended = () => {
-      const isLast = done !== false;
-      console.log(`[AudioQueue] Ended: messageId=${messageId}, done=${done}, isLast=${isLast}`);
-      if (isLast && !sourceItem.completed) {
-        sourceItem.completed = true;
-        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
-      }
-      cleanUp();
-    };
-  }
-
-  clear(suppressCompletion = false) {
-    this.queue = [];
-    this.isProcessingQueue = false;
-    this.pendingBuffers.clear();
-
-    // Abort any active fetches
-    this.fetchControllers.forEach((controller, msgId) => {
-      controller.abort();
-      if (!suppressCompletion) {
-        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: msgId });
-      }
+      try { source.stop(); } catch (e) {}
     });
-    this.fetchControllers.clear();
-
-    // Pause and clean up any HTML5 Audio elements
-    if (this.activeAudios) {
-      this.activeAudios.forEach((audio, msgId) => {
-        try {
-          audio.pause();
-        } catch (e) {
-          console.warn("[AudioQueue] Failed to pause HTML5 audio:", e);
-        }
-        if (!suppressCompletion) {
-          sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: msgId });
-        }
-      });
-      this.activeAudios.clear();
-    }
-
-    // Stop all active/scheduled source nodes
-    this.activeSources.forEach((sourceItem) => {
-      sourceItem.source.onended = null;
-      try {
-        sourceItem.source.stop();
-      } catch (e) {
-        // May already be stopped/not started
-      }
-      // Send completion so the backend doesn't stall
-      if (!sourceItem.completed && !suppressCompletion) {
-        sourceItem.completed = true;
-        sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId: sourceItem.messageId });
-      }
-    });
-
-    this.activeSources = [];
+    this._audioSources.clear();
+    this._playing.clear();
     this.isPlaying = false;
     this.nextPlaybackTime = 0;
-    this.onPlaybackStateChange?.(false);
+    this._playbackListeners.forEach(cb => cb(false));
+    this.onCleared?.();
+  }
+
+  // ── Internal ──────────────────────────────────────────────────────────────
+
+  _schedulePlayback(audioBuffer, messageId) {
+    const source = this.audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.audioContext.destination);
+    this._audioSources.set(messageId, source);
+    this._onStarted(messageId);
+
+    const startTime = Math.max(this.audioContext.currentTime, this.nextPlaybackTime);
+    source.start(startTime);
+    this.nextPlaybackTime = startTime + audioBuffer.duration;
+    source.onended = () => {
+      console.log(`[AudioQueue] base64 ended: ${messageId}`);
+      this._onEnded(messageId);
+    };
+  }
+
+  _onStarted(messageId) {
+    this._playing.add(messageId);
+    if (this._playing.size === 1) {
+      this.isPlaying = true;
+      this._playbackListeners.forEach(cb => cb(true));
+    }
+  }
+
+  _onEnded(messageId) {
+    if (!this._playing.has(messageId)) return;
+    this._playing.delete(messageId);
+    this._audioElements.delete(messageId);
+    this._audioSources.delete(messageId);
+    this.onMessageEnded?.(messageId);
+    if (this._playing.size === 0) {
+      this.isPlaying = false;
+      this.nextPlaybackTime = 0;
+      this._playbackListeners.forEach(cb => cb(false));
+    }
+  }
+
+  _concatArrayBuffers(buffers) {
+    const total = buffers.reduce((n, b) => n + b.byteLength, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const b of buffers) { out.set(new Uint8Array(b), offset); offset += b.byteLength; }
+    return out.buffer;
+  }
+
+  _base64ToArrayBuffer(base64) {
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
   }
 }
+
+export const audioQueue = new AudioQueue();

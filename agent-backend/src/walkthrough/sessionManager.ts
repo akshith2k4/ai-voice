@@ -1,18 +1,30 @@
-import { WalkthroughStateMachine } from "../state/stateMachine.js";
+import { WalkthroughStateMachine } from "./stateMachine.js";
 import {
   getSchema,
   getAvailableForms,
   type FormSchema,
-  type FieldSchema,
-  type SubFormSchema,
+  type FieldNode,
+  type SchemaNode,
 } from "../schema/loader.js";
+import type { IResponder } from "../adapters/responders/IResponder.js";
 
-export interface PendingStatus {
+// Backward-compat aliases
+export type FieldSchema = FieldNode;
+export type SubFormSchema = import("../schema/loader.js").RepeatingNode;
+
+export interface AsyncEventWaiter {
   expectedEvent: string;
   matcher?: (data: any) => boolean;
   resolve: (data: any) => void;
   reject: (reason: any) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+export interface WalkthroughCommand {
+  tools: Array<{ tool: string; args: Record<string, unknown> }>;
+  waitFor: string;
+  fill?: { key: string; value: unknown };
+  navContext?: { fieldKey: string; label: string; repeatingId?: string; itemIndex?: number };
 }
 
 export interface WalkthroughSession {
@@ -22,11 +34,15 @@ export interface WalkthroughSession {
   stateMachine: WalkthroughStateMachine;
   filledValues: Map<string, unknown>;
   cancelled: boolean;
-  errorCount: number;
-  pendingStatuses: PendingStatus[];
+  eventWaiters: AsyncEventWaiter[];
   isRegistered: boolean;
   ttsEnabled: boolean;
   languageCode: string;
+  treeWalker: Generator<WalkthroughCommand, void, unknown>;
+  waitingFor: string | null;
+  lastCommand: WalkthroughCommand | null;
+  currentNav: { fieldKey: string; label: string; repeatingId?: string; itemIndex?: number } | null;
+  responder?: IResponder;
 }
 
 export class SessionManager {
@@ -49,11 +65,14 @@ export class SessionManager {
       stateMachine: new WalkthroughStateMachine(),
       filledValues: new Map(),
       cancelled: false,
-      errorCount: 0,
-      pendingStatuses: [],
+      eventWaiters: [],
       isRegistered: false,
       ttsEnabled,
       languageCode,
+      treeWalker: null as any, // set by executor after creating the session
+      waitingFor: null,
+      lastCommand: null,
+      currentNav: null,
     };
     this.sessions.set(sessionId, session);
     return session;
@@ -70,4 +89,4 @@ export class SessionManager {
   }
 }
 
-export { getSchema, getAvailableForms, type FormSchema, type FieldSchema, type SubFormSchema };
+export { getSchema, getAvailableForms, type FormSchema, type FieldNode, type SchemaNode };

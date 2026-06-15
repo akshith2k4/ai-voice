@@ -52,8 +52,8 @@ export interface VoiceMessage {
 }
 
 export interface StatusMessage {
-  type: "status";
-  event: string;
+  type: "event";
+  name: string;
   fieldKey?: string;
   value?: string;
   reason?: string;
@@ -92,9 +92,9 @@ export interface TtsAudioMessage {
   done?: boolean;
 }
 
-export interface StatusAckMessage {
-  type: "status_ack";
-  event: string;
+export interface EventAckMessage {
+  type: "event_ack";
+  name: string;
 }
 
 export interface ErrorMessage {
@@ -106,7 +106,7 @@ export interface ErrorMessage {
 export type OutgoingMessage =
   | ToolMessage
   | TtsAudioMessage
-  | StatusAckMessage
+  | EventAckMessage
   | ErrorMessage;
 
 // --- WebSocket Data ---

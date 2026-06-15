@@ -64,4 +64,6 @@ export const TOOL_TYPES = {
   SELECT_ITEM: "select_item",
   CLICK_ELEMENT: "click_element",
   GET_OPTIONS_COUNT: "get_options_count",
+  FIELD_STEP: "field_step",
+  SPEAK: "speak",
 };

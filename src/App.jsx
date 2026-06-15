@@ -14,7 +14,7 @@ import './App.css';
 
 // Layout stays eagerly loaded (always needed)
 import Layout from './components/layout/Layout';
-import { AgentBridgeProvider, AgentErrorBoundary } from './agent/AgentBridge';
+import { AgentProvider, AgentErrorBoundary } from './agent/AgentBridge';
 import AgentOverlay from './agent/AgentOverlay';
 import NavigationHandler from './agent/NavigationHandler';
 import WalkthroughHandler from './agent/WalkthroughHandler';
@@ -87,7 +87,7 @@ function App() {
     <ThemeProvider theme={theme}>
       <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={enGB}>
         <Router>
-          <AgentBridgeProvider>
+          <AgentProvider>
             <AuthSync />
             <ToastContainer position="top-right" autoClose={3000} />
             <AgentErrorBoundary>
@@ -147,7 +147,7 @@ function App() {
               <Route path="*" element={<RootRedirect />} />
             </Routes>
           </Suspense>
-          </AgentBridgeProvider>
+          </AgentProvider>
         </Router>
       </LocalizationProvider>
     </ThemeProvider>

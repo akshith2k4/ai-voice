@@ -21,11 +21,7 @@ export interface SttResult {
 }
 
 export interface ISTTService {
-  transcribe(base64Audio: string): Promise<SttResult>;
-  handleAudioChunk(sessionId: string, base64Chunk: string): Promise<void>;
-  handleAudioEnd(sessionId: string): Promise<SttResult>;
-  onSpeechDetected(callback: (sessionId: string) => void): void;
-  cleanupSession(sessionId: string): void;
+  transcribe(wavBuffer: Buffer): Promise<SttResult>;
 }
 
 export interface ILLMService {

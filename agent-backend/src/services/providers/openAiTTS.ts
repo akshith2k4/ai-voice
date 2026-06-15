@@ -1,4 +1,5 @@
 import { ITTSService } from "../interfaces.js";
+import { config } from "../../config.js";
 
 interface TTSJob {
   text: string;
@@ -109,9 +110,7 @@ export class OpenAITTS implements ITTSService {
     sessionId: string = "default",
     attempt = 1
   ): Promise<void> {
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-    const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "tts-1";
-    const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || "alloy";
+    const { apiKey: OPENAI_API_KEY, ttsModel: OPENAI_TTS_MODEL, ttsVoice: OPENAI_TTS_VOICE } = config.openai;
 
     if (!OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY not configured");

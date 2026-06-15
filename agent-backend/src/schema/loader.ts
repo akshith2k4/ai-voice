@@ -10,7 +10,8 @@ import { join, resolve } from "path";
 
 export type FieldType = "text" | "date" | "select" | "autocomplete" | "toggle" | "checkbox";
 
-export interface FieldSchema {
+export interface FieldNode {
+  nodeType: "field";
   key: string;
   label: string;
   type: FieldType;
@@ -19,8 +20,6 @@ export interface FieldSchema {
   autoFilled?: boolean;
   demoValue: unknown;
   options?: string[];
-  visibleWhen?: { field: string; value: string } | Record<string, string> | null;
-  conditionalOn?: { field: string; values: string[] } | null;
   explanation: string;
   tips?: string;
   pauseAfterExplain?: number;
@@ -37,9 +36,21 @@ export interface FieldSchema {
   };
   autoLoad?: boolean;
   emptyMessage?: string;
+  visibleWhen?: { field: string; value: string } | Record<string, string> | null;
+  conditionalOn?: { field: string; values: string[] } | null;
 }
 
-export interface SubFormSchema {
+export interface GroupNode {
+  nodeType: "group";
+  id?: string;
+  label?: string;
+  children: SchemaNode[];
+  visibleWhen?: { field: string; value: string } | null;
+  conditionalOn?: { field: string; values: string[] } | null;
+}
+
+export interface RepeatingNode {
+  nodeType: "repeating";
   id: string;
   name: string;
   triggerText?: string;
@@ -48,8 +59,6 @@ export interface SubFormSchema {
   autoPopulatedTrigger?: { field: string; description: string };
   fallbackManual?: { triggerText: string; description: string };
   demoItemCount: number;
-  visibleWhen?: { field: string; value: string } | null;
-  conditionalOn?: { field: string; values: string[] } | null;
   explanation?: string;
   explanationForMultiple?: string;
   copyFrom?: {
@@ -58,26 +67,27 @@ export interface SubFormSchema {
     checkboxLabel: string;
     copyExplanation?: string;
   };
-  fields: FieldSchema[];
+  children: SchemaNode[];
+  visibleWhen?: { field: string; value: string } | null;
+  conditionalOn?: { field: string; values: string[] } | null;
 }
+
+export type SchemaNode = FieldNode | GroupNode | RepeatingNode;
+
+// Backward-compat aliases
+export type FieldSchema = FieldNode;
+export type SubFormSchema = RepeatingNode;
 
 export interface FormSchema {
   id: string;
   name: string;
-  mode: string;
+  mode?: string;
   route: string;
-  selectItem?: {
-    label?: string;
-    selector?: string;
-  };
-  openAction: {
-    type: string;
-    selector?: string;
-    fallbackText?: string;
-  };
+  aliases?: string[];
+  description?: string;
+  setupSteps: SetupStep[];
   overview: string;
-  fields: FieldSchema[];
-  subForms: SubFormSchema[];
+  nodes: SchemaNode[];
   wrapUp: string;
   prerequisites?: Array<{
     type: string;
@@ -87,6 +97,14 @@ export interface FormSchema {
     condition?: string;
   }>;
   fallback?: string;
+}
+
+export interface SetupStep {
+  tool: string;
+  args: Record<string, unknown>;
+  waitFor?: string;
+  timeout?: number;
+  waitAfterMs?: number;
 }
 
 // --- Validation Errors ---
@@ -149,8 +167,10 @@ export function loadAllSchemas(formsDir?: string): void {
       schemas.set(schema.id, schema);
       loaded++;
 
+      const fieldCount = countNodes(schema.nodes, "field");
+      const repeatingCount = countNodes(schema.nodes, "repeating");
       console.log(
-        `[SchemaLoader] ✅ Loaded: ${schema.id} (${schema.fields.length} fields, ${(schema.subForms?.length || 0)} sub-forms)`
+        `[SchemaLoader] ✅ Loaded: ${schema.id} (${fieldCount} fields, ${repeatingCount} repeating)`
       );
     } catch (error) {
       failed++;
@@ -184,11 +204,13 @@ export function getSchema(formId: string): FormSchema {
 /**
  * Get all loaded schema IDs.
  */
-export function getAvailableForms(): Array<{ id: string; name: string; route: string }> {
+export function getAvailableForms(): Array<{ id: string; name: string; route: string; aliases: string[]; description: string }> {
   return Array.from(schemas.values()).map((s) => ({
     id: s.id,
     name: s.name,
     route: s.route,
+    aliases: s.aliases ?? [],
+    description: s.description ?? "",
   }));
 }
 
@@ -200,20 +222,34 @@ export function getAvailableForms(): Array<{ id: string; name: string; route: st
 export function getFieldContext(
   formId: string,
   fieldKey: string
-): FieldSchema | null {
+): FieldNode | null {
   const schema = getSchema(formId);
+  return findFieldInNodes(schema.nodes, fieldKey);
+}
 
-  // Check main fields
-  const mainField = schema.fields.find((f) => f.key === fieldKey);
-  if (mainField) return mainField;
-
-  // Check sub-form fields
-  for (const subForm of schema.subForms) {
-    const subField = subForm.fields.find((f) => f.key === fieldKey);
-    if (subField) return subField;
+function findFieldInNodes(nodes: SchemaNode[], fieldKey: string): FieldNode | null {
+  for (const node of nodes) {
+    if (node.nodeType === "field" && node.key === fieldKey) return node;
+    if (node.nodeType === "group") {
+      const found = findFieldInNodes(node.children, fieldKey);
+      if (found) return found;
+    }
+    if (node.nodeType === "repeating") {
+      const found = findFieldInNodes(node.children, fieldKey);
+      if (found) return found;
+    }
   }
-
   return null;
+}
+
+function countNodes(nodes: SchemaNode[], nodeType: string): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (node.nodeType === nodeType) count++;
+    if (node.nodeType === "group") count += countNodes(node.children, nodeType);
+    if (node.nodeType === "repeating") count += countNodes(node.children, nodeType);
+  }
+  return count;
 }
 
 // --- Validation ---
@@ -244,21 +280,16 @@ function validateSchema(parsed: unknown): FormSchema {
     throw new SchemaValidationError(formId, "overview", "Missing or invalid 'overview'");
   }
 
-  if (!Array.isArray(schema.fields)) {
-    throw new SchemaValidationError(formId, "fields", "Missing or invalid 'fields' array");
+  if (!Array.isArray(schema.setupSteps) || schema.setupSteps.length === 0) {
+    throw new SchemaValidationError(formId, "setupSteps", "Missing or invalid 'setupSteps' — must be a non-empty array of steps");
   }
 
-  // Validate each field
-  for (let i = 0; i < schema.fields.length; i++) {
-    validateField(schema.fields[i], formId, `fields[${i}]`);
+  if (!Array.isArray(schema.nodes)) {
+    throw new SchemaValidationError(formId, "nodes", "Missing or invalid 'nodes' array");
   }
 
-  // Validate sub-forms
-  if (schema.subForms && Array.isArray(schema.subForms)) {
-    for (let i = 0; i < schema.subForms.length; i++) {
-      validateSubForm(schema.subForms[i], formId, `subForms[${i}]`);
-    }
-  }
+  // Validate each node recursively
+  validateNodes(schema.nodes, formId, "nodes");
 
   // Warn about missing wrapUp
   if (!schema.wrapUp || typeof schema.wrapUp !== "string") {
@@ -268,6 +299,36 @@ function validateSchema(parsed: unknown): FormSchema {
   }
 
   return parsed as FormSchema;
+}
+
+function validateNodes(nodes: unknown[], formId: string, path: string): void {
+  for (let i = 0; i < nodes.length; i++) {
+    validateNode(nodes[i], formId, `${path}[${i}]`);
+  }
+}
+
+function validateNode(node: unknown, formId: string, path: string): void {
+  if (!node || typeof node !== "object") {
+    throw new SchemaValidationError(formId, path, "Node must be an object");
+  }
+  const n = node as Record<string, unknown>;
+
+  if (!n.nodeType || typeof n.nodeType !== "string") {
+    throw new SchemaValidationError(formId, `${path}.nodeType`, "Missing or invalid 'nodeType'");
+  }
+
+  if (n.nodeType === "field") {
+    validateField(node, formId, path);
+  } else if (n.nodeType === "group") {
+    if (!Array.isArray(n.children)) {
+      throw new SchemaValidationError(formId, `${path}.children`, "Group node must have a 'children' array");
+    }
+    validateNodes(n.children, formId, `${path}.children`);
+  } else if (n.nodeType === "repeating") {
+    validateRepeating(node, formId, path);
+  } else {
+    throw new SchemaValidationError(formId, `${path}.nodeType`, `Unknown nodeType '${n.nodeType}'`);
+  }
 }
 
 function validateField(
@@ -335,13 +396,13 @@ function validateField(
   }
 }
 
-function validateSubForm(
+function validateRepeating(
   subForm: unknown,
   formId: string,
   path: string
 ): void {
   if (!subForm || typeof subForm !== "object") {
-    throw new SchemaValidationError(formId, path, "Sub-form must be an object");
+    throw new SchemaValidationError(formId, path, "Repeating node must be an object");
   }
 
   const sf = subForm as Record<string, unknown>;
@@ -370,25 +431,23 @@ function validateSubForm(
     );
   }
 
-  if (!Array.isArray(sf.fields) || sf.fields.length === 0) {
+  if (!Array.isArray(sf.children) || sf.children.length === 0) {
     throw new SchemaValidationError(
       formId,
-      `${path}.fields`,
-      `Sub-form '${sf.id}' must have at least one field`
+      `${path}.children`,
+      `Repeating node '${sf.id}' must have at least one child`
     );
   }
 
-  // Validate each sub-form field
-  for (let i = 0; i < sf.fields.length; i++) {
-    validateField(sf.fields[i], formId, `${path}.fields[${i}]`);
-  }
+  // Validate each child node
+  validateNodes(sf.children, formId, `${path}.children`);
 
-  // Non-auto-populated sub-forms need a trigger
+  // Non-auto-populated repeating nodes need a trigger
   if (!sf.autoPopulated && !sf.triggerText) {
     throw new SchemaValidationError(
       formId,
       `${path}.triggerText`,
-      `Sub-form '${sf.id}' must have 'triggerText' unless autoPopulated is true`
+      `Repeating node '${sf.id}' must have 'triggerText' unless autoPopulated is true`
     );
   }
 }

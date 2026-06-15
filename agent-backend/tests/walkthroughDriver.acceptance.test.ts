@@ -5,7 +5,7 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 const mockConnectionSend = mock((sessionId: string, msg: any) => {
   if (msg && msg.type === "tts_audio") {
     setTimeout(() => {
-      walkthroughDriver.handleStatus(sessionId, "tts_playback_complete", { messageId: msg.messageId });
+      walkthroughDriver.handleEvent(sessionId, "tts_playback_complete", { messageId: msg.messageId });
     }, 10);
   }
   return true;
@@ -82,7 +82,7 @@ mock.module("../src/schema/loader.js", () => ({
 }));
 
 // --- Import after mocks ---
-const { walkthroughDriver } = await import("../src/walkthrough/driver.js");
+const { walkthroughExecutor: walkthroughDriver } = await import("../src/walkthrough/executor.js") as any;
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -101,7 +101,7 @@ function resetAllMocks() {
   mockConnectionSend.mockImplementation((sessionId: string, msg: any) => {
     if (msg && msg.type === "tts_audio") {
       setTimeout(() => {
-        walkthroughDriver.handleStatus(sessionId, "tts_playback_complete", { messageId: msg.messageId });
+        walkthroughDriver.handleEvent(sessionId, "tts_playback_complete", { messageId: msg.messageId });
       }, 10);
     }
     return true;
@@ -123,14 +123,14 @@ async function driveToOverview(sid: string) {
   walkthroughDriver.start("createOrder", sid);
   // Wait for navigate to be sent and driver to start waiting for navigation_complete
   await delay(200);
-  walkthroughDriver.handleStatus(sid, "navigation_complete");
+  walkthroughDriver.handleEvent(sid, "navigation_complete");
   // Driver does await this.wait(500) after navigation_complete resolves
   await delay(600);
   // Now driver sends open_dialog and waits for dialog_opened
-  walkthroughDriver.handleStatus(sid, "dialog_opened");
+  walkthroughDriver.handleEvent(sid, "dialog_opened");
   // Driver polls for form_registered (up to 1.5s with 100ms intervals)
   await delay(200);
-  walkthroughDriver.handleStatus(sid, "form_registered");
+  walkthroughDriver.handleEvent(sid, "form_registered");
   // Driver sends overview and waits EXPLAIN_DISPLAY (1000ms)
   await delay(500);
 }
@@ -240,15 +240,15 @@ describe("WalkthroughDriver — acceptance tests", () => {
   });
 
   // =============================================
-  // CONTRACT 3: handleStatus routes events
+  // CONTRACT 3: handleEvent routes events
   // =============================================
-  describe("handleStatus routing", () => {
+  describe("handleEvent routing", () => {
     test("dialog_closed_by_user cancels the session", async () => {
       const sid = "status-cancel-session";
       walkthroughDriver.start("createOrder", sid);
       await delay(200);
 
-      walkthroughDriver.handleStatus(sid, "dialog_closed_by_user");
+      walkthroughDriver.handleEvent(sid, "dialog_closed_by_user");
       await delay(500);
 
       mockConnectionSend.mockReset();
@@ -268,7 +268,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
       walkthroughDriver.start("createOrder", sid);
       await delay(200);
 
-      walkthroughDriver.handleStatus(sid, "page_changed");
+      walkthroughDriver.handleEvent(sid, "page_changed");
       await delay(500);
 
       mockConnectionSend.mockReset();
@@ -288,7 +288,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
       walkthroughDriver.start("createOrder", sid);
       await delay(50);
 
-      walkthroughDriver.handleStatus(sid, "form_registered");
+      walkthroughDriver.handleEvent(sid, "form_registered");
       await delay(100);
     });
 
@@ -297,7 +297,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
       walkthroughDriver.start("createOrder", sid);
       await delay(200);
 
-      walkthroughDriver.handleStatus(sid, "error", {
+      walkthroughDriver.handleEvent(sid, "error", {
         tool: "navigate",
         reason: "Element not found",
       });

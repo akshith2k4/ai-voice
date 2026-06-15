@@ -36,7 +36,7 @@ class ConnectionManager {
         `[ConnectionManager] Client disconnected: ${sessionId} (total: ${this.connections.size})`
       );
       // Dynamic import to avoid circular dependency (connectionManager ↔ voicePipeline)
-      import("./services/voicePipeline.js")
+      import("./adapters/voiceAdapter.js")
         .then(({ cleanupSession }) => {
           cleanupSession(sessionId);
         })

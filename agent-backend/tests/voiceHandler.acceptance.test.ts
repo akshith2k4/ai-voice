@@ -56,34 +56,22 @@ mock.module("../src/services/ttsService.js", () => ({
   synthesizeStream: mockSynthesizeStream,
 }));
 
-mock.module("../llm/orchestrator.js", () => ({
+mock.module("../llm/llmService.js", () => ({
   orchestrate: mockOrchestrate,
-  orchestrateStream: mockOrchestrateStream,
+  streamLLM: mockOrchestrateStream,
 }));
 
-mock.module("../src/walkthrough/driver.js", () => ({
-  WalkthroughDriver: {
-    isFieldVisible: (session: any, field: any) => {
-      const { visibleWhen } = field;
-      if (!visibleWhen) return true;
-      const currentValue = session.filledValues.get(visibleWhen.field);
-      return currentValue === visibleWhen.value;
-    },
-    isConditionMet: (session: any, field: any) => {
-      const { conditionalOn } = field;
-      if (!conditionalOn) return true;
-      const currentValue = session.filledValues.get(conditionalOn.field);
-      return conditionalOn.values.includes(String(currentValue));
-    },
-  },
-  walkthroughDriver: {
+mock.module("../src/walkthrough/executor.js", () => ({
+  walkthroughExecutor: {
     start: mockDriverStart,
     getSession: mockGetSession,
+    cancel: mock(() => {}),
+    handleEvent: mock(() => {}),
   },
 }));
 
 // --- Import after mocks ---
-const { handleVoice } = await import("../src/handlers/voiceHandler.js");
+const { handleIncoming: handleVoice } = await import("../src/adapters/voiceAdapter.js") as any;
 const sttService = await import("../src/services/sttService.js");
 
 function createCtx(overrides?: Record<string, unknown>) {

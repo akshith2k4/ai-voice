@@ -2,6 +2,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { allTools } from "../tools.js";
 import { ILLMService, LLMStreamChunk, LLMResult, LLMToolCall } from "../../src/services/interfaces.js";
+import { config } from "../../src/config.js";
 
 export class OpenAILLM implements ILLMService {
   private model: ChatOpenAI | null = null;
@@ -10,8 +11,7 @@ export class OpenAILLM implements ILLMService {
 
   private getModel(): any {
     if (!this.model) {
-      const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-      const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+      const { apiKey: OPENAI_API_KEY, model: OPENAI_MODEL } = config.openai;
 
       if (!OPENAI_API_KEY) {
         throw new Error("OPENAI_API_KEY not configured");

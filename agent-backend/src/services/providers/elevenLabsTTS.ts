@@ -1,4 +1,5 @@
 import { ITTSService } from "../interfaces.js";
+import { config } from "../../config.js";
 
 interface TTSJob {
   text: string;
@@ -109,9 +110,7 @@ export class ElevenLabsTTS implements ITTSService {
     sessionId: string = "default",
     attempt = 1
   ): Promise<void> {
-    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
-    const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "YoPh8Er6cOk7bwEreyKu";
-    const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_v3";
+    const { apiKey: ELEVENLABS_API_KEY, voiceId: ELEVENLABS_VOICE_ID, ttsModel: ELEVENLABS_TTS_MODEL } = config.elevenlabs;
 
     if (!ELEVENLABS_API_KEY) {
       throw new Error("ELEVENLABS_API_KEY not configured");

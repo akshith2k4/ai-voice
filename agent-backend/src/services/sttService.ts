@@ -2,85 +2,110 @@ import { STTProvider } from "./providersConfig.js";
 import { ElevenLabsSTT } from "./providers/elevenLabsSTT.js";
 import { OpenAISTT } from "./providers/openAiSTT.js";
 import { ISTTService, SttResult } from "./interfaces.js";
+import { config } from "../config.js";
 
-const MAX_EMPTY_RETRIES = 2;
-const retryCounts = new Map<string, number>();
+const speechCallbacks: ((sessionId: string) => void)[] = [];
 
-// Singleton instances for providers to preserve session state (WS buffering chunks)
+type AudioSession = { chunks: Buffer[]; speechDetected: boolean };
+const activeSessions = new Map<string, AudioSession>();
+
+// Singleton provider instances
 const providers = new Map<STTProvider, ISTTService>();
 
 function getSTTProvider(): STTProvider {
-  const envVal = process.env.STT_PROVIDER;
-  if (envVal === STTProvider.OPEN_AI) {
-    return STTProvider.OPEN_AI;
-  }
-  return STTProvider.ELEVEN_LABS;
+  return config.providers.stt === STTProvider.OPEN_AI ? STTProvider.OPEN_AI : STTProvider.ELEVEN_LABS;
 }
 
-export function getSTTService(): ISTTService {
+function getSTTService(): ISTTService {
   const provider = getSTTProvider();
-  let service = providers.get(provider);
-  if (!service) {
-    if (provider === STTProvider.OPEN_AI) {
-      service = new OpenAISTT();
-    } else {
-      service = new ElevenLabsSTT();
-    }
-    // Bind all registered speech callbacks to the new provider
-    for (const callback of speechCallbacks) {
-      service.onSpeechDetected(callback);
-    }
-    providers.set(provider, service);
+  if (!providers.has(provider)) {
+    providers.set(provider, provider === STTProvider.OPEN_AI ? new OpenAISTT() : new ElevenLabsSTT());
   }
-  return service;
+  return providers.get(provider)!;
 }
 
-// Facades to ensure zero breaking changes in voiceHandler/voicePipeline
-const speechCallbacks: ((sessionId: string) => void)[] = [];
+function pcmToWav(pcmBuffer: Uint8Array, sampleRate = 16000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcmBuffer.length;
 
-export function onSpeechDetected(callback: (sessionId: string) => void) {
+  const wav = Buffer.alloc(44 + dataSize);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + dataSize, 4);
+  wav.write("WAVE", 8);
+  wav.write("fmt ", 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(numChannels, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(byteRate, 28);
+  wav.writeUInt16LE(blockAlign, 32);
+  wav.writeUInt16LE(bitsPerSample, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(dataSize, 40);
+  Buffer.from(pcmBuffer).copy(wav, 44);
+  return wav;
+}
+
+export function onSpeechDetected(callback: (sessionId: string) => void): void {
   speechCallbacks.push(callback);
-  // Also register on any already instantiated provider
-  for (const provider of providers.values()) {
-    provider.onSpeechDetected(callback);
-  }
 }
 
-export async function transcribeAudio(audio: string): Promise<SttResult> {
-  return getSTTService().transcribe(audio);
+function peakAmplitude(buf: Buffer): number {
+  let maxVal = 0;
+  for (let i = 0; i + 1 < buf.length; i += 2) {
+    const absVal = Math.abs(buf.readInt16LE(i));
+    if (absVal > maxVal) maxVal = absVal;
+  }
+  return maxVal / 32768;
 }
 
 export async function handleAudioChunk(sessionId: string, base64Chunk: string): Promise<void> {
-  return getSTTService().handleAudioChunk(sessionId, base64Chunk);
+  const buf = Buffer.from(base64Chunk, "base64");
+
+  let session = activeSessions.get(sessionId);
+
+  if (!session) {
+    // Skip leading silence — don't allocate buffer until speech starts.
+    // First chunk above threshold creates the session and fires barge-in.
+    let amp: number;
+    try { amp = peakAmplitude(buf); } catch { return; }
+    if (amp <= config.voice.bargeInThreshold) return;
+    console.log(`[STT] Speech start for ${sessionId} (amp ${amp.toFixed(4)})`);
+    session = { chunks: [], speechDetected: true };
+    activeSessions.set(sessionId, session);
+    speechCallbacks.forEach(cb => cb(sessionId));
+  }
+
+  session.chunks.push(buf);
 }
 
 export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
-  return getSTTService().handleAudioEnd(sessionId);
+  const session = activeSessions.get(sessionId);
+  if (!session || session.chunks.length === 0) {
+    activeSessions.delete(sessionId);
+    return { text: "", languageCode: "en", confidence: 0 };
+  }
+  activeSessions.delete(sessionId);
+
+  const combined = Buffer.concat(session.chunks);
+  console.log(`[STT] Finalizing ${sessionId} — ${combined.length} bytes PCM`);
+
+  const wavBuffer = pcmToWav(combined, 16000);
+  return getSTTService().transcribe(wavBuffer);
+}
+
+export async function transcribeAudio(base64Audio: string): Promise<SttResult> {
+  const pcm = Buffer.from(base64Audio, "base64");
+  const wavBuffer = pcmToWav(pcm, 16000);
+  return getSTTService().transcribe(wavBuffer);
 }
 
 export function cleanupSession(sessionId: string): void {
-  // Clean up session state in ALL instantiated STT providers
-  for (const provider of providers.values()) {
-    provider.cleanupSession(sessionId);
-  }
+  activeSessions.delete(sessionId);
 }
 
-export function getRetryCount(sessionId: string): number {
-  return retryCounts.get(sessionId) || 0;
-}
-
-export function incrementRetry(sessionId: string): number {
-  const count = (retryCounts.get(sessionId) || 0) + 1;
-  retryCounts.set(sessionId, count);
-  return count;
-}
-
-export function resetRetry(sessionId: string): void {
-  retryCounts.delete(sessionId);
-}
-
-export function getMaxRetries(): number {
-  return MAX_EMPTY_RETRIES;
-}
 
 export type { SttResult };

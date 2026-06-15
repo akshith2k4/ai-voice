@@ -56,9 +56,9 @@ registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
 });
 
 registerTool(TOOL_TYPES.CLOSE_DIALOG, async (args, { send }) => {
-  sendStatus(STATUS_EVENTS.DIALOG_CLOSED);
-  await wait(TIMING.POLL_INTERVAL_MS);
   await filler.closeDialog();
+  await wait(TIMING.POLL_INTERVAL_MS);
+  sendStatus(STATUS_EVENTS.DIALOG_CLOSED);
 });
 
 registerTool(TOOL_TYPES.SELECT_ITEM, async (args, { send }) => {
@@ -121,7 +121,7 @@ registerTool(TOOL_TYPES.CLICK_ELEMENT, async (args, { send }) => {
 registerTool(TOOL_TYPES.ADD_ITEM, async (args, { send, formId }) => {
   if (formId && agentFormRegistry.has(formId)) {
     const { addRegistryItem } = await import("../formExecutor");
-    const result = await addRegistryItem(formId, args.subFormId);
+    const result = await addRegistryItem(formId, args.repeatingId);
     if (!result.success) {
       sendError(TOOL_TYPES.ADD_ITEM, result.reason);
       return;

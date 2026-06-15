@@ -34,7 +34,7 @@ mock.module("../src/schema/loader.js", () => ({
   getAvailableForms: () => [],
 }));
 
-const driverModule = await import("../src/walkthrough/driver.js");
+const driverModule = await import("../src/walkthrough/executor.js");
 console.log("Keys of driver module:", Object.keys(driverModule));
-console.log("walkthroughDriver:", driverModule.walkthroughDriver);
-console.log("handleStatus type:", typeof driverModule.walkthroughDriver?.handleStatus);
+console.log("walkthroughExecutor:", driverModule.walkthroughExecutor);
+console.log("handleEvent type:", typeof driverModule.walkthroughExecutor?.handleEvent);

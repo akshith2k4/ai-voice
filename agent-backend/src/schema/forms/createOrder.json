@@ -3,22 +3,36 @@
   "name": "Create Order",
   "mode": "create",
   "route": "/orders",
-  "openAction": {
-    "type": "button",
-    "selector": "[data-agent-action='add-order']",
-    "fallbackText": "+ Add Order"
-  },
-  "overview": "[excited] Okay..., so we're on the Order form now! Think of this as the plan that tells us what linen goes out..., what comes back..., and when. [friendly] Let's walk through it together — it's pretty straightforward once you see it![chuckles]",
-  "fields": [
+  "setupSteps": [
     {
+      "tool": "navigate",
+      "args": {
+        "route": "/orders"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='add-order']",
+        "fallbackText": "+ Add Order"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "[excited] Okay..., so we're on the Order form now! Think of this as the plan that tells us what linen goes out..., what comes back..., and when. [friendly] Let's walk through it together \u2014 it's pretty straightforward once you see it![chuckles]",
+  "nodes": [
+    {
+      "nodeType": "field",
       "key": "orderReferenceId",
       "label": "Order Reference ID",
       "type": "text",
       "readOnly": false,
       "demoValue": "ORD-2026-001",
       "visibleWhen": null,
-      "explanation": "[casual] This is just a unique name for the order. You can type your own… or leave it blank and the system will generate one for you automatically.",
-      "tips": "[thoughtful] Something like ORD-2026-001 works really well — keeps things nice and easy to find later.",
+      "explanation": "[casual] This is just a unique name for the order. You can type your own\u2026 or leave it blank and the system will generate one for you automatically.",
+      "tips": "[thoughtful] Something like ORD-2026-001 works really well \u2014 keeps things nice and easy to find later.",
       "commonQuestions": [
         {
           "question": "What happens if I leave this blank?",
@@ -31,14 +45,15 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "customer",
       "label": "Customer",
       "type": "autocomplete",
       "required": true,
       "demoValue": "Arama Suites",
       "visibleWhen": null,
-      "explanation": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up… they might be inactive.",
-      "tips": "[thoughtful] Head over to the Customers page and make sure they're marked as active — that's usually the reason.",
+      "explanation": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up\u2026 they might be inactive.",
+      "tips": "[thoughtful] Head over to the Customers page and make sure they're marked as active \u2014 that's usually the reason.",
       "waitAfterFillMs": 1000,
       "commonQuestions": [
         {
@@ -52,12 +67,13 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "orderDate",
       "label": "Order Date",
       "type": "date",
       "demoValue": "2026-01-15",
       "visibleWhen": null,
-      "explanation": "[casual] This is just the date the order's being created. It defaults to today… so most of the time, you won't even need to touch it.",
+      "explanation": "[casual] This is just the date the order's being created. It defaults to today\u2026 so most of the time, you won't even need to touch it.",
       "tips": "[thoughtful] Only change it if you're backdating an older order that was missed.",
       "commonQuestions": [
         {
@@ -67,6 +83,7 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "orderType",
       "label": "Order Type",
       "type": "select",
@@ -78,8 +95,8 @@
       ],
       "demoValue": "LEASING",
       "visibleWhen": null,
-      "explanation": "[curious] Okay, THIS one is really important. It tells the whole system what kind of order this is. Leasing is your everyday order… Rental is for short-term use… and Washing is when a customer sends in their OWN linen to be cleaned.",
-      "tips": "[thoughtful] Whatever you pick here will actually change which fields appear below — so make sure it's right before moving on.",
+      "explanation": "[curious] Okay, THIS one is really important. It tells the whole system what kind of order this is. Leasing is your everyday order\u2026 Rental is for short-term use\u2026 and Washing is when a customer sends in their OWN linen to be cleaned.",
+      "tips": "[thoughtful] Whatever you pick here will actually change which fields appear below \u2014 so make sure it's right before moving on.",
       "commonQuestions": [
         {
           "question": "What is the difference between Leasing and Rental?",
@@ -92,13 +109,14 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "isAdjustment",
       "label": "Adjustment Order",
       "type": "toggle",
       "demoValue": false,
       "visibleWhen": null,
-      "explanation": "[casual] For a brand new order… just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
-      "tips": "When in doubt, leave it off — it's rarely needed for day-to-day orders. [chuckles]",
+      "explanation": "[casual] For a brand new order\u2026 just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
+      "tips": "When in doubt, leave it off \u2014 it's rarely needed for day-to-day orders. [chuckles]",
       "commonQuestions": [
         {
           "question": "When should I use Adjustment Order?",
@@ -107,6 +125,7 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "deliveryType",
       "label": "Delivery Type",
       "type": "select",
@@ -120,7 +139,7 @@
         "field": "orderType",
         "value": "LEASING"
       },
-      "explanation": "[curious] So… are we dropping off linen, picking it up, or doing BOTH in the same trip? For most leasing customers, it's Both — fresh linen goes out while the used stuff comes back.",
+      "explanation": "[curious] So\u2026 are we dropping off linen, picking it up, or doing BOTH in the same trip? For most leasing customers, it's Both \u2014 fresh linen goes out while the used stuff comes back.",
       "tips": "[friendly] If you're not sure, Both is almost always the right call for leasing orders.",
       "commonQuestions": [
         {
@@ -130,6 +149,7 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "pickupDate",
       "label": "Pickup Date",
       "type": "date",
@@ -145,8 +165,8 @@
           "BOTH"
         ]
       },
-      "explanation": "[casual] This is the day your team heads out to collect the used linen. It defaults to tomorrow… just change it if your schedule's different.",
-      "tips": "[thoughtful] Just double-check it's not landing on a weekend or holiday… unless your team's working that day.",
+      "explanation": "[casual] This is the day your team heads out to collect the used linen. It defaults to tomorrow\u2026 just change it if your schedule's different.",
+      "tips": "[thoughtful] Just double-check it's not landing on a weekend or holiday\u2026 unless your team's working that day.",
       "commonQuestions": [
         {
           "question": "Can the pickup date be before the order date?",
@@ -155,6 +175,7 @@
       ]
     },
     {
+      "nodeType": "field",
       "key": "deliveryDate",
       "label": "Delivery Date",
       "type": "date",
@@ -170,7 +191,7 @@
           "BOTH"
         ]
       },
-      "explanation": "[casual] And this is when the fresh linen gets delivered to the customer. Also defaults to tomorrow — adjust it if needed.",
+      "explanation": "[casual] And this is when the fresh linen gets delivered to the customer. Also defaults to tomorrow \u2014 adjust it if needed.",
       "tips": "[thoughtful] Make sure the warehouse has enough time to get everything ready before this date rolls around.",
       "commonQuestions": [
         {
@@ -178,10 +199,9 @@
           "answer": "You can edit the order later to change the delivery date. The system does not automatically reschedule."
         }
       ]
-    }
-  ],
-  "subForms": [
+    },
     {
+      "nodeType": "repeating",
       "id": "deliveryItem",
       "name": "Delivery Item",
       "triggerText": "Add Delivery Item",
@@ -207,10 +227,11 @@
           "BOTH"
         ]
       },
-      "explanationForMultiple": "[friendly] You can add as many items as the order needs — let me show you a second one real quick.",
-      "explanation": "[excited] Now we're adding the actual linen items going out to the customer! Good news — these usually fill in automatically based on what's in their agreement.",
-      "fields": [
+      "explanationForMultiple": "[friendly] You can add as many items as the order needs \u2014 let me show you a second one real quick.",
+      "explanation": "[excited] Now we're adding the actual linen items going out to the customer! Good news \u2014 these usually fill in automatically based on what's in their agreement.",
+      "children": [
         {
+          "nodeType": "field",
           "key": "product",
           "label": "Product",
           "type": "select",
@@ -220,6 +241,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "quantity",
           "label": "Quantity",
           "type": "text",
@@ -228,16 +250,18 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "remarks",
           "label": "Remarks",
           "type": "text",
           "demoValue": "Premium quality required",
-          "explanation": "[casual] Got any special instructions for this item? Things like quality requirements or handling notes — pop them in here.",
+          "explanation": "[casual] Got any special instructions for this item? Things like quality requirements or handling notes \u2014 pop them in here.",
           "commonQuestions": []
         }
       ]
     },
     {
+      "nodeType": "repeating",
       "id": "pickupItem",
       "name": "Pickup Item",
       "triggerText": "Add Pickup Item",
@@ -264,9 +288,10 @@
         "checkboxLabel": "Use same items and quantities as Delivery"
       },
       "explanationForMultiple": "[friendly] Let me add a second pickup item to show you how it works.",
-      "explanation": "[casual] Now for what's coming BACK. If it's the same items as the delivery… just tick that checkbox and it'll copy everything over automatically. Super handy!",
-      "fields": [
+      "explanation": "[casual] Now for what's coming BACK. If it's the same items as the delivery\u2026 just tick that checkbox and it'll copy everything over automatically. Super handy!",
+      "children": [
         {
+          "nodeType": "field",
           "key": "product",
           "label": "Product",
           "type": "select",
@@ -275,6 +300,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "quantity",
           "label": "Quantity",
           "type": "text",
@@ -283,16 +309,18 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "remarks",
           "label": "Remarks",
           "type": "text",
           "demoValue": "For washing",
-          "explanation": "[casual] Anything the team should know on the way back? Damaged items, special handling — just note it here.",
+          "explanation": "[casual] Anything the team should know on the way back? Damaged items, special handling \u2014 just note it here.",
           "commonQuestions": []
         }
       ]
     },
     {
+      "nodeType": "repeating",
       "id": "rentalItem",
       "name": "Rental Item",
       "triggerText": "Add Rental Item",
@@ -303,9 +331,10 @@
         "field": "orderType",
         "value": "RENTAL"
       },
-      "explanation": "[friendly] Here's where we add what's being rented out — the product, how many, and how long they're keeping it. Easy stuff!",
-      "fields": [
+      "explanation": "[friendly] Here's where we add what's being rented out \u2014 the product, how many, and how long they're keeping it. Easy stuff!",
+      "children": [
         {
+          "nodeType": "field",
           "key": "product",
           "label": "Product",
           "type": "select",
@@ -314,6 +343,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "quantity",
           "label": "Quantity",
           "type": "text",
@@ -322,6 +352,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "rentalDuration",
           "label": "Rental Duration (days)",
           "type": "text",
@@ -332,6 +363,7 @@
       ]
     },
     {
+      "nodeType": "repeating",
       "id": "washingItem",
       "name": "Washing Item",
       "triggerText": "Add Washing Item",
@@ -342,9 +374,10 @@
         "field": "orderType",
         "value": "WASHING"
       },
-      "explanation": "[casual] For a washing order, just add what the customer sent in to be cleaned — the product type and how many pieces. That's all there is to it.",
-      "fields": [
+      "explanation": "[casual] For a washing order, just add what the customer sent in to be cleaned \u2014 the product type and how many pieces. That's all there is to it.",
+      "children": [
         {
+          "nodeType": "field",
           "key": "product",
           "label": "Product",
           "type": "select",
@@ -353,6 +386,7 @@
           "commonQuestions": []
         },
         {
+          "nodeType": "field",
           "key": "quantity",
           "label": "Quantity",
           "type": "text",
@@ -363,5 +397,14 @@
       ]
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We covered the customer, order type, dates, and all the items. Nothing was actually saved during this walkthrough… so whenever you're ready, go ahead and create your first REAL order. You've got this!"
+  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We covered the customer, order type, dates, and all the items. Nothing was actually saved during this walkthrough\u2026 so whenever you're ready, go ahead and create your first REAL order. You've got this!",
+  "aliases": [
+    "create order",
+    "new order",
+    "add order",
+    "create an order",
+    "make an order",
+    "place an order"
+  ],
+  "description": "Walkthrough for creating a new leasing, rental, or washing order"
 }

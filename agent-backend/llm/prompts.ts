@@ -5,7 +5,17 @@
 // ============================================
 
 import routeRegistry from "../src/schema/routeRegistry.json" with { type: "json" };
-import type { FormSchema, FieldSchema } from "../src/schema/loader.js";
+import type { FormSchema, FieldSchema, SchemaNode, FieldNode } from "../src/schema/loader.js";
+import { getAvailableForms } from "../src/schema/loader.js";
+
+function flattenFields(nodes: SchemaNode[]): FieldNode[] {
+  const result: FieldNode[] = [];
+  for (const node of nodes) {
+    if (node.nodeType === "field") result.push(node);
+    else if (node.nodeType === "group" || node.nodeType === "repeating") result.push(...flattenFields(node.children));
+  }
+  return result;
+}
 
 function formatRoutes(): string {
   return routeRegistry.routes
@@ -17,11 +27,8 @@ function formatRoutes(): string {
 }
 
 function formatForms(): string {
-  return routeRegistry.forms
-    .map(
-      (f) =>
-        `- "${f.name}" (id: ${f.id}, route: ${f.route}, aliases: ${f.aliases.join(", ")})`
-    )
+  return getAvailableForms()
+    .map((f) => `- "${f.name}" (id: ${f.id}, route: ${f.route}${f.aliases.length ? `, aliases: ${f.aliases.join(", ")}` : ""})`)
     .join("\n");
 }
 
@@ -72,28 +79,14 @@ export function buildWalkthroughPrompt(schema: FormSchema, currentField: FieldSc
   // Collect simplified schema for ALL fields (both main form and sub-forms)
   const allFieldsSimplified: Array<{ key: string; label: string; explanation?: string; options?: string[]; aliases: string[] }> = [];
 
-  for (const f of schema.fields) {
+  for (const f of flattenFields(schema.nodes)) {
     allFieldsSimplified.push({
       key: f.key,
       label: f.label,
       explanation: f.explanation,
       options: f.options ?? undefined,
-      aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || [],
+      aliases: f.commonQuestions?.map((q: { question: string }) => q.question.toLowerCase()) || [],
     });
-  }
-
-  if (schema.subForms) {
-    for (const sf of schema.subForms) {
-      for (const f of sf.fields) {
-        allFieldsSimplified.push({
-          key: f.key,
-          label: f.label,
-          explanation: f.explanation,
-          options: f.options ?? undefined,
-          aliases: f.commonQuestions?.map(q => q.question.toLowerCase()) || [],
-        });
-      }
-    }
   }
 
   const currentFieldKey = currentField?.key || "unknown";

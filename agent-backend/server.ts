@@ -1,5 +1,5 @@
 import { connectionManager } from "./src/connectionManager.js";
-import { cleanupSession } from "./src/services/voicePipeline.js";
+import { cleanupSession } from "./src/adapters/voiceAdapter.js";
 import { routeMessage, parseMessage } from "./src/messageRouter.js";
 import type { ClientData, OutgoingMessage } from "./src/types.js";
 
