@@ -53,10 +53,6 @@ async function loadClickBuffer() {
 }
 
 async function playClickSound() {
-  if (audioQueue && audioQueue.isPlaying) {
-    return;
-  }
-
   try {
     const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
     if (!window.audioContext) {
@@ -118,6 +114,10 @@ async function preloadClickSound() {
 if (typeof window !== "undefined") {
   window.addEventListener("click", () => {
     preloadClickSound();
+    // Ensure context is resumed
+    if (window.audioContext?.state === "suspended") {
+      window.audioContext.resume();
+    }
   }, { once: true });
 }
 
@@ -140,10 +140,6 @@ function playRipple(x, y, skipSound = false) {
 
 export const CursorManager = {
   async playSingleKeystroke() {
-    if (audioQueue && audioQueue.isPlaying) {
-      return;
-    }
-
     try {
       const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
       if (!window.audioContext) {
@@ -184,14 +180,35 @@ export const CursorManager = {
       inactivityTimeout = null;
     }
 
-    const rect = element.getBoundingClientRect();
+    // Resolve visual target for better cursor alignment (e.g. for checkboxes, switches, etc.)
+    let targetElement = element;
+
+    // 1. Check if the element contains or is a checkbox/switch
+    const checkboxInput = (element.tagName === "INPUT" && (element.type === "checkbox" || element.classList.contains("MuiCheckbox-input") || element.classList.contains("MuiSwitch-input")))
+      ? element
+      : element.querySelector('input[type="checkbox"], [role="switch"], [role="checkbox"], .MuiSwitch-input, .MuiCheckbox-input');
+
+    if (checkboxInput) {
+      targetElement = checkboxInput.closest(".MuiCheckbox-root") || 
+                      checkboxInput.closest(".MuiSwitch-root") || 
+                      checkboxInput.closest(".MuiButtonBase-root") || 
+                      checkboxInput;
+    } else {
+      // 2. If it's a form control, target the visual input wrapper (MuiInputBase-root)
+      const inputBase = element.querySelector(".MuiInputBase-root");
+      if (inputBase) {
+        targetElement = inputBase;
+      }
+    }
+
+    const rect = targetElement.getBoundingClientRect();
     const targetX = rect.left + rect.width / 2;
     const targetY = rect.top + rect.height / 2;
 
-    const isAlreadyAtElement = lastElement === element || 
+    const isAlreadyAtElement = lastElement === targetElement || 
       (Math.abs(lastX - targetX) < 2 && Math.abs(lastY - targetY) < 2 && cursor.style.opacity === "1");
 
-    lastElement = element;
+    lastElement = targetElement;
 
     if (isAlreadyAtElement) {
       // Fast path: cursor is already on the element! Play ripple and proceed quickly.
@@ -201,13 +218,13 @@ export const CursorManager = {
     }
 
     // Scroll into view if needed
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    targetElement.scrollIntoView({ behavior: "smooth", block: "center" });
 
     // Wait for the scroll to settle (reduced from 350ms to 120ms)
     await new Promise((resolve) => setTimeout(resolve, 120));
 
     // Recalculate rect in case scrolling moved it
-    const rectAfterScroll = element.getBoundingClientRect();
+    const rectAfterScroll = targetElement.getBoundingClientRect();
     const finalX = rectAfterScroll.left + rectAfterScroll.width / 2;
     const finalY = rectAfterScroll.top + rectAfterScroll.height / 2;
 

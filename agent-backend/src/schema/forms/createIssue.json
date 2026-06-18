@@ -20,8 +20,7 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "This form allows you to report a new issue, such as quality issues, missing linens, or heavy soilage. It dynamically branches depending on whether the source is a Customer or a Laundry vendor.",
-  "wrapUp": "Great! We have walked through reporting an issue for both Customer and Laundry branches, seeing how fields dynamically show up.",
+  "overview": "[excited] Let's report a new Issue! Think of this... as logging a problem — like missing linen or quality defects. [friendly] It dynamically changes depending on if the source is a Customer or a Laundry vendor. Let's walk through it!",
   "nodes": [
     {
       "nodeType": "field",
@@ -29,7 +28,7 @@
       "label": "Issue Date",
       "type": "date",
       "demoValue": "2026-05-18",
-      "explanation": "Select the date the issue was recorded."
+      "explanation": "[casual] When did this happen? Just pick the date."
     },
     {
       "nodeType": "field",
@@ -50,9 +49,9 @@
         "washDate"
       ],
       "demoValue": "CUSTOMER",
-      "explanation": "Source Type decides who the issue is about \u2013 a Customer hotel or a Laundry vendor.",
+      "explanation": "[curious] Who is this about? A CUSTOMER hotel or a LAUNDRY vendor? This choice changes what happens next!",
       "explain": {
-        "full": "Source Type decides who the issue is about \u2013 a Customer hotel or a Laundry vendor. This controls what appears in Source Name and Trigger Entity."
+        "full": "[curious] Who is this about? A CUSTOMER hotel or a LAUNDRY vendor? This choice changes the Source Name and Trigger Entity."
       }
     },
     {
@@ -65,12 +64,12 @@
         "CUSTOMER": "ARAMA SUITES",
         "LAUNDRY": "Laundry Solutions"
       },
-      "explanation": "Select the specific Customer or Laundry Vendor.",
+      "explanation": "[casual] Search and pick the exact Customer or Vendor.",
       "explain": {
-        "full": "Search and select the customer hotel or laundry vendor related to this issue.",
+        "full": "[casual] Search and pick the exact Customer or Vendor involved.",
         "delta": {
-          "CUSTOMER": "Now we select the customer hotel. Let's select Arama Suites.",
-          "LAUNDRY": "Now we select the laundry vendor. Let's select LinenCare Services."
+          "CUSTOMER": "[casual] Let's pick the customer hotel... Arama Suites.",
+          "LAUNDRY": "[casual] Let's pick the laundry vendor... LinenCare Services."
         }
       }
     },
@@ -84,12 +83,12 @@
         "CUSTOMER": "ORDER",
         "LAUNDRY": "WASH_FULFILLMENT"
       },
-      "explanation": "Select the associated entity type.",
+      "explanation": "[casual] What triggered this? An ORDER or a WASH FULFILLMENT?",
       "explain": {
-        "full": "Select the entity that triggered this issue \u2013 either an Order or a Wash Fulfillment.",
+        "full": "[casual] What triggered this? An ORDER or a WASH FULFILLMENT?",
         "delta": {
-          "CUSTOMER": "Notice that Trigger Entity automatically changed to ORDER for the Customer.",
-          "LAUNDRY": "Notice that Trigger Entity automatically changed to WASH_FULFILLMENT for the Laundry."
+          "CUSTOMER": "[curious] Notice it auto-changed to ORDER for the customer!",
+          "LAUNDRY": "[curious] Notice it auto-changed to WASH_FULFILLMENT for the laundry!"
         }
       }
     },
@@ -99,12 +98,13 @@
       "label": "Order Date",
       "type": "date",
       "visibleWhen": {
-        "sourceType": "CUSTOMER"
+        "field": "sourceType",
+        "value": "CUSTOMER"
       },
       "demoValue": "2026-05-18",
-      "explanation": "Select the order date to filter orders.",
+      "explanation": "[casual] Pick the Order Date. This loads their orders for that day.",
       "explain": {
-        "full": "Select the Order Date. This will automatically load the customer's orders for that day."
+        "full": "[casual] Pick the Order Date. This automatically loads their orders for that day."
       }
     },
     {
@@ -113,12 +113,13 @@
       "label": "Orders",
       "type": "select",
       "visibleWhen": {
-        "sourceType": "CUSTOMER"
+        "field": "sourceType",
+        "value": "CUSTOMER"
       },
       "autoLoad": true,
       "demoValue": "",
       "emptyMessage": "No orders found for this selection. You can still continue without linking one.",
-      "explanation": "Link a specific order to this issue if applicable."
+      "explanation": "[casual] Link a specific order... if there is one."
     },
     {
       "nodeType": "field",
@@ -126,12 +127,13 @@
       "label": "Wash Date",
       "type": "date",
       "visibleWhen": {
-        "sourceType": "LAUNDRY"
+        "field": "sourceType",
+        "value": "LAUNDRY"
       },
       "demoValue": "2026-05-18",
-      "explanation": "Select the wash date.",
+      "explanation": "[casual] Pick the Wash Date to link this to laundry processing.",
       "explain": {
-        "full": "Select the Wash Date to link this issue with laundry processing on that date."
+        "full": "[casual] Pick the Wash Date to link this issue with laundry processing on that day."
       }
     },
     {
@@ -140,7 +142,7 @@
       "label": "Issue Type",
       "type": "select",
       "demoValue": "QUALITY",
-      "explanation": "Select the category of the issue, like missing items or quality defects."
+      "explanation": "[curious] What's the category? Missing items, quality defects... pick one."
     },
     {
       "nodeType": "field",
@@ -148,7 +150,7 @@
       "label": "Status",
       "type": "select",
       "demoValue": "OPEN",
-      "explanation": "Choose the initial status of the issue."
+      "explanation": "[casual] What's the initial status? Usually OPEN."
     },
     {
       "nodeType": "field",
@@ -156,7 +158,7 @@
       "label": "Description",
       "type": "text",
       "demoValue": "Stained sheets observed in batch",
-      "explanation": "Enter details explaining the issue."
+      "explanation": "[casual] Give us the details. What EXACTLY happened?"
     },
     {
       "nodeType": "field",
@@ -164,7 +166,7 @@
       "label": "Product",
       "type": "autocomplete",
       "demoValue": "Double Bed Sheet",
-      "explanation": "Optionally select the product affected by the issue."
+      "explanation": "[casual] Which product is affected? This is optional, but helpful."
     },
     {
       "nodeType": "field",
@@ -172,9 +174,10 @@
       "label": "Quantity",
       "type": "text",
       "demoValue": "5",
-      "explanation": "Enter the quantity of items affected."
+      "explanation": "[casual] How many items were affected? Just the number."
     }
   ],
+  "wrapUp": "[warm and satisfied] And that's all for reporting this issue! [friendly] We've logged all the details. Nothing was saved... but whenever you are ready, go report a REAL issue. You've got this!",
   "aliases": [
     "create issue",
     "new issue",

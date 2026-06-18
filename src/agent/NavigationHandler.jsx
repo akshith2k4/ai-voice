@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAgent } from "./AgentBridge";
 import { STATUS_EVENTS } from "./protocol";
-import { sendStatus } from "./wsConnection";
+import { sendStatus, sendError } from "./wsConnection";
 
 // ============================================
 // Navigation Handler
@@ -35,7 +35,14 @@ export default function NavigationHandler() {
 
     targetRef.current = pendingNavigation;
     console.log(`[NavigationHandler] Navigating to: ${pendingNavigation}`);
-    navigate(pendingNavigation);
+    try {
+      navigate(pendingNavigation);
+    } catch (err) {
+      console.error("[NavigationHandler] Route failed:", err);
+      sendError("navigate", `Invalid route: ${pendingNavigation}`);
+      clearPendingNavigation();
+      targetRef.current = null;
+    }
   }, [pendingNavigation, navigate, location.pathname, clearPendingNavigation]);
 
   // Report completion after location actually changes to the target

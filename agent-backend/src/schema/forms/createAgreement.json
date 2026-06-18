@@ -1,0 +1,308 @@
+{
+  "id": "createAgreement",
+  "name": "Create Agreement",
+  "mode": "create",
+  "route": "/hotels",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/hotels"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "select_item",
+      "args": {
+        "label": "AutoTest Hotel 124032"
+      },
+      "waitFor": "item_selected",
+      "waitAfterMs": 200
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='add-agreement']",
+        "fallbackText": "Add New Agreement"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "[excited] Let's set up an Agreement! Think of this... as the contract locking in PRICING and billing. [friendly] Looks like a lot, but we'll do it together. Once the basics are in, the rest falls into place!",
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "type",
+      "label": "Agreement Type",
+      "type": "select",
+      "required": true,
+      "options": [
+        "RENTAL_LAUNDRY",
+        "LAUNDRY"
+      ],
+      "demoValue": "RENTAL_LAUNDRY",
+      "explanation": "[curious] This is crucial! What's the deal? RENTAL_LAUNDRY means we rent them OUR linen... but LAUNDRY means they own it, and we just wash it."
+    },
+    {
+      "nodeType": "field",
+      "key": "startDate",
+      "label": "Start Date",
+      "type": "date",
+      "required": true,
+      "demoValue": "2026-02-01",
+      "explanation": "[casual] When does this kick in? All pricing and billing start right HERE."
+    },
+    {
+      "nodeType": "field",
+      "key": "endDate",
+      "label": "End Date",
+      "type": "date",
+      "required": true,
+      "demoValue": "2027-01-31",
+      "explanation": "[casual] When does it wrap up? The system STOPS applying these terms after this date."
+    },
+    {
+      "nodeType": "field",
+      "key": "status",
+      "label": "Status",
+      "type": "select",
+      "options": [
+        "ACTIVE",
+        "INACTIVE"
+      ],
+      "demoValue": "ACTIVE",
+      "explanation": "[casual] Simple — only ACTIVE agreements are used for billing. Need to pause it? Set it to INACTIVE."
+    },
+    {
+      "nodeType": "field",
+      "key": "totalRooms",
+      "label": "Total Rooms",
+      "type": "text",
+      "demoValue": "120",
+      "explanation": "[casual] How many rooms here? Helps us figure out how much linen they'll ACTUALLY need."
+    },
+    {
+      "nodeType": "field",
+      "key": "occupancyRate",
+      "label": "Occupancy Rate",
+      "type": "text",
+      "demoValue": "75",
+      "explanation": "[curious] Expected occupancy? Just the percentage. Helps estimate how much LINEN is in circulation."
+    },
+    {
+      "nodeType": "field",
+      "key": "depositAmount",
+      "label": "Deposit Amount",
+      "type": "text",
+      "demoValue": "50000",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "[casual] If we're RENTING... we usually collect a security deposit. Just type the amount."
+    },
+    {
+      "nodeType": "field",
+      "key": "creditDays",
+      "label": "Credit Days",
+      "type": "text",
+      "demoValue": "30",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "[casual] Days they get to pay the rental invoice? Just pop in the number."
+    },
+    {
+      "nodeType": "field",
+      "key": "linenDeliveryDays",
+      "label": "Linen Delivery Days",
+      "type": "text",
+      "demoValue": "2",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "[casual] How many days a week do we drop off FRESH linen? Enter the number."
+    },
+    {
+      "nodeType": "field",
+      "key": "serviceFrequency",
+      "label": "Service Frequency",
+      "type": "select",
+      "options": [
+        "EVERY_DAY",
+        "ALTERNATE_DAY",
+        "EVERY_SUNDAY",
+        "CUSTOM"
+      ],
+      "demoValue": "ALTERNATE_DAY",
+      "visibleWhen": {
+        "field": "type",
+        "value": "RENTAL_LAUNDRY"
+      },
+      "explanation": "[curious] How often are we doing pickup and delivery? Every day, alternate days, or a CUSTOM schedule?"
+    },
+    {
+      "nodeType": "field",
+      "key": "creditTermDays",
+      "label": "Credit Term Days",
+      "type": "text",
+      "demoValue": "15",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "[casual] Laundry-only customers! How many days to pay the INVOICE? Just the number."
+    },
+    {
+      "nodeType": "field",
+      "key": "pickupFrequencyDays",
+      "label": "Pickup Frequency Days",
+      "type": "text",
+      "demoValue": "1",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "[casual] Days between each pickup? For example, 1 means EVERY day."
+    },
+    {
+      "nodeType": "field",
+      "key": "deliveryTatDays",
+      "label": "Delivery TAT Days",
+      "type": "text",
+      "demoValue": "2",
+      "visibleWhen": {
+        "field": "type",
+        "value": "LAUNDRY"
+      },
+      "explanation": "[casual] Turnaround time! Days from picking up DIRTY linen to delivering it CLEAN."
+    },
+    {
+      "nodeType": "field",
+      "key": "billingCycle",
+      "label": "Billing Cycle",
+      "type": "text",
+      "demoValue": "1",
+      "explanation": "[casual] How often do we bill? 1 means monthly, 2 means bi-monthly... you get the idea."
+    },
+    {
+      "nodeType": "field",
+      "key": "billingStartDay",
+      "label": "Billing Start Day",
+      "type": "text",
+      "demoValue": "1",
+      "explanation": "[casual] What day does billing kick off? The 1st is the usual default."
+    },
+    {
+      "nodeType": "field",
+      "key": "billingEndDay",
+      "label": "Billing End Day",
+      "type": "text",
+      "demoValue": "30",
+      "explanation": "[casual] And when does billing wrap up? Usually the 30th or last day."
+    },
+    {
+      "nodeType": "field",
+      "key": "billingType",
+      "label": "Billing Type",
+      "type": "select",
+      "options": [
+        "FLEXIBLE",
+        "FIXED"
+      ],
+      "demoValue": "FLEXIBLE",
+      "explanation": "[curious] How do we charge? FLEXIBLE means we bill per item... FIXED means a flat rate every month, no matter what."
+    },
+    {
+      "nodeType": "field",
+      "key": "fixedMonthlyAmount",
+      "label": "Fixed Monthly Amount",
+      "type": "text",
+      "demoValue": "75000",
+      "visibleWhen": {
+        "field": "billingType",
+        "value": "FIXED"
+      },
+      "explanation": "[casual] Flat rate it is! Just type the EXACT amount they get invoiced monthly."
+    },
+    {
+      "nodeType": "repeating",
+      "id": "priceItem",
+      "name": "Price Item",
+      "triggerText": "Add Price Item",
+      "repeatable": true,
+      "demoItemCount": 2,
+      "explanation": "[excited] The meat of it — the price list! Add the products, their cost, and the service we provide.",
+      "explanationForMultiple": "[friendly] Add as many products as needed — let me add a second one so you see how it looks.",
+      "children": [
+        {
+          "nodeType": "field",
+          "key": "productId",
+          "label": "Product",
+          "type": "select",
+          "demoValue": "Bath Towel",
+          "explanation": "[casual] Pick the linen product. Pulls straight from your catalog.",
+          "commonQuestions": []
+        },
+        {
+          "nodeType": "field",
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "100",
+          "explanation": "[casual] How many are we supplying or servicing? Just the number.",
+          "commonQuestions": []
+        },
+        {
+          "nodeType": "field",
+          "key": "price",
+          "label": "Price",
+          "type": "text",
+          "demoValue": "25",
+          "explanation": "[casual] Price per unit? This is what the billing is based on.",
+          "commonQuestions": []
+        },
+        {
+          "nodeType": "field",
+          "key": "serviceType",
+          "label": "Service Type",
+          "type": "select",
+          "options": [
+            "WASHING",
+            "WASHING_RENTING",
+            "RENTING",
+            "WASHING_IRONING",
+            "DRY_CLEANING",
+            "PRESSING",
+            "FOLDING",
+            "PACKAGING"
+          ],
+          "demoValue": "WASHING_RENTING",
+          "explanation": "[curious] What service? Washing, renting, dry cleaning? Pick what applies to this item.",
+          "tips": "[thoughtful] Important! The SAME product can have different prices depending on the service... like washing vs renting!",
+          "commonQuestions": []
+        },
+        {
+          "nodeType": "field",
+          "key": "remarks",
+          "label": "Remarks",
+          "type": "text",
+          "demoValue": "Premium quality",
+          "explanation": "[casual] Special notes for this item? Quality, handling... jot it down here.",
+          "commonQuestions": []
+        }
+      ]
+    }
+  ],
+  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We covered the type, timelines, commercial terms, and price list. Nothing was saved here... so when you're ready, go set up a REAL agreement. You've got this!",
+  "aliases": [
+    "create agreement",
+    "new agreement",
+    "add agreement",
+    "create an agreement"
+  ],
+  "description": "Walkthrough for creating a pricing agreement for a hotel"
+}

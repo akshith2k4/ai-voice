@@ -1,0 +1,87 @@
+{
+  "id": "createTrip",
+  "name": "Create Trip",
+  "route": "/trips",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/trips"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-trip']",
+        "fallbackText": "Create Trip"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "[excited] Let's create a Trip! Think of this... as planning the actual delivery or wash route. [friendly] We just need a type, a route, a driver, and a vehicle. Let's get moving!",
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "tripType",
+      "label": "Select Trip Type",
+      "type": "select",
+      "options": [
+        "ORDER_TRIP",
+        "WASH_TRIP"
+      ],
+      "demoValue": "ORDER_TRIP",
+      "explanation": "[curious] What kind of trip? An ORDER trip for customer deliveries... or a WASH trip to the laundry? Let's pick ORDERTRIP."
+    },
+    {
+      "nodeType": "field",
+      "key": "route",
+      "label": "Route",
+      "type": "select",
+      "demoValue": "Idhi 3rd route",
+      "explanation": "[casual] Which route are we taking? Let's select... Idhi 3rd route."
+    },
+    {
+      "nodeType": "field",
+      "key": "deliveryDate",
+      "label": "Delivery Date",
+      "type": "date",
+      "demoValue": "2026-04-16",
+      "explanation": "[casual] When is the delivery happening? Just pick the date."
+    },
+    {
+      "nodeType": "field",
+      "key": "deliveryTeam",
+      "label": "Delivery Team",
+      "type": "autocomplete",
+      "demoValue": "Nishant",
+      "explanation": "[casual] Who's handling the run? Search and pick the team member... like Nishant."
+    },
+    {
+      "nodeType": "field",
+      "key": "vehicle",
+      "label": "Vehicle",
+      "type": "select",
+      "demoValue": "APZNPA13 — Cargo",
+      "explanation": "[casual] And which VEHICLE are they using? Let's assign the Cargo."
+    },
+    {
+      "nodeType": "field",
+      "key": "notes",
+      "label": "Trip Notes",
+      "type": "text",
+      "demoValue": "Standard delivery trip.",
+      "explanation": "[casual] Any special instructions for the driver? Jot them down here."
+    }
+  ],
+  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] Your trip is ready to roll. Nothing was saved here... but whenever you're ready, go schedule a REAL trip. You've got this!",
+  "aliases": [
+    "create trip",
+    "new trip",
+    "add trip",
+    "schedule trip",
+    "trip creation"
+  ],
+  "description": "Walkthrough for creating a new delivery or wash trip"
+}

@@ -29,11 +29,13 @@ function DamageSourcePanel({
     setSearchDate,
     sourceOptions,
     sourceLoading,
-    setValue
+    setValue,
+    customerData = [],
+    customerLoading = false,
+    vendorData = [],
+    vendorLoading = false
 }) {
-    // Queries
-    const { data: customerData = [], isLoading: customerLoading } = useSearchCustomers(customerSearchQuery);
-    const { data: vendorData = [], isLoading: vendorLoading } = useSearchLaundryVendors();
+    // Queries removed and lifted to parent dialog for Agent Form registration hook
 
     // Helper to normalize vendor list
     const laundryVendors = useMemo(() => {

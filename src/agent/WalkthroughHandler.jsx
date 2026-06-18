@@ -7,7 +7,7 @@ export default function WalkthroughHandler() {
 
   useEffect(() => {
     walkthroughEngine.init({ setIsPaused, setIsWalkthroughActive, addMessage, clearMessages, stopAudio });
-    walkthroughEngine.wireAudio();
+    return walkthroughEngine.wireAudio();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;

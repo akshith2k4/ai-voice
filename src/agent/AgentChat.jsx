@@ -1,23 +1,40 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { Box, Typography } from "@mui/material";
 import { useAgent } from "./AgentBridge";
 
 export default function AgentChat({ sx }) {
   const { agentMessages, isProcessing } = useAgent();
+  const [showDebug, setShowDebug] = useState(() => {
+    try {
+      return localStorage.getItem("agent_debug") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
   const endRef = useRef(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [agentMessages]);
 
+  const handleDoubleClick = () => {
+    const newVal = !showDebug;
+    setShowDebug(newVal);
+    try {
+      localStorage.setItem("agent_debug", String(newVal));
+    } catch (e) {}
+  };
+
   return (
     <Box
+      onDoubleClick={handleDoubleClick}
       sx={{
         overflowY: "auto",
         px: 2,
         py: 1.5,
         "&::-webkit-scrollbar": { width: 4 },
         "&::-webkit-scrollbar-thumb": { backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2 },
+        cursor: "pointer",
         ...sx,
       }}
     >
@@ -43,7 +60,7 @@ export default function AgentChat({ sx }) {
               {msg.text}
             </Typography>
           </Box>
-          {msg.latency && (
+          {showDebug && msg.latency && (
             <Box sx={{ mt: 0.5, px: 1, display: "flex", flexWrap: "wrap", gap: 0.8, opacity: 0.85 }}>
               {[
                 { key: "total", label: "Total", value: msg.latency.total, color: "#34d399", bg: "rgba(16,185,129,0.15)", border: "rgba(16,185,129,0.25)" },

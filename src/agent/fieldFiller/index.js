@@ -67,48 +67,27 @@ export function clearAllFields(container) {
       }
     } else if (type === "select") {
       const select = el.querySelector('[role="combobox"]');
+      const nativeInput = el.querySelector(".MuiSelect-nativeInput") || el.querySelector("input");
+      if (nativeInput) {
+        setNativeValue(nativeInput, "");
+        nativeInput.dispatchEvent(new Event("input", { bubbles: true }));
+        nativeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       if (select) {
-        const nativeInput = el.querySelector(".MuiSelect-nativeInput") || el.querySelector("input");
-        if (nativeInput) {
-          setNativeValue(nativeInput, "");
-          nativeInput.dispatchEvent(new Event("input", { bubbles: true }));
-          nativeInput.dispatchEvent(new Event("change", { bubbles: true }));
-          
-          const inputKey = Object.keys(nativeInput).find((k) => k.startsWith("__reactProps"));
-          if (inputKey && nativeInput[inputKey]?.onChange) {
-            nativeInput[inputKey].onChange({ target: { value: "", name: nativeInput.name } });
-          }
-        }
-        
-        // Also trigger onChange on the combobox/select wrapper to update React state
-        const wrapper = select.closest(".MuiInputBase-root") || select;
-        const wrapperKey = Object.keys(wrapper).find((k) => k.startsWith("__reactProps"));
-        if (wrapperKey && wrapper[wrapperKey]?.onChange) {
-          wrapper[wrapperKey].onChange({ target: { value: "", name: nativeInput?.name || select.name } });
-        }
-        const selectKey = Object.keys(select).find((k) => k.startsWith("__reactProps"));
-        if (selectKey && select[selectKey]?.onChange) {
-          select[selectKey].onChange({ target: { value: "", name: nativeInput?.name || select.name } });
-        }
-
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
         const display = el.querySelector(".MuiSelect-select");
         if (display) {
           display.textContent = "";
         }
-        cleared++;
       }
+      cleared++;
     } else if (type === "autocomplete") {
       const input = el.querySelector("input");
       if (input) {
         setNativeValue(input, "");
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        // Also trigger onChange to clear React state
-        const reactKey = Object.keys(input).find((k) =>
-          k.startsWith("__reactProps")
-        );
-        if (reactKey && input[reactKey]?.onChange) {
-          input[reactKey].onChange({ target: { value: "" } });
-        }
+        input.dispatchEvent(new Event("change", { bubbles: true }));
         cleared++;
       }
     } else if (type === "toggle") {
@@ -139,13 +118,11 @@ export function clearAllFields(container) {
       container.querySelectorAll('[aria-label="delete item"]')
     );
   } else {
-    // If it is document, let's scope to active dialog or form container rather than entire page
-    const activeForm = document.querySelector(".MuiDialog-paper") || document.querySelector("form");
-    if (activeForm) {
-      deleteButtons = Array.from(
-        activeForm.querySelectorAll('[aria-label="delete item"]')
-      );
-    }
+    // If it is document, let's scope to active dialog, form container, or fallback to the document itself
+    const activeForm = document.querySelector(".MuiDialog-paper") || document.querySelector("form") || document;
+    deleteButtons = Array.from(
+      activeForm.querySelectorAll('[aria-label="delete item"]')
+    );
   }
 
   // Delete in reverse order so indices don't shift

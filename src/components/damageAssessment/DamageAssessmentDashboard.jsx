@@ -206,6 +206,7 @@ function DamageAssessmentDashboard() {
               startIcon={<AddIcon />}
               sx={{ ml: "auto" }}
               onClick={handleOpenCreate}
+              data-agent-action="create-damage-request"
             >
               Create Damage Request
             </Button>

@@ -1,0 +1,115 @@
+{
+  "id": "createReservation",
+  "name": "Create Reservation",
+  "route": "/inventory-pool/reservation",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/inventory-pool/reservation"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-reservation']",
+        "fallbackText": "Create Reservation"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "[excited] Let's create an Inventory Reservation! Think of this... as holding specific products for a customer. [friendly] We just link a pool, pick a customer, and set the dates. Easy!",
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "poolId",
+      "label": "Inventory Pool",
+      "type": "select",
+      "demoValue": "voice-demo",
+      "explanation": "[casual] First, pick the inventory pool. Let's go with... voice-demo."
+    },
+    {
+      "nodeType": "field",
+      "key": "customer",
+      "label": "Customer Name",
+      "type": "autocomplete",
+      "demoValue": "voice-demo",
+      "explanation": "[casual] Now, search for the customer. Let's use... voice-demo."
+    },
+    {
+      "nodeType": "field",
+      "key": "reservationType",
+      "label": "Reservation Type",
+      "type": "select",
+      "options": [
+        "FIXED",
+        "FLEXIBLE",
+        "ROTATIONAL"
+      ],
+      "demoValue": "FIXED",
+      "explanation": "[curious] What's the type? FIXED, FLEXIBLE, or ROTATIONAL? Let's pick FIXED."
+    },
+    {
+      "nodeType": "field",
+      "key": "startDate",
+      "label": "Start Date",
+      "type": "date",
+      "demoValue": "2026-06-02T12:18",
+      "explanation": "[casual] When does the reservation kick in? Pick the start date and time."
+    },
+    {
+      "nodeType": "field",
+      "key": "endDate",
+      "label": "End Date",
+      "type": "date",
+      "demoValue": "2026-07-11T12:18",
+      "explanation": "[casual] And when does it end? Pick the end date and time."
+    },
+    {
+      "nodeType": "repeating",
+      "id": "reservationItem",
+      "name": "Reservation Item",
+      "repeatable": false,
+      "autoPopulated": true,
+      "demoItemCount": 3,
+      "explanation": "[excited] Now we allocate quantities! This auto-pulls from the active agreement. Let's look at the items.",
+      "children": [
+        {
+          "nodeType": "field",
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "12",
+          "explanation": "[casual] How much of this product are we reserving? Just type the number."
+        },
+        {
+          "nodeType": "field",
+          "key": "qtyWithCustomer",
+          "label": "Qty with Customer",
+          "type": "text",
+          "demoValue": "0",
+          "explanation": "[casual] How much do they ALREADY have? Enter that quantity here."
+        }
+      ]
+    },
+    {
+      "nodeType": "field",
+      "key": "notes",
+      "label": "Notes",
+      "type": "text",
+      "demoValue": "Standard inventory reservation for voice demo.",
+      "explanation": "[casual] Any special instructions? Jot them down here."
+    }
+  ],
+  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] Your reservation is set up. Nothing was saved here... but whenever you're ready, go reserve some REAL inventory. You've got this!",
+  "aliases": [
+    "create reservation",
+    "new reservation",
+    "create inventory reservation",
+    "new inventory reservation",
+    "reserve inventory"
+  ],
+  "description": "Walkthrough for creating a new inventory reservation"
+}

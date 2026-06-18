@@ -5,15 +5,12 @@
 
 import crypto from "crypto";
 import { SessionManager, type WalkthroughSession, type WalkthroughCommand } from "./sessionManager.js";
-import { EventMonitor } from "./eventMonitor.js";
+import { EventMonitor, CancellationError } from "./eventMonitor.js";
 import { ToolMessenger } from "./toolMessenger.js";
 import type { OutgoingMessage } from "../types.js";
 import type { IResponder } from "../adapters/responders/IResponder.js";
 import { resolveDemoValue } from "../core/workflowResolver.js";
-import type { FormSchema, SchemaNode, FieldNode, RepeatingNode } from "../schema/loader.js";
-
-export class CancellationError extends Error { constructor() { super("Cancelled"); } }
-
+import { FormSchema, SchemaNode, FieldNode, RepeatingNode, findFieldInNodes } from "../schema/loader.js";
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 
@@ -28,21 +25,6 @@ function isNodeVisible(node: SchemaNode, session: WalkthroughSession): boolean {
     if (!conditionalOn.values.includes(current)) return false;
   }
   return true;
-}
-
-function findFieldInNodes(nodes: SchemaNode[], targetKey: string): { matchedField: FieldNode | undefined; repeatingId: string | null } {
-  for (const node of nodes) {
-    if (node.nodeType === "field" && node.key === targetKey) return { matchedField: node, repeatingId: null };
-    if (node.nodeType === "group") {
-      const found = findFieldInNodes(node.children, targetKey);
-      if (found.matchedField) return found;
-    }
-    if (node.nodeType === "repeating") {
-      const found = findFieldInNodes(node.children, targetKey);
-      if (found.matchedField) return { matchedField: found.matchedField, repeatingId: node.id };
-    }
-  }
-  return { matchedField: undefined, repeatingId: null };
 }
 
 // ── Generator functions ────────────────────────────────────────────────────────
@@ -136,15 +118,22 @@ function* traverseRepeating(
 ): Generator<WalkthroughCommand, void, unknown> {
   // copyFrom path: show checkbox to copy from another repeating group
   if (node.copyFrom) {
-    yield {
-      tools: [{ tool: "click_checkbox", args: {
-        fieldKey: `copy_${node.copyFrom.subFormId}`,
-        labelText: node.copyFrom.checkboxLabel,
-        speech: node.copyFrom.copyExplanation || "These items can be copied.",
-      }}],
-      waitFor: "checkbox_clicked",
-    };
-    return;
+    let shouldCopy = true;
+    if (node.copyFrom.whenFieldEquals) {
+      const currentVal = session.filledValues.get(node.copyFrom.whenFieldEquals.field);
+      shouldCopy = currentVal === node.copyFrom.whenFieldEquals.value;
+    }
+    if (shouldCopy) {
+      yield {
+        tools: [{ tool: "click_checkbox", args: {
+          fieldKey: `copy_${node.copyFrom.subFormId}`,
+          labelText: node.copyFrom.checkboxLabel,
+          speech: node.copyFrom.copyExplanation || "These items can be copied.",
+        }}],
+        waitFor: "checkbox_clicked",
+      };
+      return;
+    }
   }
 
   // Normal path: add N items
@@ -165,29 +154,90 @@ export class WalkthroughExecutor {
   private eventMonitor = new EventMonitor();
   private toolMessenger = new ToolMessenger();
   private starting = new Set<string>();
+  private stepTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   getSession(sid: string) { return this.sessionManager.get(sid); }
 
-  async start(formId: string, sessionId: string, responder: IResponder, ttsEnabled = true, lang = "en"): Promise<void> {
+  async start(
+    formId: string,
+    sessionId: string,
+    responder?: IResponder,
+    ttsEnabled = true,
+    lang = "en",
+    introMessage?: string
+  ): Promise<void> {
+    let actualResponder: IResponder | undefined = undefined;
+    let actualTtsEnabled = ttsEnabled;
+    let actualLang = lang;
+    let actualIntroMessage = introMessage;
+
+    if (typeof responder === "boolean") {
+      actualTtsEnabled = responder;
+      actualResponder = undefined;
+      if (typeof ttsEnabled === "string") {
+        actualIntroMessage = ttsEnabled;
+      }
+    } else {
+      actualResponder = responder;
+    }
+
     if (this.starting.has(sessionId) || this.sessionManager.has(sessionId)) {
-      await responder.speak("A walkthrough is already in progress. Say 'cancel' to stop it first.");
+      this.toolMessenger.send(sessionId, {
+        type: "tool",
+        tool: "respond",
+        args: { message: "A walkthrough is already in progress. Say 'cancel' to stop it first.", tts: false }
+      });
+      if (actualResponder) {
+        await actualResponder.speak("A walkthrough is already in progress. Say 'cancel' to stop it first.");
+      }
     } else {
       this.starting.add(sessionId);
       let session: WalkthroughSession | null = null;
       try {
-        session = this.sessionManager.create(sessionId, formId, ttsEnabled, lang);
+        session = this.sessionManager.create(sessionId, formId, actualTtsEnabled, actualLang);
       } catch {
         const { getAvailableForms } = await import("./sessionManager.js");
-        await responder.speak(`I couldn't find "${formId}". Available: ${getAvailableForms().map(f => f.name).join(", ")}`);
+        const available = getAvailableForms().map(f => f.name).join(", ");
+        const errMsg = `I couldn't find the form "${formId}". Available forms: ${available}`;
+        this.toolMessenger.send(sessionId, {
+          type: "tool",
+          tool: "respond",
+          args: { message: errMsg, tts: false }
+        });
+        if (actualResponder) {
+          await actualResponder.speak(errMsg);
+        }
       }
       this.starting.delete(sessionId);
       if (session) {
-        session.responder = responder;
-        if ("boundSession" in responder) (responder as any).boundSession = session;
+        if (actualResponder) {
+          session.responder = actualResponder;
+          if (typeof actualResponder === "object" && actualResponder !== null && "boundSession" in actualResponder) {
+            (actualResponder as any).boundSession = session;
+          }
+        }
         session.treeWalker = createTreeWalker(session.schema, session);
         session.stateMachine.transition("START_WALKTHROUGH");
         this.tool(session, "begin_walkthrough", { formId: session.schema.id });
-        this.sendNext(session);
+
+        if (actualIntroMessage) {
+          const msgId = session.ttsEnabled ? crypto.randomUUID() : undefined;
+          this.tool(session, "respond", { message: actualIntroMessage, tts: session.ttsEnabled, messageId: msgId });
+          this.tool(session, "speak", { text: actualIntroMessage, tts: session.ttsEnabled, messageId: msgId });
+          session.waitingFor = "walkthrough_speak_done";
+          this.setStepTimeout(session, "walkthrough_speak_done");
+          if (session.responder) {
+            if (session.ttsEnabled) {
+              session.responder.speak(actualIntroMessage, msgId);
+            }
+          } else if (session.ttsEnabled) {
+            import("../services/narrationSpeaker.js")
+              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, actualIntroMessage!, msgId))
+              .catch(err => console.error(err));
+          }
+        } else {
+          this.sendNext(session);
+        }
       }
     }
   }
@@ -196,36 +246,86 @@ export class WalkthroughExecutor {
     const session = this.sessionManager.get(sessionId);
     if (session) {
       session.cancelled = true;
+      this.clearStepTimeout(sessionId);
       this.eventMonitor.rejectPending(session, new CancellationError());
       this.sessionManager.delete(sessionId);
     }
   }
 
-  detour(fieldKey: string, sessionId: string, responder: IResponder, skipSpeech: boolean): void {
+  pause(sessionId: string): void {
     const session = this.sessionManager.get(sessionId);
     if (session) {
-      const { matchedField } = this.findField(session, fieldKey);
+      const state = session.stateMachine.currentState;
+      if (state !== "DETOUR_QA" && state !== "PAUSED") {
+        console.log(`[Executor] Pausing walkthrough for ${sessionId}`);
+        try {
+          session.stateMachine.transition("PAUSE");
+        } catch (e) {
+          console.warn("[Executor] Failed to pause state machine:", e);
+        }
+      }
+      // CRITICAL: Clear the timeout so it doesn't cancel the session while paused!
+      this.clearStepTimeout(sessionId);
+    }
+  }
+
+  detour(fieldKey: string, sessionId: string, responder?: IResponder, skipSpeech?: boolean): void {
+    const session = this.sessionManager.get(sessionId);
+    if (session) {
+      const { matchedField } = findFieldInNodes(session.schema.nodes, fieldKey);
       session.stateMachine.transition("DETOUR");
       this.tool(session, "detour_start", { fieldKey });
       this.tool(session, "go_to_field", { fieldKey, label: matchedField?.label });
       const speechText = matchedField
         ? (skipSpeech ? undefined : `Here's the ${matchedField.label} field`)
         : "Let me highlight that field on your form.";
-      if (speechText) responder.speak(speechText);
+      if (speechText) {
+        if (responder) {
+          if (session.ttsEnabled) {
+            responder.speak(speechText);
+          }
+        } else if (session.ttsEnabled) {
+          const msgId = crypto.randomUUID();
+          import("../services/narrationSpeaker.js")
+            .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, speechText, msgId))
+            .catch(err => console.error(err));
+        }
+      }
     }
   }
 
   resumeWalkthrough(sessionId: string): void {
     const session = this.sessionManager.get(sessionId);
     if (session) {
+      this.tool(session, "resume_walkthrough", {});
+
       const state = session.stateMachine.currentState;
       if (state === "DETOUR_QA") {
         session.stateMachine.transition("DETOUR_COMPLETE");
         this.tool(session, "detour_end", {});
-        this.sendNext(session);
+        const waitingFor = session.waitingFor;
+        if (waitingFor === "field_done" || waitingFor === "walkthrough_speak_done") {
+          this.replayCurrent(session);
+        } else if (waitingFor === "item_added" || waitingFor === "checkbox_clicked") {
+          session.waitingFor = null;
+          this.sendNext(session);
+        } else {
+          this.sendNext(session);
+        }
       } else if (state === "PAUSED") {
         session.stateMachine.transition("RESUME");
-        this.replayCurrent(session); // re-dispatch the interrupted step, don't advance
+        
+        // SAFETY CHECK: If we were waiting for a UI action (not just speech),
+        // it's safer to advance than to re-execute and cause duplicates.
+        const waitingFor = session.waitingFor;
+        if (waitingFor === "item_added" || waitingFor === "checkbox_clicked") {
+          console.log(`[Executor] Resume detected UI action wait (${waitingFor}). Advancing to prevent duplicate execution.`);
+          session.waitingFor = null;
+          this.sendNext(session);
+        } else {
+          // If it was waiting for speech or field_done, safe to replay
+          this.replayCurrent(session);
+        }
       } else {
         this.sendNext(session);
       }
@@ -242,20 +342,41 @@ export class WalkthroughExecutor {
     const cmd = session.lastCommand;
     for (const { tool, args } of cmd.tools) {
       if (tool === "speak" && args.text) {
-        const msgId = crypto.randomUUID();
-        this.tool(session, tool, { ...args, messageId: msgId });
-        session.responder?.speak(String(args.text), msgId);
+        const text = String(args.text);
+        const msgId = session.ttsEnabled ? crypto.randomUUID() : undefined;
+        this.tool(session, "respond", { message: text, tts: session.ttsEnabled, messageId: msgId });
+        this.tool(session, tool, { ...args, tts: session.ttsEnabled, messageId: msgId });
+        if (session.responder) {
+          if (session.ttsEnabled) {
+            session.responder.speak(text, msgId);
+          }
+        } else if (session.ttsEnabled) {
+          import("../services/narrationSpeaker.js")
+            .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, text, msgId))
+            .catch(err => console.error(err));
+        }
       } else if (tool === "field_step") {
-        const speechMsgId = args.speech ? crypto.randomUUID() : undefined;
-        const toolArgs = speechMsgId ? { ...args, speechMessageId: speechMsgId } : args;
+        const speechMsgId = (session.ttsEnabled && args.speech) ? crypto.randomUUID() : undefined;
+        const toolArgs = { ...args, tts: session.ttsEnabled, speechMessageId: speechMsgId };
         this.tool(session, tool, toolArgs);
-        if (speechMsgId) session.responder?.speak(String(args.speech), speechMsgId);
+        if (speechMsgId) {
+          if (session.responder) {
+            if (session.ttsEnabled) {
+              session.responder.speak(String(args.speech), speechMsgId);
+            }
+          } else if (session.ttsEnabled) {
+            import("../services/narrationSpeaker.js")
+              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, String(args.speech), speechMsgId))
+              .catch(err => console.error(err));
+          }
+        }
       } else {
         this.tool(session, tool, args);
       }
     }
     if (cmd.navContext) session.currentNav = cmd.navContext;
     session.waitingFor = cmd.waitFor;
+    this.setStepTimeout(session, cmd.waitFor);
   }
 
   private sendNext(session: WalkthroughSession): void {
@@ -268,16 +389,36 @@ export class WalkthroughExecutor {
       const cmd = result.value;
       for (const { tool, args } of cmd.tools) {
         if (tool === "speak" && args.text) {
+          const text = String(args.text);
           // Generate messageId so frontend can wait for exactly this audio to finish
-          const msgId = crypto.randomUUID();
-          this.tool(session, tool, { ...args, messageId: msgId });
-          session.responder?.speak(String(args.text), msgId);
+          const msgId = session.ttsEnabled ? crypto.randomUUID() : undefined;
+          this.tool(session, "respond", { message: text, tts: session.ttsEnabled, messageId: msgId });
+          this.tool(session, tool, { ...args, tts: session.ttsEnabled, messageId: msgId });
+          if (session.responder) {
+            if (session.ttsEnabled) {
+              session.responder.speak(text, msgId);
+            }
+          } else if (session.ttsEnabled) {
+            import("../services/narrationSpeaker.js")
+              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, text, msgId))
+              .catch(err => console.error(err));
+          }
         } else if (tool === "field_step") {
           // Include speechMessageId so frontend waits for exactly this audio before moving on
-          const speechMsgId = args.speech ? crypto.randomUUID() : undefined;
-          const toolArgs = speechMsgId ? { ...args, speechMessageId: speechMsgId } : args;
+          const speechMsgId = (session.ttsEnabled && args.speech) ? crypto.randomUUID() : undefined;
+          const toolArgs = { ...args, tts: session.ttsEnabled, speechMessageId: speechMsgId };
           this.tool(session, tool, toolArgs);
-          if (speechMsgId) session.responder?.speak(String(args.speech), speechMsgId);
+          if (speechMsgId) {
+            if (session.responder) {
+              if (session.ttsEnabled) {
+                session.responder.speak(String(args.speech), speechMsgId);
+              }
+            } else if (session.ttsEnabled) {
+              import("../services/narrationSpeaker.js")
+                .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, String(args.speech), speechMsgId))
+                .catch(err => console.error(err));
+            }
+          }
         } else {
           this.tool(session, tool, args);
         }
@@ -287,6 +428,7 @@ export class WalkthroughExecutor {
       if (cmd.waitFor !== "_continue") {
         session.lastCommand = cmd;
         session.waitingFor = cmd.waitFor;
+        this.setStepTimeout(session, cmd.waitFor);
         break;
       }
     }
@@ -294,21 +436,34 @@ export class WalkthroughExecutor {
 
   handleEvent(sessionId: string, event: string, data?: any): void {
     const session = this.sessionManager.get(sessionId)!;
+    if (!session) return;
     if (event === "dialog_closed_by_user" || event === "page_changed") {
       this.cancel(sessionId);
+    } else if (event === "field_changed") {
+      if (data && typeof data.fieldKey === "string") {
+        console.log(`[Executor] Updating filledValues for ${data.fieldKey} to ${data.value}`);
+        session.filledValues.set(data.fieldKey, data.value);
+      }
     } else if (event === "form_registered") {
       session.isRegistered = true;
       const sm1 = session.stateMachine.currentState;
       if (sm1 !== "PAUSED" && sm1 !== "DETOUR_QA" && session.waitingFor === event) {
+        this.clearStepTimeout(sessionId);
         session.waitingFor = null;
         this.sendNext(session);
       }
     } else if (event === "error") {
       console.warn("[Executor] Frontend error:", data);
+      this.cancel(sessionId);
     } else {
       this.eventMonitor.notify(session, event, data);
       const sm = session.stateMachine.currentState;
-      if (sm !== "PAUSED" && sm !== "DETOUR_QA" && session.waitingFor === event) {
+      let matched = session.waitingFor === event;
+      if (event === "tts_playback_complete" && session.waitingFor === "walkthrough_speak_done") {
+        matched = true;
+      }
+      if (sm !== "PAUSED" && sm !== "DETOUR_QA" && matched) {
+        this.clearStepTimeout(sessionId);
         session.waitingFor = null;
         this.sendNext(session);
       }
@@ -317,12 +472,34 @@ export class WalkthroughExecutor {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  private findField(session: WalkthroughSession, targetKey: string): { matchedField: FieldNode | undefined; repeatingId: string | null } {
-    return findFieldInNodes(session.schema.nodes, targetKey);
+  private setStepTimeout(session: WalkthroughSession, expectedEvent: string): void {
+    const existing = this.stepTimers.get(session.sessionId);
+    if (existing) clearTimeout(existing);
+
+    // Use a longer timeout (30s) for speech/playback events which can take time,
+    // and a shorter timeout (10s) for standard UI/navigation events.
+    const timeoutMs = (expectedEvent === "walkthrough_speak_done" || expectedEvent === "field_done") ? 30000 : 10000;
+
+    const timer = setTimeout(() => {
+      console.warn(`[Executor] Timeout waiting for "${expectedEvent}" on session ${session.sessionId}`);
+      this.stepTimers.delete(session.sessionId);
+      this.cancel(session.sessionId);
+    }, timeoutMs);
+    this.stepTimers.set(session.sessionId, timer);
+  }
+
+  private clearStepTimeout(sessionId: string): void {
+    const timer = this.stepTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.stepTimers.delete(sessionId);
+    }
   }
 
   private finish(session: WalkthroughSession): void {
+    this.clearStepTimeout(session.sessionId);
     this.tool(session, "close_dialog", {});
+    this.tool(session, "walkthrough_finished", {});
     session.stateMachine.transition("RESET");
     console.log(`[Executor] ✅ Complete: ${session.schema.id}`);
     this.sessionManager.delete(session.sessionId);

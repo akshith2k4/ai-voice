@@ -39,12 +39,13 @@ class ToolDispatcher {
       }
 
       case "start_walkthrough": {
-        walkthroughExecutor.start(
+        await walkthroughExecutor.start(
           String(tc.args.formId),
           sessionId,
           responder,
           true,
-          lang
+          lang,
+          tc.args.message ? String(tc.args.message) : undefined
         );
         break;
       }

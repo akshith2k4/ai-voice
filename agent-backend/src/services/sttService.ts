@@ -9,6 +9,9 @@ const speechCallbacks: ((sessionId: string) => void)[] = [];
 type AudioSession = { chunks: Buffer[]; speechDetected: boolean };
 const activeSessions = new Map<string, AudioSession>();
 
+type LoudTracker = { count: number; chunks: Buffer[] };
+const loudTrackers = new Map<string, LoudTracker>();
+
 // Singleton provider instances
 const providers = new Map<STTProvider, ISTTService>();
 
@@ -69,14 +72,35 @@ export async function handleAudioChunk(sessionId: string, base64Chunk: string): 
 
   if (!session) {
     // Skip leading silence — don't allocate buffer until speech starts.
-    // First chunk above threshold creates the session and fires barge-in.
+    // Require sustained amplitude (e.g. 2 consecutive chunks above threshold, or 1 immediate very loud chunk > 0.2)
     let amp: number;
     try { amp = peakAmplitude(buf); } catch { return; }
-    if (amp <= config.voice.bargeInThreshold) return;
-    console.log(`[STT] Speech start for ${sessionId} (amp ${amp.toFixed(4)})`);
-    session = { chunks: [], speechDetected: true };
-    activeSessions.set(sessionId, session);
-    speechCallbacks.forEach(cb => cb(sessionId));
+    
+    if (amp > config.voice.bargeInThreshold) {
+      let tracker = loudTrackers.get(sessionId);
+      if (!tracker) {
+        tracker = { count: 1, chunks: [buf] };
+        loudTrackers.set(sessionId, tracker);
+      } else {
+        tracker.count++;
+        tracker.chunks.push(buf);
+      }
+      
+      const isVeryLoud = amp > 0.2;
+      const requiredCount = isVeryLoud ? 1 : 2;
+      
+      if (tracker.count >= requiredCount) {
+        console.log(`[STT] Speech start for ${sessionId} (${isVeryLoud ? "immediate very loud chunk" : "sustained amp over 2 chunks"}, latest: ${amp.toFixed(4)})`);
+        session = { chunks: [...tracker.chunks], speechDetected: true };
+        activeSessions.set(sessionId, session);
+        loudTrackers.delete(sessionId);
+        speechCallbacks.forEach(cb => cb(sessionId));
+      }
+    } else {
+      // Reset tracker if a quiet chunk is received
+      loudTrackers.delete(sessionId);
+    }
+    return;
   }
 
   session.chunks.push(buf);
@@ -105,6 +129,7 @@ export async function transcribeAudio(base64Audio: string): Promise<SttResult> {
 
 export function cleanupSession(sessionId: string): void {
   activeSessions.delete(sessionId);
+  loudTrackers.delete(sessionId);
 }
 
 

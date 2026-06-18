@@ -6,6 +6,7 @@ let savedUrl = null;
 let intentionalClose = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
+let disconnectTimer = null;
 
 const statusListeners = new Set();
 const messageListeners = new Set();
@@ -33,6 +34,10 @@ function emitMessage(data) {
 // ── Connection lifecycle ──────────────────────────────────────────────────────
 
 export function connect(url) {
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
   savedUrl = url;
   intentionalClose = false;
   _connect();
@@ -41,23 +46,31 @@ export function connect(url) {
 export function disconnect() {
   intentionalClose = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  ws?.close(1000, "Intentional disconnect");
-  ws = null;
+  if (disconnectTimer) clearTimeout(disconnectTimer);
+  disconnectTimer = setTimeout(() => {
+    ws?.close(1000, "Intentional disconnect");
+    ws = null;
+    disconnectTimer = null;
+  }, 100);
 }
 
 function _connect() {
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
   messageQueue = [];
-  emitStatus("connecting");
+  emitStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
   try {
     ws = new WebSocket(savedUrl);
   } catch (err) {
     console.error("[wsConnection] Failed to create WebSocket:", err);
     messageQueue = [];
-    emitStatus("disconnected");
-    _scheduleReconnect();
+    if (!intentionalClose) {
+      emitStatus("reconnecting");
+      _scheduleReconnect();
+    } else {
+      emitStatus("disconnected");
+    }
     return;
   }
 
@@ -76,8 +89,12 @@ function _connect() {
     console.log(`[wsConnection] WebSocket closed (code: ${event.code})`);
     ws = null;
     messageQueue = [];
-    emitStatus("disconnected");
-    if (!intentionalClose) _scheduleReconnect();
+    if (!intentionalClose) {
+      emitStatus("reconnecting");
+      _scheduleReconnect();
+    } else {
+      emitStatus("disconnected");
+    }
   };
 
   ws.onerror = (err) => {
@@ -116,10 +133,14 @@ export function sendMessage(message) {
     ws.send(payload);
     return;
   }
-  if (messageQueue.length >= TIMING.MSG_QUEUE_MAX) {
-    messageQueue.shift(); // drop oldest to make room
+  if (message.type !== "audio_chunk") {
+    if (messageQueue.length >= TIMING.MSG_QUEUE_MAX) {
+      messageQueue.shift(); // drop oldest to make room
+    }
+    messageQueue.push(payload);
+  } else {
+    console.warn("[wsConnection] Dropped audio chunk due to disconnect");
   }
-  messageQueue.push(payload);
 }
 
 export function sendStatus(event, payload = {}) {

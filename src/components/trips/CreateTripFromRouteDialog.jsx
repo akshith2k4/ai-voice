@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useAgentForm } from "../../agent/useAgentForm";
 import {
     Dialog,
     DialogTitle,
@@ -528,6 +529,67 @@ export default function CreateTripFromRouteDialog({
         setSubmitAttempted(false);
         onClose?.();
     };
+
+    useAgentForm("createTrip", {
+        fields: [
+            {
+                key: "tripType",
+                type: "select",
+                set: (v) => setResolvedTripType(v === "WASH_TRIP" ? WASH_TRIP : ORDER_TRIP),
+            },
+            {
+                key: "route",
+                type: "select",
+                set: (v) => {
+                    const r = routes.find(route => String(route.id) === String(v) || route.name.toLowerCase() === String(v).toLowerCase());
+                    setSelectedRoute(r || null);
+                },
+                getOptions: () => routes,
+            },
+            {
+                key: "deliveryDate",
+                type: "date",
+                set: (v) => setDeliveryDate(v ? new Date(v) : new Date()),
+            },
+            {
+                key: "deliveryTeam",
+                type: "autocomplete",
+                set: (users) => {
+                    const list = Array.isArray(users) ? users : [users];
+                    const ids = list.map(u => u.id);
+                    setSelectedDriverIds(ids);
+                    const next = { ...rolesByUserId };
+                    ids.forEach((uid, idx) => {
+                        if (!next[uid]) next[uid] = idx === 0 ? 'DRIVER' : 'HELPER';
+                    });
+                    Object.keys(next).forEach((uid) => {
+                        if (!ids.includes(Number(uid)) && !ids.includes(uid)) delete next[uid];
+                    });
+                    setRolesByUserId(next);
+                },
+                getOptions: () => drivers,
+                getElement: () => {
+                    const autocompletes = Array.from(document.querySelectorAll('.MuiAutocomplete-root'));
+                    return autocompletes.find(a => a.querySelector('label')?.textContent?.includes('Delivery Team')) || null;
+                }
+            },
+            {
+                key: "vehicle",
+                type: "select",
+                set: (v) => {
+                    const veh = vehicles.find(veh => String(veh.id) === String(v) || veh.vehicleNumber.toLowerCase() === String(v).toLowerCase());
+                    setVehicle(veh || null);
+                },
+                getOptions: () => vehicles,
+            },
+            {
+                key: "notes",
+                type: "text",
+                set: (v) => setNotes(v),
+            }
+        ],
+        clearAll: resetStateAndClose,
+    }, open);
 
     /* ---------- UI ---------- */
 

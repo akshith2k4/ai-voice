@@ -523,6 +523,7 @@ const filteredTrips = useMemo(() => {
               whiteSpace: "nowrap",
               textTransform: "none",
             }}
+            data-agent-action="create-trip"
           >
             Create Trip
           </Button>

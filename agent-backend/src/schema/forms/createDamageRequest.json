@@ -1,0 +1,111 @@
+{
+  "id": "createDamageRequest",
+  "name": "Create Damage Request",
+  "route": "/damage-assessment",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/damage-assessment"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-damage-request']",
+        "fallbackText": "Create Damage Request"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "[excited] Let's create a Damage Request! Think of this... as logging damaged linen. [friendly] We just link it to a Customer's Order or a Laundry Wash Fulfillment. Let's get started!",
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "requestDate",
+      "label": "Item Damage Request Date",
+      "type": "date",
+      "demoValue": "",
+      "explanation": "[casual] When was the damage reported? Just pick the date."
+    },
+    {
+      "nodeType": "field",
+      "key": "sourceType",
+      "label": "Source Type",
+      "type": "select",
+      "options": [
+        "ORDER",
+        "WASH_FULFILLMENT"
+      ],
+      "demoValue": "ORDER",
+      "explanation": "[curious] Where did this happen? An ORDER for a customer... or a WASH_FULFILLMENT for a laundry vendor? Let's pick ORDER."
+    },
+    {
+      "nodeType": "field",
+      "key": "customer",
+      "label": "Search Customer",
+      "type": "autocomplete",
+      "demoValue": "Charan",
+      "explanation": "[casual] Search for the customer involved. Let's use... Charan."
+    },
+    {
+      "nodeType": "field",
+      "key": "orderDate",
+      "label": "Order Date",
+      "type": "date",
+      "demoValue": "2026-04-16",
+      "explanation": "[casual] Pick the Order Date. This automatically loads their orders for that day."
+    },
+    {
+      "nodeType": "field",
+      "key": "sourceId",
+      "label": "Select Order",
+      "type": "select",
+      "demoValue": "",
+      "explanation": "[casual] Which specific order is this for? If there's only one, it auto-fills!"
+    },
+    {
+      "nodeType": "field",
+      "key": "notes",
+      "label": "Notes / Description",
+      "type": "text",
+      "demoValue": "Linen damaged during transit.",
+      "explanation": "[casual] What EXACTLY happened? Jot down the damage details here."
+    },
+    {
+      "nodeType": "field",
+      "key": "product",
+      "label": "Product",
+      "type": "autocomplete",
+      "demoValue": "SINGLE BED SHEET",
+      "explanation": "[casual] Which product got damaged? Pick it from the list."
+    },
+    {
+      "nodeType": "field",
+      "key": "quantity",
+      "label": "Quantity",
+      "type": "text",
+      "demoValue": "5",
+      "explanation": "[casual] How many items were damaged? Just the number."
+    },
+    {
+      "nodeType": "field",
+      "key": "price",
+      "label": "Price",
+      "type": "text",
+      "demoValue": "150",
+      "explanation": "[casual] And what's the price per item? This helps with billing adjustments."
+    }
+  ],
+  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We logged the damage request. Nothing was saved here... but whenever you're ready, go report a REAL issue. You've got this!",
+  "aliases": [
+    "create damage request",
+    "new damage request",
+    "add damage request",
+    "report damage",
+    "damage request"
+  ],
+  "description": "Walkthrough for creating a new damage request"
+}

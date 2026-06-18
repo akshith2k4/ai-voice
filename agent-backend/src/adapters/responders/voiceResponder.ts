@@ -58,6 +58,8 @@ export class VoiceResponder implements IResponder {
     if (!text) return messageId ?? crypto.randomUUID();
 
     const id = messageId ?? crypto.randomUUID();
+    responseSender.sendRespond(this.send, text, true, id);
+
     const narrationState = { interrupted: false };
     this.activeNarration = narrationState;
 
@@ -70,7 +72,7 @@ export class VoiceResponder implements IResponder {
         const { getPresignedUrl } = await import("../../services/s3Service.js");
         const url = await getPresignedUrl(s3Key);
         if (!narrationState.interrupted) {
-          connectionManager.send(this.sessionId, { type: "tts_audio", url, messageId: id, done: true });
+          this.send({ type: "tts_audio", url, messageId: id, done: true });
         }
         return id;
       }
@@ -83,9 +85,9 @@ export class VoiceResponder implements IResponder {
       await synthesizeStream(text, this.lang, (base64Chunk, isDone) => {
         if (base64Chunk) chunks.push(Buffer.from(base64Chunk, "base64"));
         if (!narrationState.interrupted) {
-          connectionManager.send(this.sessionId, { type: "tts_audio", audio: base64Chunk, messageId: id, done: isDone });
+          this.send({ type: "tts_audio", audio: base64Chunk, messageId: id, done: isDone });
         } else if (isDone) {
-          connectionManager.send(this.sessionId, { type: "tts_audio", audio: "", messageId: id, done: true });
+          this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
         }
         if (isDone && chunks.length > 0) {
           const buf = Buffer.concat(chunks);
@@ -96,7 +98,9 @@ export class VoiceResponder implements IResponder {
       }, this.sessionId);
     } catch (e) {
       console.error(`[VoiceResponder] TTS synthesis failed:`, e);
-      connectionManager.send(this.sessionId, { type: "tts_audio", audio: "", messageId: id, done: true });
+      if (!narrationState.interrupted) {
+        this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
+      }
     }
 
     return id;
@@ -131,7 +135,7 @@ export class VoiceResponder implements IResponder {
     if (this.activeNarration) this.activeNarration.interrupted = true;
     if (this.streamInstance) this.streamInstance.interrupt();
     interruptActiveTTS(this.sessionId);
-    connectionManager.send(this.sessionId, { type: "tool", tool: "stop_audio", args: {} });
+    this.send({ type: "tool", tool: "stop_audio", args: {} });
     if (this.boundSession) {
       this.eventMonitor.rejectPending(this.boundSession, new CancellationError("Narration interrupted"));
     }

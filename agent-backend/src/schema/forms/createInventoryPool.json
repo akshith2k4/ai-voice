@@ -1,0 +1,75 @@
+{
+  "id": "createInventoryPool",
+  "name": "Create Inventory Pool",
+  "route": "/inventory-pool",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/inventory-pool"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-pool']",
+        "fallbackText": "Create Pool"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": "[excited] Let's create an Inventory Pool! Think of this... as a smart group for your products. [friendly] We just need a NAME, a quick description, and to pick the items. Easy!",
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "name",
+      "label": "Pool Name",
+      "type": "text",
+      "demoValue": "voice-demo",
+      "explanation": "[casual] First up, give this pool a NAME. Let's call it... voice-demo."
+    },
+    {
+      "nodeType": "field",
+      "key": "description",
+      "label": "Description",
+      "type": "text",
+      "demoValue": "This is a custom inventory pool created during the voice assistant walkthrough.",
+      "explanation": "[casual] Now, add a quick description. Just a note so everyone knows what this pool is FOR."
+    },
+    {
+      "nodeType": "field",
+      "key": "products",
+      "label": "Select Products",
+      "type": "autocomplete",
+      "demoValue": "SINGLE BED SHEET",
+      "explanation": "[friendly] Time to pick the products! Let's start with... SINGLE BED SHEET."
+    },
+    {
+      "nodeType": "field",
+      "key": "products",
+      "label": "Select Products",
+      "type": "autocomplete",
+      "demoValue": "DOUBLE BED SHEET",
+      "explanation": "[casual] Good, let's add another. How about... DOUBLE BED SHEET."
+    },
+    {
+      "nodeType": "field",
+      "key": "products",
+      "label": "Select Products",
+      "type": "autocomplete",
+      "demoValue": "CHAIR COVER",
+      "explanation": "[casual] And one more to round it out... CHAIR COVER."
+    }
+  ],
+  "wrapUp": "[warm and satisfied] And that's it! [chuckles] You've built your inventory pool. Nothing was saved here... but whenever you're ready, go group your REAL products. You've got this!",
+  "aliases": [
+    "create inventory pool",
+    "new inventory pool",
+    "create pool",
+    "add inventory pool",
+    "new pool"
+  ],
+  "description": "Walkthrough for creating a new inventory pool"
+}

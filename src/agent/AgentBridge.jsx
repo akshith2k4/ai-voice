@@ -79,27 +79,6 @@ export function AgentProvider({ children }) {
 
   const sendMessage = useCallback((message) => wsSendMessage(message), []);
 
-  // ---- Send audio ----
-  const sendAudio = useCallback((audioBlob) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result.split(",")[1];
-      if (!base64 || base64.length === 0) {
-        console.warn("[AgentProvider] Empty audio blob");
-        addMessage("agent", "Audio was empty. Please hold the button longer.");
-        return;
-      }
-      addMessage("user", "[Audio sent]");
-      setIsProcessing(true);
-      sendMessage({ type: "voice", audio: base64 });
-    };
-    reader.onerror = (err) => {
-      console.error("[AgentProvider] Failed to read audio blob:", err);
-      addMessage("agent", "Failed to process audio. Please try again.");
-    };
-    reader.readAsDataURL(audioBlob);
-  }, [sendMessage, addMessage]);
-
   const sendAudioChunk = useCallback(
     (base64Chunk) => sendMessage({ type: "audio_chunk", audio: base64Chunk }),
     [sendMessage]
@@ -123,7 +102,6 @@ export function AgentProvider({ children }) {
 
   const contextValue = {
     sendMessage,
-    sendAudio,
     sendAudioChunk,
     sendAudioEnd,
     connectionStatus,

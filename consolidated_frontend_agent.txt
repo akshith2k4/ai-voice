@@ -1,0 +1,3065 @@
+
+
+================================================================================
+File: AgentOverlay.jsx
+================================================================================
+
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Paper, IconButton, Typography, Box } from "@mui/material";
+import MicIcon from "@mui/icons-material/Mic";
+import MicOffIcon from "@mui/icons-material/MicOff";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import CloseIcon from "@mui/icons-material/Close";
+import { useAgent } from "./AgentBridge";
+import { useAudioRecorder } from "./useAudioRecorder";
+import { audioQueue } from "./AudioQueue";
+import AgentChat from "./AgentChat";
+import { STATUS } from "./protocol";
+import "./spotlight.css";
+
+const STATUS_COLOR = {
+  [STATUS.CONNECTING]:   "#f59e0b",
+  [STATUS.CONNECTED]:    "#10b981",
+  [STATUS.DISCONNECTED]: "#ef4444",
+  [STATUS.RECONNECTING]: "#f59e0b",
+};
+
+export default function AgentOverlay() {
+  const { sendAudioChunk, sendAudioEnd, sendMessage, addMessage, clearMessages, connectionStatus, isAgentSpeaking, isProcessing, isPaused, isWalkthroughActive } = useAgent();
+
+  const [expanded, setExpanded] = useState(false);
+
+  const isConnected = connectionStatus === STATUS.CONNECTED;
+  const canRecord = isConnected && !isProcessing;
+
+  const { isRecording, micPermission, start, stop } = useAudioRecorder({
+    enabled: canRecord,
+    onChunk: sendAudioChunk,
+    onEnd: sendAudioEnd,
+  });
+
+  const handleStart = () => {
+    if (canRecord) {
+      audioQueue.clear();
+      start();
+    }
+  };
+
+  // Collapse when walkthrough starts
+  const prevActiveRef = useRef(false);
+  useEffect(() => {
+    if (isWalkthroughActive && !prevActiveRef.current) setExpanded(false);
+    prevActiveRef.current = isWalkthroughActive;
+  }, [isWalkthroughActive]);
+
+  const handleTextSubmit = useCallback((e) => {
+    e.preventDefault();
+    const text = e.target.elements.message?.value?.trim();
+    if (!text) return;
+    sendMessage({ type: "voice", text });
+    addMessage("user", text);
+    e.target.reset();
+  }, [sendMessage, addMessage]);
+
+  const statusColor = STATUS_COLOR[connectionStatus] || STATUS_COLOR[STATUS.DISCONNECTED];
+  const isSpeaking = isAgentSpeaking && !isRecording;
+  const micState = isRecording ? "recording" : canRecord ? "ready" : "disabled";
+  const micBg = { recording: "#ef4444", ready: "#1e40af", disabled: "#374151" }[micState];
+
+  // ── Collapsed: orb only ──────────────────────────────────────────────────
+  if (!expanded) {
+    return (
+      <Box onClick={() => setExpanded(true)} sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, cursor: "pointer", display: "flex", alignItems: "center", gap: 1 }}>
+        <Box className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""} sx={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: statusColor }} />
+        <Box sx={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {isSpeaking && isWalkthroughActive && (
+            <Box className="siri-glow-aura" sx={{ position: "absolute", top: -3, left: -3, width: 62, height: 62, borderRadius: "50%", background: "linear-gradient(45deg, #a855f7, #3b82f6, #06b6d4, #ec4899)", backgroundSize: "400% 400%", zIndex: 1 }} />
+          )}
+          <Paper elevation={4} className={isSpeaking && isWalkthroughActive ? "siri-orb-glow" : ""} sx={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isConnected ? "#0f172a" : "#374151", color: "#fff", position: "relative", zIndex: 2, transition: "all 0.2s ease", "&:hover": { transform: "scale(1.05)" } }}>
+            <MicIcon sx={{ fontSize: 28 }} />
+          </Paper>
+        </Box>
+      </Box>
+    );
+  }
+
+  // ── Expanded: input panel ────────────────────────────────────────────────
+  return (
+    <Paper elevation={8} sx={{ position: "fixed", bottom: 24, right: 24, width: 320, maxHeight: 440, zIndex: 9999, display: "flex", flexDirection: "column", borderRadius: 3, overflow: "hidden", backgroundColor: "#0f172a", border: "1px solid rgba(255,255,255,0.08)" }}>
+
+      {/* Header */}
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, py: 1.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""} sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: isPaused ? "#f59e0b" : statusColor }} />
+          <Typography variant="caption" sx={{ color: isPaused ? "#f59e0b" : isSpeaking ? "#10b981" : "#94a3b8", fontSize: 12 }}>
+            {isPaused ? "Paused" : isSpeaking ? "Speaking..." : connectionStatus === STATUS.RECONNECTING ? "Reconnecting..." : connectionStatus}
+          </Typography>
+        </Box>
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          <IconButton size="small" onClick={clearMessages} sx={{ color: "#64748b" }} title="Clear messages"><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+          <IconButton size="small" onClick={() => setExpanded(false)} sx={{ color: "#64748b" }} title="Minimize"><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></IconButton>
+        </Box>
+      </Box>
+
+      {/* Chat history */}
+      <AgentChat sx={{ flex: 1, maxHeight: 220, minHeight: 80 }} />
+
+      {/* Text input */}
+      <Box component="form" onSubmit={handleTextSubmit} sx={{ display: "flex", gap: 1, p: 1.5, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+        <input
+          name="message"
+          type="text"
+          placeholder={isConnected ? "Type a command..." : "Disconnected"}
+          disabled={!isConnected}
+          style={{ flex: 1, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 20, fontSize: 14, outline: "none", fontFamily: "inherit", backgroundColor: "rgba(255,255,255,0.05)", color: "white" }}
+        />
+        <button type="submit" disabled={!isConnected} style={{ padding: "4px 12px", backgroundColor: "#1976d2", color: "white", border: "none", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit", opacity: isConnected ? 1 : 0.5 }}>
+          Send
+        </button>
+      </Box>
+
+      {/* Mic */}
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 2, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "rgba(0,0,0,0.2)" }}>
+        {micPermission === "denied" && (
+          <Typography variant="caption" sx={{ color: "#f87171", fontSize: 11, mb: 1, textAlign: "center", px: 2 }}>
+            Microphone access denied. Enable it in browser settings.
+          </Typography>
+        )}
+        <IconButton
+          onMouseDown={(e) => { e.preventDefault(); handleStart(); }}
+          onMouseUp={(e) => { e.preventDefault(); stop(); }}
+          onMouseLeave={() => { if (isRecording) stop(); }}
+          onTouchStart={(e) => { e.preventDefault(); handleStart(); }}
+          onTouchEnd={(e) => { e.preventDefault(); stop(); }}
+          disabled={!canRecord}
+          className={isRecording ? "pulse-mic-animation" : ""}
+          sx={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: micBg, color: "#fff", transition: "all 0.2s ease", "&:hover": { backgroundColor: micBg }, "&:active": { transform: "scale(0.95)" } }}
+        >
+          {canRecord ? <MicIcon sx={{ fontSize: 28 }} /> : <MicOffIcon sx={{ fontSize: 28 }} />}
+        </IconButton>
+        <Typography variant="caption" sx={{ color: "#64748b", fontSize: 11, mt: 1 }}>
+          {isRecording ? "Listening... release to send" : canRecord ? "Hold to speak" : isConnected ? "Processing..." : "Not connected"}
+        </Typography>
+      </Box>
+    </Paper>
+  );
+}
+
+
+================================================================================
+File: protocol.js
+================================================================================
+
+export const STATUS = {
+  CONNECTING: "connecting",
+  CONNECTED: "connected",
+  DISCONNECTED: "disconnected",
+  RECONNECTING: "reconnecting",
+};
+
+export const TIMING = {
+  DIALOG_ANIMATION_MS: 1000,
+  FIELD_RENDER_MS: 500,
+  POLL_INTERVAL_MS: 200,
+  AUTOCOMPLETE_POLL_MS: 300,
+  BUTTON_TIMEOUT_MS: 3000,
+  SELECT_TIMEOUT_MS: 3000,
+  AUTOCOMPLETE_TIMEOUT_MS: 6000,
+  MIN_AUDIO_BYTES: 3072,
+  MSG_QUEUE_MAX: 50,
+  RECONNECT_BASE_DELAY_MS: 1000,
+  RECONNECT_MAX_DELAY_MS: 30000,
+};
+
+export const MESSAGE_TYPES = {
+  TOOL: "tool",
+  TTS_AUDIO: "tts_audio",
+  STATUS_ACK: "status_ack",
+  ERROR: "error",
+  STATUS: "status",
+};
+
+export const STATUS_EVENTS = {
+  DIALOG_OPENED: "dialog_opened",
+  FIELD_REACHED: "field_reached",
+  FIELD_FILLED: "field_filled",
+  ITEM_ADDED: "item_added",
+  CHECKBOX_CLICKED: "checkbox_clicked",
+  FIELDS_CLEARED: "fields_cleared",
+  DIALOG_CLOSED: "dialog_closed",
+  NAVIGATION_COMPLETE: "navigation_complete",
+  TTS_PLAYBACK_COMPLETE: "tts_playback_complete",
+  EXPLAIN_COMPLETE: "explain_complete",
+  WALKTHROUGH_BEGUN: "walkthrough_begun",
+  ITEM_SELECTED: "item_selected",
+  ELEMENT_CLICKED: "element_clicked",
+  FORM_REGISTERED: "form_registered",
+  ERROR: "error",
+};
+
+export const TOOL_TYPES = {
+  NAVIGATE: "navigate",
+  RESPOND: "respond",
+  OPEN_DIALOG: "open_dialog",
+  CLOSE_DIALOG: "close_dialog",
+  GO_TO_FIELD: "go_to_field",
+  FILL_FIELD: "fill_field",
+  EXPLAIN_FIELD: "explain_field",
+  ADD_ITEM: "add_item",
+  CLICK_CHECKBOX: "click_checkbox",
+  CLEAR_ALL_FIELDS: "clear_all_fields",
+  BEGIN_WALKTHROUGH: "begin_walkthrough",
+  START_WALKTHROUGH: "start_walkthrough",
+  RESUME_WALKTHROUGH: "resume_walkthrough",
+  PAUSE_WALKTHROUGH: "pause_walkthrough",
+  CANCEL_WALKTHROUGH: "cancel_walkthrough",
+  SELECT_ITEM: "select_item",
+  CLICK_ELEMENT: "click_element",
+  GET_OPTIONS_COUNT: "get_options_count",
+  FIELD_STEP: "field_step",
+  SPEAK: "speak",
+};
+
+
+================================================================================
+File: wsConnection.js
+================================================================================
+
+import { STATUS_EVENTS, TIMING } from "./protocol";
+
+let ws = null;
+let messageQueue = [];
+let savedUrl = null;
+let intentionalClose = false;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+
+const statusListeners = new Set();
+const messageListeners = new Set();
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+export function onStatusChange(cb) {
+  statusListeners.add(cb);
+  return () => statusListeners.delete(cb);
+}
+
+export function onMessage(cb) {
+  messageListeners.add(cb);
+  return () => messageListeners.delete(cb);
+}
+
+function emitStatus(status) {
+  statusListeners.forEach(cb => cb(status));
+}
+
+function emitMessage(data) {
+  messageListeners.forEach(cb => cb(data));
+}
+
+// ── Connection lifecycle ──────────────────────────────────────────────────────
+
+export function connect(url) {
+  savedUrl = url;
+  intentionalClose = false;
+  _connect();
+}
+
+export function disconnect() {
+  intentionalClose = true;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  ws?.close(1000, "Intentional disconnect");
+  ws = null;
+}
+
+function _connect() {
+  if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
+
+  messageQueue = [];
+  emitStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
+
+  try {
+    ws = new WebSocket(savedUrl);
+  } catch (err) {
+    console.error("[wsConnection] Failed to create WebSocket:", err);
+    messageQueue = [];
+    if (!intentionalClose) {
+      emitStatus("reconnecting");
+      _scheduleReconnect();
+    } else {
+      emitStatus("disconnected");
+    }
+    return;
+  }
+
+  ws.onopen = () => {
+    reconnectAttempts = 0;
+    emitStatus("connected");
+    flushQueue();
+  };
+
+  // Inbound: raw string delivered to messageRouter — no interpretation here
+  ws.onmessage = (event) => {
+    emitMessage(event.data);
+  };
+
+  ws.onclose = (event) => {
+    console.log(`[wsConnection] WebSocket closed (code: ${event.code})`);
+    ws = null;
+    messageQueue = [];
+    if (!intentionalClose) {
+      emitStatus("reconnecting");
+      _scheduleReconnect();
+    } else {
+      emitStatus("disconnected");
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error("[wsConnection] WebSocket error:", err);
+  };
+}
+
+function _scheduleReconnect() {
+  const delay = Math.min(
+    TIMING.RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttempts),
+    TIMING.RECONNECT_MAX_DELAY_MS
+  );
+  console.log(`[wsConnection] Reconnecting in ${delay}ms (attempt ${reconnectAttempts + 1})`);
+  reconnectTimer = setTimeout(() => {
+    reconnectAttempts += 1;
+    _connect();
+  }, delay);
+}
+
+// ── Outbound messages ─────────────────────────────────────────────────────────
+
+function flushQueue() {
+  while (messageQueue.length > 0) {
+    const payload = messageQueue.shift();
+    try {
+      ws.send(payload);
+    } catch (err) {
+      console.error("[wsConnection] Failed to send queued message:", err);
+    }
+  }
+}
+
+export function sendMessage(message) {
+  const payload = JSON.stringify(message);
+  if (ws?.readyState === WebSocket.OPEN) {
+    ws.send(payload);
+    return;
+  }
+  if (message.type !== "audio_chunk") {
+    if (messageQueue.length >= TIMING.MSG_QUEUE_MAX) {
+      messageQueue.shift(); // drop oldest to make room
+    }
+    messageQueue.push(payload);
+  } else {
+    console.warn("[wsConnection] Dropped audio chunk due to disconnect");
+  }
+}
+
+export function sendStatus(event, payload = {}) {
+  sendMessage({ type: "event", name: event, ...payload });
+}
+
+export function sendError(tool, reason, extra = {}) {
+  sendStatus(STATUS_EVENTS.ERROR, { tool, reason, ...extra });
+}
+
+
+================================================================================
+File: formExecutor.js
+================================================================================
+
+import { agentFormRegistry } from "./agentFormRegistry";
+
+export function findRegistryField(form, fieldKey) {
+  const mainField = (form.fields || []).find((f) => f.key === fieldKey);
+  if (mainField) return mainField;
+
+  for (const sf of form.subForms || []) {
+    const subField = (sf.fields || []).find((f) => f.key === fieldKey);
+    if (subField) return subField;
+  }
+
+  return null;
+}
+
+export async function fillRegistryField(formId, fieldKey, value, itemIndex) {
+  const form = agentFormRegistry.get(formId);
+  if (!form) return { success: false, reason: `Form not registered: ${formId}` };
+
+  const field = findRegistryField(form, fieldKey);
+  if (!field) return { success: false, reason: `Field not registered: ${fieldKey}` };
+
+  try {
+    if (itemIndex != null && field.setByIndex) {
+      field.setByIndex(value, itemIndex);
+    } else if (field.set) {
+      field.set(value);
+    } else {
+      return { success: false, reason: `No setter for: ${fieldKey}` };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: err.message };
+  }
+}
+
+export function searchRegistryField(formId, fieldKey, query) {
+  const form = agentFormRegistry.get(formId);
+  if (!form) return;
+
+  const field = findRegistryField(form, fieldKey);
+  if (field?.search) field.search(query);
+}
+
+export async function waitForRegistryOption(formId, fieldKey, searchText, timeout = 6000) {
+  const start = Date.now();
+  const needle = searchText.toLowerCase();
+
+  while (Date.now() - start < timeout) {
+    const form = agentFormRegistry.get(formId);
+    if (!form) return null;
+
+    const field = findRegistryField(form, fieldKey);
+    if (!field?.getOptions) return null;
+
+    const options = field.getOptions();
+    if (Array.isArray(options) && options.length > 0) {
+      const match = options.find((o) => {
+        const label =
+          typeof o === "string"
+            ? o
+            : o.label || o.name || o.customerName || o.productName || String(o);
+        return label.toLowerCase().includes(needle);
+      });
+      if (match) return match;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return null;
+}
+
+export function getRegistryFieldElement(formId, fieldKey, itemIndex) {
+  const form = agentFormRegistry.get(formId);
+  if (!form) return null;
+
+  const field = findRegistryField(form, fieldKey);
+  if (!field?.getElement) return null;
+
+  return field.getElement(itemIndex);
+}
+
+export async function clearRegistryForm(formId) {
+  const form = agentFormRegistry.get(formId);
+  if (!form?.clearAll) return { success: false, reason: "No clearAll handler" };
+  form.clearAll();
+  return { success: true };
+}
+
+export async function addRegistryItem(formId, subFormId) {
+  const form = agentFormRegistry.get(formId);
+  if (!form) return { success: false, reason: `Form not registered: ${formId}` };
+
+  const subForm = (form.subForms || []).find((s) => s.id === subFormId);
+  if (!subForm?.add) return { success: false, reason: `Sub-form not found: ${subFormId}` };
+
+  try {
+    subForm.add();
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: err.message };
+  }
+}
+
+
+================================================================================
+File: CursorManager.js
+================================================================================
+
+import { TIMING } from "./protocol";
+import { audioQueue } from "./AudioQueue";
+
+let cursorEl = null;
+let lastX = window.innerWidth - 100; // Start near the bottom-right, near the overlay
+let lastY = window.innerHeight - 100;
+let inactivityTimeout = null;
+let lastElement = null;
+
+function getOrCreateCursor() {
+  if (cursorEl) return cursorEl;
+
+  cursorEl = document.createElement("div");
+  cursorEl.className = "agent-virtual-cursor";
+  cursorEl.innerHTML = `
+    <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">
+      <path d="M0 0V15.5L4.5 11H13L0 0Z" fill="#0f172a" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  `;
+  document.body.appendChild(cursorEl);
+
+  // Set initial position
+  cursorEl.style.transform = `translate3d(${lastX}px, ${lastY}px, 0)`;
+  cursorEl.style.opacity = "0";
+  return cursorEl;
+}
+
+let clickBuffer = null;
+let clickLoadingPromise = null;
+
+async function loadClickBuffer() {
+  if (clickBuffer) return clickBuffer;
+  if (clickLoadingPromise) return clickLoadingPromise;
+
+  clickLoadingPromise = (async () => {
+    const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (!window.audioContext) {
+      window.audioContext = ctx;
+    }
+    try {
+      const response = await fetch("/sounds/mouse_click_better.mp3");
+      const arrayBuffer = await response.arrayBuffer();
+      clickBuffer = await ctx.decodeAudioData(arrayBuffer);
+      return clickBuffer;
+    } catch (err) {
+      console.warn("[CursorManager] Failed to load click buffer:", err);
+      clickLoadingPromise = null;
+      return null;
+    }
+  })();
+
+  return clickLoadingPromise;
+}
+
+async function playClickSound() {
+  try {
+    const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (!window.audioContext) {
+      window.audioContext = ctx;
+    }
+
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
+    const buffer = await loadClickBuffer();
+    if (!buffer) return;
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  } catch (err) {
+    console.warn("[CursorManager] Failed to play click sound:", err);
+  }
+}
+
+let keystrokeBuffer = null;
+let keystrokeLoadingPromise = null;
+
+async function loadKeystrokeBuffer() {
+  if (keystrokeBuffer) return keystrokeBuffer;
+  if (keystrokeLoadingPromise) return keystrokeLoadingPromise;
+
+  keystrokeLoadingPromise = (async () => {
+    const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (!window.audioContext) {
+      window.audioContext = ctx;
+    }
+    try {
+      const response = await fetch("/sounds/generate-a-single-me-2-1780897822936_p5cVxQ5N.mp3");
+      const arrayBuffer = await response.arrayBuffer();
+      keystrokeBuffer = await ctx.decodeAudioData(arrayBuffer);
+      return keystrokeBuffer;
+    } catch (err) {
+      console.warn("[CursorManager] Failed to load keystroke buffer:", err);
+      keystrokeLoadingPromise = null;
+      return null;
+    }
+  })();
+
+  return keystrokeLoadingPromise;
+}
+
+async function preloadClickSound() {
+  try {
+    await loadClickBuffer();
+    await loadKeystrokeBuffer();
+  } catch (err) {
+    // Ignore initial preload errors
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("click", () => {
+    preloadClickSound();
+    // Ensure context is resumed
+    if (window.audioContext?.state === "suspended") {
+      window.audioContext.resume();
+    }
+  }, { once: true });
+}
+
+function playRipple(x, y, skipSound = false) {
+  const ripple = document.createElement("div");
+  ripple.className = "agent-click-ripple";
+  ripple.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  document.body.appendChild(ripple);
+
+  // Play audio click sound
+  if (!skipSound) {
+    playClickSound();
+  }
+
+  // Remove ripple element after animation finishes
+  setTimeout(() => {
+    ripple.remove();
+  }, 500);
+}
+
+export const CursorManager = {
+  async playSingleKeystroke() {
+    try {
+      const ctx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+      if (!window.audioContext) {
+        window.audioContext = ctx;
+      }
+
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+
+      const buffer = await loadKeystrokeBuffer();
+      if (!buffer) return;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch (err) {
+      console.warn("[CursorManager] Failed to play keystroke:", err);
+    }
+  },
+
+  async playKeystrokeSequence(count = 3) {
+    for (let i = 0; i < count; i++) {
+      this.playSingleKeystroke();
+      const delay = 70 + Math.random() * 45; // Staggered typing speed (70ms - 115ms)
+      await new Promise(r => setTimeout(r, delay));
+    }
+  },
+
+  async animateToAndClick(element, skipSound = false) {
+    if (!element) return;
+
+    const cursor = getOrCreateCursor();
+
+    if (inactivityTimeout) {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = null;
+    }
+
+    // Resolve visual target for better cursor alignment (e.g. for checkboxes, switches, etc.)
+    let targetElement = element;
+
+    // 1. Check if the element contains or is a checkbox/switch
+    const checkboxInput = (element.tagName === "INPUT" && (element.type === "checkbox" || element.classList.contains("MuiCheckbox-input") || element.classList.contains("MuiSwitch-input")))
+      ? element
+      : element.querySelector('input[type="checkbox"], [role="switch"], [role="checkbox"], .MuiSwitch-input, .MuiCheckbox-input');
+
+    if (checkboxInput) {
+      targetElement = checkboxInput.closest(".MuiCheckbox-root") || 
+                      checkboxInput.closest(".MuiSwitch-root") || 
+                      checkboxInput.closest(".MuiButtonBase-root") || 
+                      checkboxInput;
+    } else {
+      // 2. If it's a form control, target the visual input wrapper (MuiInputBase-root)
+      const inputBase = element.querySelector(".MuiInputBase-root");
+      if (inputBase) {
+        targetElement = inputBase;
+      }
+    }
+
+    const rect = targetElement.getBoundingClientRect();
+    const targetX = rect.left + rect.width / 2;
+    const targetY = rect.top + rect.height / 2;
+
+    const isAlreadyAtElement = lastElement === targetElement || 
+      (Math.abs(lastX - targetX) < 2 && Math.abs(lastY - targetY) < 2 && cursor.style.opacity === "1");
+
+    lastElement = targetElement;
+
+    if (isAlreadyAtElement) {
+      // Fast path: cursor is already on the element! Play ripple and proceed quickly.
+      playRipple(targetX, targetY, skipSound);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      return;
+    }
+
+    // Scroll into view if needed
+    targetElement.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    // Wait for the scroll to settle (reduced from 350ms to 120ms)
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    // Recalculate rect in case scrolling moved it
+    const rectAfterScroll = targetElement.getBoundingClientRect();
+    const finalX = rectAfterScroll.left + rectAfterScroll.width / 2;
+    const finalY = rectAfterScroll.top + rectAfterScroll.height / 2;
+
+    // Show the cursor (fade in)
+    cursor.style.opacity = "1";
+
+    // Set translation to animate position
+    cursor.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`;
+
+    // Save position
+    lastX = finalX;
+    lastY = finalY;
+
+    // Wait for travel animation (reduced from 600ms to 250ms to match spotlight.css)
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    // Play click ripple
+    playRipple(finalX, finalY, skipSound);
+
+    // Wait for click visual feedback before proceeding (reduced from 400ms to 120ms)
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    // Set inactivity timeout to hide the cursor if no actions happen for 3s
+    inactivityTimeout = setTimeout(() => {
+      if (cursorEl) {
+        cursorEl.style.opacity = "0";
+      }
+    }, 3000);
+  },
+
+  hide() {
+    if (cursorEl) {
+      cursorEl.style.opacity = "0";
+    }
+    lastElement = null;
+  }
+};
+
+
+================================================================================
+File: WalkthroughEngine.js
+================================================================================
+
+import { executeTool } from "./toolRegistry";
+import { TOOL_TYPES, STATUS_EVENTS } from "./protocol";
+import { SpotlightManager } from "./SpotlightManager";
+import { sendStatus, sendError } from "./wsConnection";
+import { audioQueue } from "./AudioQueue";
+import "./toolHandlers/index";
+
+class WalkthroughEngine {
+  constructor() {
+    this.queue = [];
+    this.executing = false;
+    this.isPaused = false;
+    this.isDetourActive = false;
+    this.activeFormId = null;
+
+    this._setIsPaused = null;
+    this._setIsWalkthroughActive = null;
+    this._addMessage = null;
+    this._clearMessages = null;
+    this._stopAudio = null;
+
+    // messageId → { resolve, reject } fired when that audio finishes/aborts
+    this._audioCompletionHandlers = new Map();
+    // Set of messageIds that finished playing before their handler was registered
+    this._completedAudioMessages = new Set();
+  }
+
+  init({ setIsPaused, setIsWalkthroughActive, addMessage, clearMessages, stopAudio }) {
+    this._setIsPaused = setIsPaused;
+    this._setIsWalkthroughActive = setIsWalkthroughActive;
+    this._addMessage = addMessage;
+    this._clearMessages = clearMessages;
+    this._stopAudio = stopAudio;
+  }
+
+  wireAudio() {
+    const onPlaybackChange = (playing) => {
+      if (!playing && this.isDetourActive) {
+        console.log("[WalkthroughEngine] Detour audio done — auto-resuming.");
+        sendStatus("resume_walkthrough");
+      }
+    };
+
+    const onMessageEnded = (messageId) => {
+      sendStatus(STATUS_EVENTS.TTS_PLAYBACK_COMPLETE, { messageId });
+      const handler = this._audioCompletionHandlers.get(messageId);
+      if (handler) {
+        this._audioCompletionHandlers.delete(messageId);
+        handler.resolve();
+      } else {
+        // Audio finished before handler was registered! Mark as completed.
+        this._completedAudioMessages.add(messageId);
+      }
+    };
+
+    // User interrupted — drop all pending completion handlers so field_done / speak_done are not sent
+    const onCleared = () => {
+      this._audioCompletionHandlers.forEach(({ reject }) => {
+        try {
+          reject(new Error("Audio cleared"));
+        } catch (e) {
+          console.error("[WalkthroughEngine] Error rejecting completion handler:", e);
+        }
+      });
+      this._audioCompletionHandlers.clear();
+      this._completedAudioMessages.clear(); // Reset on barge-in
+    };
+
+    const unsub = audioQueue.onPlaybackChange(onPlaybackChange);
+    audioQueue.onMessageEnded = onMessageEnded;
+    audioQueue.onCleared = onCleared;
+
+    return () => {
+      unsub();
+      if (audioQueue.onMessageEnded === onMessageEnded) audioQueue.onMessageEnded = null;
+      if (audioQueue.onCleared === onCleared) audioQueue.onCleared = null;
+    };
+  }
+
+  // Single entry point for all TTS audio from the backend
+  receiveAudio({ url, base64, messageId, done }) {
+    if (url) audioQueue.enqueueUrl(url, messageId);
+    else if (base64 != null) audioQueue.enqueue(base64, messageId, done);
+  }
+
+  // Register a one-shot callback to fire when a specific audio message finishes
+  onAudioComplete(messageId) {
+    return new Promise((resolve, reject) => {
+      if (this._completedAudioMessages.has(messageId)) {
+        this._completedAudioMessages.delete(messageId);
+        resolve();
+      } else {
+        this._audioCompletionHandlers.set(messageId, { resolve, reject });
+      }
+    });
+  }
+
+  dispatch(tool, args) {
+    if (tool === TOOL_TYPES.PAUSE_WALKTHROUGH) {
+      this.isPaused = true; this._setIsPaused?.(true); return;
+    }
+    if (tool === TOOL_TYPES.RESUME_WALKTHROUGH) {
+      this.isPaused = false; this._setIsPaused?.(false); this._drain(); return;
+    }
+    if (tool === TOOL_TYPES.CANCEL_WALKTHROUGH) {
+      this.queue = [];
+      this.executing = false;
+      this.isPaused = false;
+      this.isDetourActive = false;
+      this.activeFormId = null;
+      this._audioCompletionHandlers.clear();
+      this._setIsPaused?.(false);
+      this._setIsWalkthroughActive?.(false);
+      this._stopAudio?.();
+      this._clearMessages?.();
+      SpotlightManager.clearSpotlight();
+      executeTool(TOOL_TYPES.CLOSE_DIALOG, {}, this._context()).catch(() => {});
+      return;
+    }
+    if (tool === "detour_start") { this.isDetourActive = true; return; }
+    if (tool === "detour_end")   { this.isDetourActive = false; this._drain(); return; }
+
+    if (tool === TOOL_TYPES.BEGIN_WALKTHROUGH || tool === TOOL_TYPES.START_WALKTHROUGH) {
+      this._setIsWalkthroughActive?.(true);
+      if (args?.formId) this.activeFormId = args.formId;
+    }
+    if (tool === "walkthrough_finished") this._setIsWalkthroughActive?.(false);
+
+    this.queue.push({ tool, args });
+    this._drain();
+  }
+
+  _context() {
+    return {
+      add: this._addMessage,
+      formId: this.activeFormId,
+      setActiveFormId: (id) => { this.activeFormId = id; },
+    };
+  }
+
+  _drain() {
+    if (this.executing || this.queue.length === 0 || this.isPaused) return;
+    this.executing = true;
+    const { tool, args } = this.queue.shift();
+    executeTool(tool, args, this._context())
+      .catch(err => {
+        if (err.message?.startsWith("Unknown tool")) {
+          console.log(`[WalkthroughEngine] ${err.message}`);
+        } else {
+          console.error(`[WalkthroughEngine] ${tool}:`, err);
+        }
+        sendError(tool, err.message || String(err));
+      })
+      .finally(() => {
+        this.executing = false;
+        if (this.queue.length > 0) this._drain();
+      });
+  }
+}
+
+export const walkthroughEngine = new WalkthroughEngine();
+
+
+================================================================================
+File: GeneralHandler.js
+================================================================================
+
+import { TOOL_TYPES } from "./protocol";
+import { audioQueue } from "./AudioQueue";
+
+export function handleGeneralTool(tool, args, { addMessage, setIsProcessing, setPendingNavigation }) {
+  if (tool === TOOL_TYPES.RESPOND) {
+    const text = args?.message || "";
+    const tts = args?.tts !== false;
+    if (text.startsWith("You said:")) {
+      const spoken = text.replace(/^You said:\s*"?/, "").replace(/"$/, "");
+      addMessage("user", spoken);
+    } else if (text) {
+      addMessage("agent", text, args?.latency);
+    }
+    if (!tts) setIsProcessing(false);
+    return;
+  }
+  if (tool === TOOL_TYPES.NAVIGATE) {
+    if (args?.route) setPendingNavigation(args.route);
+    return;
+  }
+  if (tool === "stop_audio") {
+    audioQueue.clear();
+    return;
+  }
+  console.log(`[GeneralHandler] Unhandled tool: ${tool}`, args);
+}
+
+
+================================================================================
+File: AudioQueue.js
+================================================================================
+
+export class AudioQueue {
+  constructor() {
+    this.isPlaying = false;
+
+    if (!window.audioContext) {
+      window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    this.audioContext = window.audioContext;
+
+    this.nextPlaybackTime = 0;
+    this._pendingBuffers = new Map();  // messageId -> ArrayBuffer[] (accumulating chunks)
+    this._playing = new Set();         // messageIds currently making sound
+    this._audioElements = new Map();   // messageId -> HTML5 Audio
+    this._audioSources = new Map();    // messageId -> BufferSourceNode
+    this._activeMessages = new Set();  // messageIds enqueued but not yet finished/ended
+    
+    // Playback chain to guarantee sequential playback
+    this.playbackQueue = Promise.resolve();
+
+    // ── Events ────────────────────────────────────────────────────────────────
+    // Caller registers via onPlaybackChange(cb) — supports multiple listeners
+    this._playbackListeners = new Set();
+    // Single callback — only WalkthroughEngine subscribes
+    this.onMessageEnded = null;  // (messageId) => void
+    this.onCleared = null;       // () => void
+  }
+
+  // ── Playback state subscription ───────────────────────────────────────────
+
+  onPlaybackChange(cb) {
+    this._playbackListeners.add(cb);
+    return () => this._playbackListeners.delete(cb);
+  }
+
+  // ── Play URL audio (S3 presigned — HTML5 Audio) ───────────────────────────
+
+  async enqueueUrl(url, messageId) {
+    console.log(`[AudioQueue] enqueueUrl: ${messageId}`);
+    this._activeMessages.add(messageId);
+
+    this.playbackQueue = this.playbackQueue.then(() => new Promise((resolve) => {
+      if (!this._activeMessages.has(messageId)) {
+        resolve();
+        return;
+      }
+
+      const arrivedAt = Date.now();
+      const audio = new Audio(url);
+      this._audioElements.set(messageId, audio);
+      this._onStarted(messageId);
+
+      audio.onended = () => {
+        console.log(`[AudioQueue] url ended: ${messageId} (${Date.now() - arrivedAt}ms)`);
+        this._onEnded(messageId);
+        resolve();
+      };
+      audio.onerror = (err) => {
+        console.error(`[AudioQueue] url error: ${messageId}`, err);
+        this._onEnded(messageId);
+        resolve();
+      };
+      audio.play().catch((err) => {
+        console.error(`[AudioQueue] play() failed: ${messageId}`, err);
+        this._onEnded(messageId);
+        resolve();
+      });
+    }));
+  }
+
+  // ── Play base64 audio (streaming chunks → Web Audio API) ─────────────────
+
+  async enqueue(base64Audio, messageId, done) {
+    if (this.audioContext.state === "suspended") {
+      try { await this.audioContext.resume(); } catch (e) {}
+    }
+    this._activeMessages.add(messageId);
+
+    let arrayBuffer;
+    try {
+      arrayBuffer = await this._base64ToArrayBuffer(base64Audio);
+    } catch (err) {
+      console.error(`[AudioQueue] base64 decode failed: ${messageId}`, err);
+      if (done !== false) this._onEnded(messageId);
+      return;
+    }
+
+    if (!this._pendingBuffers.has(messageId)) this._pendingBuffers.set(messageId, []);
+    if (arrayBuffer.byteLength > 0) this._pendingBuffers.get(messageId).push(arrayBuffer);
+
+    if (done !== false) {
+      const buffers = this._pendingBuffers.get(messageId) || [];
+      this._pendingBuffers.delete(messageId);
+      if (buffers.length === 0) { this._onEnded(messageId); return; }
+
+      const combined = this._concatArrayBuffers(buffers);
+      try {
+        const audioBuffer = await this.audioContext.decodeAudioData(combined);
+        this._schedulePlayback(audioBuffer, messageId);
+      } catch (err) {
+        console.error(`[AudioQueue] decode failed: ${messageId}`, err);
+        this._onEnded(messageId);
+      }
+    }
+  }
+
+  // ── Stop everything ───────────────────────────────────────────────────────
+
+  clear() {
+    this._pendingBuffers.clear();
+    this._activeMessages.clear();
+    this._audioElements.forEach(audio => { try { audio.pause(); } catch (e) {} });
+    this._audioElements.clear();
+    this._audioSources.forEach(source => {
+      source.onended = null;
+      try { source.stop(); } catch (e) {}
+    });
+    this._audioSources.clear();
+    this._playing.clear();
+    this.isPlaying = false;
+    this.nextPlaybackTime = 0;
+    this.playbackQueue = Promise.resolve(); // Reset the playback queue chain
+    this._playbackListeners.forEach(cb => cb(false));
+    this.onCleared?.();
+  }
+
+  // ── Internal ──────────────────────────────────────────────────────────────
+
+  _schedulePlayback(audioBuffer, messageId) {
+    this.playbackQueue = this.playbackQueue.then(() => new Promise((resolve) => {
+      if (!this._activeMessages.has(messageId)) {
+        resolve();
+        return;
+      }
+
+      const source = this.audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.audioContext.destination);
+      this._audioSources.set(messageId, source);
+      this._onStarted(messageId);
+
+      source.onended = () => {
+        console.log(`[AudioQueue] base64 ended: ${messageId}`);
+        this._onEnded(messageId);
+        resolve();
+      };
+
+      source.start(0);
+    }));
+  }
+
+  _onStarted(messageId) {
+    this._playing.add(messageId);
+    if (this._playing.size === 1) {
+      this.isPlaying = true;
+      this._playbackListeners.forEach(cb => cb(true));
+    }
+  }
+
+  _onEnded(messageId) {
+    if (!this._activeMessages.has(messageId)) return;
+    this._activeMessages.delete(messageId);
+
+    const wasPlaying = this._playing.has(messageId);
+    this._playing.delete(messageId);
+    this._audioElements.delete(messageId);
+    this._audioSources.delete(messageId);
+
+    this.onMessageEnded?.(messageId);
+
+    if (wasPlaying && this._playing.size === 0) {
+      this.isPlaying = false;
+      this.nextPlaybackTime = 0;
+      this._playbackListeners.forEach(cb => cb(false));
+    }
+  }
+
+  _concatArrayBuffers(buffers) {
+    const total = buffers.reduce((n, b) => n + b.byteLength, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const b of buffers) { out.set(new Uint8Array(b), offset); offset += b.byteLength; }
+    return out.buffer;
+  }
+
+  async _base64ToArrayBuffer(base64) {
+    const res = await fetch(`data:application/octet-stream;base64,${base64}`);
+    return await res.arrayBuffer();
+  }
+}
+
+export const audioQueue = new AudioQueue();
+
+
+================================================================================
+File: agentFormRegistry.js
+================================================================================
+
+// ============================================
+// Agent Form Registry
+// Global registry where form components expose
+// their state setters. No DOM manipulation.
+// ============================================
+
+class AgentFormRegistry {
+  constructor() {
+    this.forms = new Map();
+  }
+
+  register(formId, api) {
+    this.forms.set(formId, api);
+    console.log(`[AgentRegistry] Registered: ${formId} (${api.fields?.length || 0} fields)`);
+  }
+
+  unregister(formId) {
+    this.forms.delete(formId);
+    console.log(`[AgentRegistry] Unregistered: ${formId}`);
+  }
+
+  has(formId) {
+    return this.forms.has(formId);
+  }
+
+  get(formId) {
+    return this.forms.get(formId);
+  }
+}
+
+export const agentFormRegistry = new AgentFormRegistry();
+
+
+================================================================================
+File: messageRouter.js
+================================================================================
+
+import { MESSAGE_TYPES } from "./protocol";
+import { dispatchTool } from "./ToolRouter";
+import { walkthroughEngine } from "./WalkthroughEngine";
+
+export function routeIncomingMessage(data, { addMessage, setIsProcessing, setPendingNavigation }) {
+  let message;
+  try {
+    message = JSON.parse(data);
+  } catch {
+    console.error("[messageRouter] JSON parse error");
+    return;
+  }
+
+  if (!message || typeof message.type !== "string") {
+    console.warn("[messageRouter] Missing or invalid message type");
+    return;
+  }
+
+  switch (message.type) {
+    case MESSAGE_TYPES.TOOL: {
+      if (typeof message.tool !== "string") {
+        console.warn("[messageRouter] Tool message missing 'tool' string");
+        break;
+      }
+      dispatchTool(message.tool, message.args || {}, { addMessage, setIsProcessing, setPendingNavigation });
+      break;
+    }
+
+    case MESSAGE_TYPES.TTS_AUDIO: {
+      const { audio, url, messageId, done } = message;
+      if (typeof messageId !== "string" && typeof messageId !== "number") {
+        console.warn("[messageRouter] tts_audio missing messageId");
+        break;
+      }
+      if (url) {
+        walkthroughEngine.receiveAudio({ url, messageId });
+      } else if (typeof audio === "string") {
+        walkthroughEngine.receiveAudio({ base64: audio, messageId, done });
+      } else {
+        console.warn("[messageRouter] tts_audio: no url or audio payload");
+      }
+      break;
+    }
+
+    case MESSAGE_TYPES.ERROR:
+      console.error(`[messageRouter] Backend error: ${message.message}`);
+      addMessage("agent", `Error: ${message.message}`);
+      setIsProcessing(false);
+      break;
+
+    case MESSAGE_TYPES.STATUS_ACK:
+      console.log(`[messageRouter] Status ack: ${message.event}`);
+      break;
+
+    default:
+      console.warn(`[messageRouter] Unknown message type: ${message.type}`);
+  }
+}
+
+
+================================================================================
+File: AgentBridge.jsx
+================================================================================
+
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { audioQueue } from "./AudioQueue";
+import { routeIncomingMessage } from "./messageRouter";
+import { connect, disconnect, onStatusChange, onMessage, sendMessage as wsSendMessage } from "./wsConnection";
+import { STATUS } from "./protocol";
+
+export { AgentErrorBoundary } from "./AgentErrorBoundary";
+
+const AgentContext = createContext({
+  sendMessage: () => {},
+  sendAudio: () => {},
+  sendAudioChunk: () => {},
+  sendAudioEnd: () => {},
+  connectionStatus: "disconnected",
+  agentMessages: [],
+  isProcessing: false,
+  isAgentSpeaking: false,
+  clearMessages: () => {},
+  pendingNavigation: null,
+  clearPendingNavigation: () => {},
+  addMessage: () => {},
+  isPaused: false,
+  setIsPaused: () => {},
+  isWalkthroughActive: false,
+  setIsWalkthroughActive: () => {},
+  stopAudio: () => {},
+});
+
+export const useAgent = () => useContext(AgentContext);
+
+export function AgentProvider({ children }) {
+  const [connectionStatus, setConnectionStatus] = useState(STATUS.DISCONNECTED);
+  const [agentMessages, setAgentMessages] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isWalkthroughActive, setIsWalkthroughActive] = useState(false);
+
+  const audioStateRef = useRef({ setIsAgentSpeaking, setIsProcessing });
+  audioStateRef.current = { setIsAgentSpeaking, setIsProcessing };
+
+  // Reset walkthrough state on disconnect
+  useEffect(() => {
+    if (connectionStatus !== STATUS.CONNECTED) {
+      setIsWalkthroughActive(false);
+    }
+  }, [connectionStatus]);
+
+  // Wire audio playback → React state (ref pattern avoids stale closure)
+  useEffect(() => {
+    const unsub = audioQueue.onPlaybackChange((speaking) => {
+      audioStateRef.current.setIsAgentSpeaking(speaking);
+      if (!speaking) audioStateRef.current.setIsProcessing(false);
+    });
+    return () => { unsub(); audioQueue.clear(); };
+  }, []);
+
+  // ---- Message handling ----
+  const addMessage = useCallback((role, text, latency) => {
+    setAgentMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role, text, timestamp: Date.now(), latency },
+    ]);
+  }, []);
+
+  const clearMessages = useCallback(() => {
+    setAgentMessages([]);
+    audioQueue.clear();
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    audioQueue.clear();
+    setIsAgentSpeaking(false);
+    setIsProcessing(false);
+  }, []);
+
+  const clearPendingNavigation = useCallback(() => setPendingNavigation(null), []);
+
+  const sendMessage = useCallback((message) => wsSendMessage(message), []);
+
+  const sendAudioChunk = useCallback(
+    (base64Chunk) => sendMessage({ type: "audio_chunk", audio: base64Chunk }),
+    [sendMessage]
+  );
+
+  const sendAudioEnd = useCallback(() => {
+    setIsProcessing(true);
+    sendMessage({ type: "audio_end" });
+  }, [sendMessage]);
+
+  // ---- WebSocket: subscribe and connect ----
+  useEffect(() => {
+    const wsUrl = import.meta.env.VITE_AGENT_WS_URL || "ws://localhost:3001";
+    const unsubStatus = onStatusChange(setConnectionStatus);
+    const unsubMsg = onMessage((data) =>
+      routeIncomingMessage(data, { addMessage, setIsProcessing, setPendingNavigation })
+    );
+    connect(wsUrl);
+    return () => { disconnect(); unsubStatus(); unsubMsg(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const contextValue = {
+    sendMessage,
+    sendAudioChunk,
+    sendAudioEnd,
+    connectionStatus,
+    agentMessages,
+    isProcessing,
+    isAgentSpeaking,
+    clearMessages,
+    pendingNavigation,
+    clearPendingNavigation,
+    addMessage,
+    isPaused,
+    setIsPaused,
+    isWalkthroughActive,
+    setIsWalkthroughActive,
+    stopAudio,
+  };
+
+  return (
+    <AgentContext.Provider value={contextValue}>
+      {children}
+    </AgentContext.Provider>
+  );
+}
+
+
+================================================================================
+File: useAudioRecorder.js
+================================================================================
+
+import { useRef, useState, useCallback, useEffect } from "react";
+
+function float32To16BitPCM(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0, offset = 0; i < float32Array.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return window.btoa(binary);
+}
+
+export function useAudioRecorder({ onChunk, onEnd, enabled }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [micPermission, setMicPermission] = useState("prompt");
+
+  const streamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const processorRef = useRef(null);
+  const sourceRef = useRef(null);
+  const activeRef = useRef(false);
+
+  const start = useCallback(async () => {
+    if (activeRef.current || !enabled) return;
+    try {
+      if (!streamRef.current) {
+        streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setMicPermission("granted");
+      }
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(streamRef.current);
+      sourceRef.current = source;
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      processor.onaudioprocess = (e) => {
+        if (!activeRef.current) return;
+        const chunk = arrayBufferToBase64(float32To16BitPCM(e.inputBuffer.getChannelData(0)));
+        if (chunk) onChunk(chunk);
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      activeRef.current = true;
+      setIsRecording(true);
+    } catch (err) {
+      if (err.name === "NotAllowedError") setMicPermission("denied");
+      console.error("[useAudioRecorder] start failed:", err);
+    }
+  }, [enabled, onChunk]);
+
+  const stop = useCallback(() => {
+    if (!activeRef.current) return;
+    activeRef.current = false;
+    setIsRecording(false);
+    try {
+      if (processorRef.current) { processorRef.current.onaudioprocess = null; processorRef.current.disconnect(); }
+      sourceRef.current?.disconnect();
+      if (audioContextRef.current?.state !== "closed") audioContextRef.current?.close();
+    } catch (e) {}
+    onEnd();
+  }, [onEnd]);
+
+  useEffect(() => {
+    if (!enabled && activeRef.current) {
+      stop();
+    }
+  }, [enabled, stop]);
+
+  useEffect(() => {
+    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
+  }, []);
+
+  return { isRecording, micPermission, start, stop };
+}
+
+
+================================================================================
+File: AgentChat.jsx
+================================================================================
+
+import { useRef, useEffect, useState } from "react";
+import { Box, Typography } from "@mui/material";
+import { useAgent } from "./AgentBridge";
+
+export default function AgentChat({ sx }) {
+  const { agentMessages, isProcessing } = useAgent();
+  const [showDebug, setShowDebug] = useState(() => {
+    try {
+      return localStorage.getItem("agent_debug") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [agentMessages]);
+
+  const handleDoubleClick = () => {
+    const newVal = !showDebug;
+    setShowDebug(newVal);
+    try {
+      localStorage.setItem("agent_debug", String(newVal));
+    } catch (e) {}
+  };
+
+  return (
+    <Box
+      onDoubleClick={handleDoubleClick}
+      sx={{
+        overflowY: "auto",
+        px: 2,
+        py: 1.5,
+        "&::-webkit-scrollbar": { width: 4 },
+        "&::-webkit-scrollbar-thumb": { backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2 },
+        cursor: "pointer",
+        ...sx,
+      }}
+    >
+      {agentMessages.length === 0 && (
+        <Typography variant="body2" sx={{ color: "#475569", textAlign: "center", mt: 4, fontSize: 13 }}>
+          Hold the mic button and speak to get started
+        </Typography>
+      )}
+
+      {agentMessages.map((msg) => (
+        <Box key={msg.id} sx={{ mb: 1.5, display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+          <Typography variant="caption" sx={{ color: "#475569", fontSize: 10, mb: 0.3, px: 1 }}>
+            {msg.role === "user" ? "You" : "Agent"}
+          </Typography>
+          <Box
+            sx={{
+              px: 1.5, py: 1, borderRadius: 2, maxWidth: "85%",
+              backgroundColor: msg.role === "user" ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.05)",
+              border: msg.role === "user" ? "1px solid rgba(59,130,246,0.2)" : "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <Typography variant="body2" sx={{ color: msg.role === "user" ? "#93c5fd" : "#cbd5e1", fontSize: 13, lineHeight: 1.5, wordBreak: "break-word" }}>
+              {msg.text}
+            </Typography>
+          </Box>
+          {showDebug && msg.latency && (
+            <Box sx={{ mt: 0.5, px: 1, display: "flex", flexWrap: "wrap", gap: 0.8, opacity: 0.85 }}>
+              {[
+                { key: "total", label: "Total", value: msg.latency.total, color: "#34d399", bg: "rgba(16,185,129,0.15)", border: "rgba(16,185,129,0.25)" },
+                { key: "stt",   label: "STT",   value: msg.latency.stt },
+                { key: "llm",   label: "LLM",   value: msg.latency.llm },
+                { key: "tts",   label: "TTS",   value: msg.latency.tts },
+              ].filter(b => b.value > 0).map(b => (
+                <Box key={b.key} sx={{ px: 0.8, py: 0.2, borderRadius: 1, backgroundColor: b.bg || "rgba(255,255,255,0.05)", border: `1px solid ${b.border || "rgba(255,255,255,0.1)"}`, display: "inline-flex", alignItems: "center" }}>
+                  <Typography variant="caption" sx={{ color: b.color || "#94a3b8", fontSize: 9, fontWeight: b.key === "total" ? "bold" : "normal" }}>
+                    {b.label}: {b.value}ms
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
+      ))}
+
+      {isProcessing && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1 }}>
+          <Box sx={{ display: "flex", gap: 0.5, "& span": { width: 6, height: 6, borderRadius: "50%", backgroundColor: "#64748b", animation: "bounce 1.4s infinite ease-in-out" }, "& span:nth-of-type(1)": { animationDelay: "0s" }, "& span:nth-of-type(2)": { animationDelay: "0.2s" }, "& span:nth-of-type(3)": { animationDelay: "0.4s" }, "@keyframes bounce": { "0%, 80%, 100%": { transform: "scale(0.6)", opacity: 0.4 }, "40%": { transform: "scale(1)", opacity: 1 } } }}>
+            <span /><span /><span />
+          </Box>
+          <Typography variant="caption" sx={{ color: "#64748b", fontSize: 12 }}>Processing...</Typography>
+        </Box>
+      )}
+
+      <div ref={endRef} />
+    </Box>
+  );
+}
+
+
+================================================================================
+File: WalkthroughHandler.jsx
+================================================================================
+
+import { useEffect } from "react";
+import { useAgent } from "./AgentBridge";
+import { walkthroughEngine } from "./WalkthroughEngine";
+
+export default function WalkthroughHandler() {
+  const { addMessage, clearMessages, stopAudio, setIsPaused, setIsWalkthroughActive } = useAgent();
+
+  useEffect(() => {
+    walkthroughEngine.init({ setIsPaused, setIsWalkthroughActive, addMessage, clearMessages, stopAudio });
+    return walkthroughEngine.wireAudio();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
+
+
+================================================================================
+File: NavigationHandler.jsx
+================================================================================
+
+import { useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useAgent } from "./AgentBridge";
+import { STATUS_EVENTS } from "./protocol";
+import { sendStatus, sendError } from "./wsConnection";
+
+// ============================================
+// Navigation Handler
+// Lives inside the Router so it can use useNavigate.
+// Watches pendingNavigation from AgentBridge
+// and executes navigation when it changes.
+//
+// Fix: Sends navigation_complete only AFTER
+// location.pathname actually matches the target,
+// plus one animation frame for the DOM to mount.
+// ============================================
+
+export default function NavigationHandler() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { pendingNavigation, clearPendingNavigation } = useAgent();
+  const targetRef = useRef(null);
+
+  // Kick off navigation when pendingNavigation changes
+  useEffect(() => {
+    if (!pendingNavigation) return;
+
+    // Already on the target route → complete immediately
+    if (pendingNavigation === location.pathname) {
+      console.log(`[NavigationHandler] Already on ${location.pathname} — sending navigation_complete`);
+      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname });
+      clearPendingNavigation();
+      return;
+    }
+
+    targetRef.current = pendingNavigation;
+    console.log(`[NavigationHandler] Navigating to: ${pendingNavigation}`);
+    try {
+      navigate(pendingNavigation);
+    } catch (err) {
+      console.error("[NavigationHandler] Route failed:", err);
+      sendError("navigate", `Invalid route: ${pendingNavigation}`);
+      clearPendingNavigation();
+      targetRef.current = null;
+    }
+  }, [pendingNavigation, navigate, location.pathname, clearPendingNavigation]);
+
+  // Report completion after location actually changes to the target
+  useEffect(() => {
+    if (!targetRef.current) return;
+    if (location.pathname !== targetRef.current) return;
+
+    // Wait one frame for DOM to mount after the route change
+    const id = requestAnimationFrame(() => {
+      console.log(`[NavigationHandler] Route confirmed: ${location.pathname} — sending navigation_complete`);
+      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname });
+      clearPendingNavigation();
+      targetRef.current = null;
+    });
+
+    return () => cancelAnimationFrame(id);
+  }, [location.pathname, clearPendingNavigation]);
+
+  return null;
+}
+
+
+================================================================================
+File: spotlight.css
+================================================================================
+
+/* Agent Spotlight Styles */
+
+.agent-spotlight {
+  position: relative;
+  transition: box-shadow 0.3s ease;
+  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.6),
+    0 0 20px rgba(0, 188, 212, 0.3) !important;
+  border-radius: 4px;
+  z-index: 9998;
+}
+
+.agent-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px solid rgba(0, 188, 212, 0.8);
+  border-radius: 6px;
+  pointer-events: none;
+  animation: agent-spotlight-pulse 2s ease-in-out infinite;
+}
+
+@keyframes agent-spotlight-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Pulse Dot Animation for the connection status */
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.pulse-dot-animation {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Pulse Mic Animation for the recording state */
+@keyframes pulse-mic {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
+  }
+}
+
+.pulse-mic-animation {
+  animation: pulse-mic 1.5s ease-in-out infinite;
+}
+
+/* Virtual Cursor Styles */
+.agent-virtual-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  z-index: 10000;
+  pointer-events: none;
+  transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.2s ease;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.agent-click-ripple {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(0, 188, 212, 0.8);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate3d(-50%, -50%, 0);
+  animation: agent-click-ripple-anim 0.5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes agent-click-ripple-anim {
+  0% {
+    transform: translate3d(-50%, -50%, 0) scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-50%, -50%, 0) scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* Siri Glow Aura - spinning & gradient shifting behind the mic orb */
+.siri-glow-aura {
+  animation: siri-gradient-shift 4s ease infinite, siri-pulse-blur 2s ease-in-out infinite;
+}
+
+@keyframes siri-gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes siri-pulse-blur {
+  0%, 100% {
+    transform: scale(1);
+    filter: blur(4px);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.15);
+    filter: blur(8px);
+    opacity: 1;
+  }
+}
+
+/* Siri Orb Glow - subtle edge glow on the orb paper container itself */
+.siri-orb-glow {
+  box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.5),
+              0 0 24px 4px rgba(59, 130, 246, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+
+
+================================================================================
+File: utils.js
+================================================================================
+
+export function wait(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+export function findCheckboxInput(element) {
+  if (!element) return null;
+
+  // If the element itself is the target input or switch
+  if (
+    element.tagName === "INPUT" && 
+    (element.type === "checkbox" || element.classList.contains("MuiSwitch-input") || element.classList.contains("MuiCheckbox-input"))
+  ) {
+    return element;
+  }
+  if (element.getAttribute("role") === "checkbox" || element.getAttribute("role") === "switch") {
+    return element;
+  }
+
+  // 1. Direct query of input or switch in descendants
+  const directInput = element.querySelector('input[type="checkbox"], [role="switch"], [role="checkbox"], .MuiSwitch-input, .MuiCheckbox-input');
+  if (directInput) return directInput;
+
+  // 2. Query in closest label root container (for inputs alongside labels)
+  const labelRoot = element.closest(".MuiFormControlLabel-root") || element.closest("label");
+  if (labelRoot) {
+    const labelInput = labelRoot.querySelector('input[type="checkbox"], [role="switch"], [role="checkbox"], .MuiSwitch-input, .MuiCheckbox-input');
+    if (labelInput) return labelInput;
+  }
+
+  return null;
+}
+
+export function isChecked(element) {
+  if (!element) return false;
+  return element.checked || element.getAttribute("aria-checked") === "true";
+}
+
+export function isTruthyValue(value) {
+  return value === true || value === "true";
+}
+
+
+================================================================================
+File: SpotlightManager.js
+================================================================================
+
+const SPOTLIGHT_CLASS = "agent-spotlight";
+
+export const SpotlightManager = {
+  setSpotlight: (element) => {
+    if (!element) return;
+    SpotlightManager.clearSpotlight();
+    element.classList.add(SPOTLIGHT_CLASS);
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+  },
+
+  clearSpotlight: () => {
+    document
+      .querySelectorAll(`.${SPOTLIGHT_CLASS}`)
+      .forEach((el) => el.classList.remove(SPOTLIGHT_CLASS));
+  }
+};
+
+
+================================================================================
+File: useAgentForm.js
+================================================================================
+
+// ============================================
+// useAgentForm Hook
+// Registers a form's API with the agent registry.
+// Purely additive — no existing logic changed.
+// ============================================
+
+import { useEffect, useRef } from "react";
+import { agentFormRegistry } from "./agentFormRegistry";
+import { sendStatus } from "./wsConnection";
+import { STATUS_EVENTS } from "./protocol";
+
+export function useAgentForm(formId, formApi, enabled = true) {
+  const apiRef = useRef(formApi);
+  apiRef.current = formApi;
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const proxy = {
+      get fields() { return apiRef.current.fields; },
+      get subForms() {
+        if (!apiRef.current.subForms) return undefined;
+        return apiRef.current.subForms.map((sf) => ({
+          id: sf.id,
+          add: () => sf.add?.(),
+          fields: sf.fields ? sf.fields.map((f) => ({ ...f })) : [],
+        }));
+      },
+      clearAll: () => apiRef.current.clearAll?.(),
+    };
+    agentFormRegistry.register(formId, proxy);
+    sendStatus(STATUS_EVENTS.FORM_REGISTERED, { formId });
+    return () => agentFormRegistry.unregister(formId);
+  }, [formId, enabled]);
+}
+
+
+================================================================================
+File: AgentErrorBoundary.jsx
+================================================================================
+
+import React from "react";
+import { Alert, Box, Button } from "@mui/material";
+
+export class AgentErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("[AgentErrorBoundary] Caught error:", error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Box sx={{ p: 2, zIndex: 10000, position: "fixed", bottom: 24, right: 24, maxWidth: 350 }}>
+          <Alert
+            severity="error"
+            action={
+              <Button color="inherit" size="small" onClick={this.handleReset}>
+                Retry
+              </Button>
+            }
+          >
+            Agent Bridge failed: {this.state.error?.message || "Unknown error"}
+          </Alert>
+        </Box>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+
+================================================================================
+File: toolRegistry.js
+================================================================================
+
+const tools = new Map();
+
+export function registerTool(name, handler) {
+  tools.set(name, handler);
+}
+
+export async function executeTool(name, args, context) {
+  const handler = tools.get(name);
+  if (!handler) {
+    throw new Error(`Unknown tool: ${name}`);
+  }
+  return handler(args, context);
+}
+
+
+================================================================================
+File: ToolRouter.js
+================================================================================
+
+import { TOOL_TYPES } from "./protocol";
+import { walkthroughEngine } from "./WalkthroughEngine";
+import { handleGeneralTool } from "./GeneralHandler";
+import { sendError } from "./wsConnection";
+
+const WALKTHROUGH_TOOLS = new Set([
+  TOOL_TYPES.BEGIN_WALKTHROUGH,
+  TOOL_TYPES.START_WALKTHROUGH,
+  TOOL_TYPES.RESUME_WALKTHROUGH,
+  TOOL_TYPES.PAUSE_WALKTHROUGH,
+  TOOL_TYPES.CANCEL_WALKTHROUGH,
+  TOOL_TYPES.FIELD_STEP,
+  TOOL_TYPES.SPEAK,
+  TOOL_TYPES.OPEN_DIALOG,
+  TOOL_TYPES.CLOSE_DIALOG,
+  TOOL_TYPES.GO_TO_FIELD,
+  TOOL_TYPES.FILL_FIELD,
+  TOOL_TYPES.EXPLAIN_FIELD,
+  TOOL_TYPES.ADD_ITEM,
+  TOOL_TYPES.CLICK_CHECKBOX,
+  TOOL_TYPES.CLEAR_ALL_FIELDS,
+  TOOL_TYPES.SELECT_ITEM,
+  TOOL_TYPES.CLICK_ELEMENT,
+  TOOL_TYPES.GET_OPTIONS_COUNT,
+  "detour_start",
+  "detour_end",
+  "walkthrough_finished",
+]);
+
+export function dispatchTool(tool, args, generalContext) {
+  try {
+    if (WALKTHROUGH_TOOLS.has(tool)) {
+      walkthroughEngine.dispatch(tool, args);
+    } else {
+      Promise.resolve(handleGeneralTool(tool, args, generalContext)).catch((err) => {
+        console.error(`[ToolRouter] Error in general tool ${tool}:`, err);
+        sendError(tool, err.message || String(err));
+      });
+    }
+  } catch (err) {
+    console.error(`[ToolRouter] Fatal error executing ${tool}:`, err);
+    sendError(tool, err.message || String(err));
+  }
+}
+
+
+================================================================================
+File: toolHandlers/fieldTools.js
+================================================================================
+
+import { registerTool } from "../toolRegistry";
+import { TOOL_TYPES, STATUS_EVENTS } from "../protocol";
+import * as filler from "../fieldFiller/index";
+import { agentFormRegistry } from "../agentFormRegistry";
+import { fillRegistryField, findRegistryField } from "../formExecutor";
+import { SpotlightManager } from "../SpotlightManager";
+import { sendStatus, sendError } from "../wsConnection";
+import { CursorManager } from "../CursorManager";
+import { walkthroughEngine } from "../WalkthroughEngine";
+
+function getActiveContainer() {
+  const dialogs = document.querySelectorAll(".MuiDialog-paper");
+  if (dialogs.length > 0) {
+    return dialogs[dialogs.length - 1]; // Top-most dialog
+  }
+  return document;
+}
+
+async function fillViaDOM(fieldKey, label, type, value, subFormId, itemIndex) {
+  const container = getActiveContainer();
+  if (type === "autocomplete") {
+    const result = await filler.fillAutocompleteField(fieldKey, label, value, subFormId, itemIndex, container);
+    if (!result.success) throw new Error(result.reason);
+  } else {
+    const result = await filler.fillField(fieldKey, label, type, value, subFormId, itemIndex, container);
+    if (!result.success) throw new Error(result.reason);
+  }
+}
+
+registerTool(TOOL_TYPES.GO_TO_FIELD, async (args, { send, formId }) => {
+  let element = null;
+
+  if (formId && agentFormRegistry.has(formId)) {
+    try {
+      const form = agentFormRegistry.get(formId);
+      if (form) {
+        const field = findRegistryField(form, args.fieldKey);
+        if (field?.getElement) {
+          element = field.getElement(args.itemIndex);
+        }
+      }
+    } catch (e) {
+      console.warn("[WalkthroughHandler] Registry findField failed, falling back to DOM search:", e);
+    }
+  }
+
+  if (!element) {
+    const container = getActiveContainer();
+    element = filler.findField(args.fieldKey, args.label, args.subFormId, args.itemIndex, container);
+  }
+
+  if (element) {
+    await CursorManager.animateToAndClick(element);
+    SpotlightManager.setSpotlight(element);
+  }
+
+  if (formId && agentFormRegistry.has(formId)) {
+    sendStatus(STATUS_EVENTS.FIELD_REACHED, { fieldKey: args.fieldKey });
+  } else if (element) {
+    sendStatus(STATUS_EVENTS.FIELD_REACHED, { fieldKey: args.fieldKey });
+  } else {
+    sendError(TOOL_TYPES.GO_TO_FIELD, `Field not found: ${args.fieldKey || args.label}`);
+  }
+});
+
+registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
+  const { fieldKey, label, type, value, subFormId, itemIndex } = args;
+
+  let element = null;
+  if (formId && agentFormRegistry.has(formId)) {
+    try {
+      const form = agentFormRegistry.get(formId);
+      if (form) {
+        const field = findRegistryField(form, fieldKey);
+        if (field?.getElement) {
+          element = field.getElement(itemIndex);
+        }
+      }
+    } catch (e) {
+      console.warn("[WalkthroughHandler] Registry findField failed, falling back to DOM search:", e);
+    }
+  }
+
+  if (!element) {
+    const container = getActiveContainer();
+    element = filler.findField(fieldKey, label, subFormId, itemIndex, container);
+  }
+
+  const skipFocusClick = type === "text";
+  if (element) {
+    await CursorManager.animateToAndClick(element, skipFocusClick);
+  }
+
+  try {
+    if (formId && agentFormRegistry.has(formId)) {
+      try {
+        if (type === "autocomplete") {
+           const { searchRegistryField, waitForRegistryOption } = await import("../formExecutor");
+           searchRegistryField(formId, fieldKey, value);
+           const match = await waitForRegistryOption(formId, fieldKey, value);
+           if (!match) throw new Error(`No autocomplete results for: ${value}`);
+           const result = await fillRegistryField(formId, fieldKey, match, itemIndex);
+           if (!result.success) throw new Error(result.reason);
+        } else {
+           const result = await fillRegistryField(formId, fieldKey, value, itemIndex);
+           if (!result.success) throw new Error(result.reason);
+           
+           // Play typing sounds for text fields in registry mode
+           if (type === "text") {
+             await CursorManager.playKeystrokeSequence(Math.min(String(value).length, 4));
+           }
+        }
+      } catch (regError) {
+        console.warn(`[WalkthroughHandler] Registry fill failed for ${fieldKey}, falling back to DOM:`, regError);
+        await fillViaDOM(fieldKey, label, type, value, subFormId, itemIndex);
+      }
+    } else {
+      await fillViaDOM(fieldKey, label, type, value, subFormId, itemIndex);
+    }
+
+    sendStatus(STATUS_EVENTS.FIELD_FILLED, { fieldKey, value });
+  } catch (err) {
+    console.error(`[WalkthroughHandler] fill_field failed: ${fieldKey}`, err.message);
+    sendError(TOOL_TYPES.FILL_FIELD, err.message, { fieldKey });
+  }
+});
+
+registerTool(TOOL_TYPES.CLEAR_ALL_FIELDS, async (args, { send, formId }) => {
+  if (formId && agentFormRegistry.has(formId)) {
+    try {
+      const { clearRegistryForm } = await import("../formExecutor");
+      await clearRegistryForm(formId);
+    } catch (regError) {
+      console.warn(`[WalkthroughHandler] Registry clear failed, falling back to DOM clear:`, regError);
+      const container = getActiveContainer();
+      filler.clearAllFields(container);
+    }
+  } else {
+    const container = getActiveContainer();
+    filler.clearAllFields(container);
+  }
+
+  SpotlightManager.clearSpotlight();
+
+  sendStatus(STATUS_EVENTS.FIELDS_CLEARED);
+});
+
+registerTool(TOOL_TYPES.EXPLAIN_FIELD, async (args, { send, add }) => {
+  if (args.text) {
+    add("agent", args.text);
+  }
+  sendStatus(STATUS_EVENTS.EXPLAIN_COMPLETE, { fieldKey: args.fieldKey });
+});
+
+registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
+  const { fieldKey, label, fillValue, fillType, repeatingId, itemIndex, speechMessageId } = args;
+
+  // Navigate to field
+  let element = null;
+  if (formId && agentFormRegistry.has(formId)) {
+    try {
+      const form = agentFormRegistry.get(formId);
+      if (form) {
+        const field = findRegistryField(form, fieldKey);
+        if (field?.getElement) element = field.getElement(itemIndex);
+      }
+    } catch (e) {
+      console.warn("[field_step] Registry findField failed:", e);
+    }
+  }
+  if (!element) {
+    const container = getActiveContainer();
+    element = filler.findField(fieldKey, label, repeatingId, itemIndex, container);
+  }
+  if (element) {
+    await CursorManager.animateToAndClick(element);
+    SpotlightManager.setSpotlight(element);
+  }
+
+  // Fill if value was provided
+  if (fillValue != null && fillType) {
+    try {
+      if (formId && agentFormRegistry.has(formId)) {
+        try {
+          if (fillType === "autocomplete") {
+            const { searchRegistryField, waitForRegistryOption } = await import("../formExecutor");
+            searchRegistryField(formId, fieldKey, fillValue);
+            const match = await waitForRegistryOption(formId, fieldKey, fillValue);
+            if (!match) throw new Error(`No autocomplete results for: ${fillValue}`);
+            const result = await fillRegistryField(formId, fieldKey, match, itemIndex);
+            if (!result.success) throw new Error(result.reason);
+          } else {
+            const result = await fillRegistryField(formId, fieldKey, fillValue, itemIndex);
+            if (!result.success) throw new Error(result.reason);
+            if (fillType === "text") {
+              await CursorManager.playKeystrokeSequence(Math.min(String(fillValue).length, 4));
+            }
+          }
+        } catch (regError) {
+          console.warn(`[field_step] Registry fill failed for ${fieldKey}, falling back to DOM:`, regError);
+          await fillViaDOM(fieldKey, label, fillType, fillValue, repeatingId, itemIndex);
+        }
+      } else {
+        await fillViaDOM(fieldKey, label, fillType, fillValue, repeatingId, itemIndex);
+      }
+    } catch (err) {
+      console.warn(`[field_step] Fill failed for ${fieldKey}:`, err.message);
+    }
+  }
+
+  if (speechMessageId) {
+    try {
+      await walkthroughEngine.onAudioComplete(String(speechMessageId));
+      sendStatus("field_done", { fieldKey });
+    } catch (e) {
+      console.log(`[field_step] Audio interrupted/cleared for ${fieldKey}`);
+    }
+  } else {
+    sendStatus("field_done", { fieldKey });
+  }
+});
+
+// Wait for the exact TTS audio for this speak step, then signal the backend.
+// Uses messageId (included in speak tool args) so we don't react to LLM response TTS
+// or other concurrent audio finishing first.
+registerTool(TOOL_TYPES.SPEAK, async (args) => {
+  const { messageId } = args;
+  if (messageId) {
+    try {
+      await walkthroughEngine.onAudioComplete(String(messageId));
+      sendStatus("walkthrough_speak_done");
+    } catch (e) {
+      console.log(`[speak] Audio interrupted/cleared:`, e.message);
+    }
+  } else {
+    sendStatus("walkthrough_speak_done");
+  }
+});
+
+registerTool(TOOL_TYPES.GET_OPTIONS_COUNT, async (args, { send, formId }) => {
+  let count = 0;
+  if (formId && agentFormRegistry.has(formId)) {
+    const form = agentFormRegistry.get(formId);
+    const field = findRegistryField(form, args.fieldKey);
+    if (field?.getOptions) {
+      const opts = field.getOptions();
+      count = Array.isArray(opts) ? opts.length : 0;
+    }
+  } else {
+    const container = getActiveContainer();
+    const element = filler.findField(args.fieldKey, args.label, args.subFormId, args.itemIndex, container);
+    if (element) {
+      const select = element.querySelector('select') || element;
+      count = select.querySelectorAll('option, [role="option"]').length;
+    }
+  }
+  sendStatus("options_count_retrieved", { fieldKey: args.fieldKey, count });
+});
+
+
+================================================================================
+File: toolHandlers/index.js
+================================================================================
+
+import "./begin_walkthrough";
+import "./fieldTools";
+import "./actionTools";
+
+
+================================================================================
+File: toolHandlers/actionTools.js
+================================================================================
+
+import { registerTool } from "../toolRegistry";
+import { TOOL_TYPES, STATUS_EVENTS, TIMING } from "../protocol";
+import * as filler from "../fieldFiller/index";
+import { agentFormRegistry } from "../agentFormRegistry";
+import { sendStatus, sendError } from "../wsConnection";
+import { wait } from "../utils";
+import { CursorManager } from "../CursorManager";
+
+async function waitForElement(selector, timeout = 3000, interval = 100) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const el = document.querySelector(selector);
+    if (el) return el;
+    await wait(interval);
+  }
+  return null;
+}
+
+registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
+  let success = false;
+
+  if (args.selector) {
+    const el = await waitForElement(args.selector);
+    if (el) {
+      await CursorManager.animateToAndClick(el);
+      el.click();
+      success = true;
+    }
+  }
+
+  if (!success && args.fallbackText) {
+    const result = await filler.clickButton(args.fallbackText);
+    success = result.success;
+  }
+
+  if (success) {
+    await wait(TIMING.DIALOG_ANIMATION_MS); // dialog animation
+
+    // Poll for registry registration
+    if (formId) {
+      const regStart = Date.now();
+      while (!agentFormRegistry.has(formId) && Date.now() - regStart < TIMING.BUTTON_TIMEOUT_MS) {
+        await wait(TIMING.POLL_INTERVAL_MS);
+      }
+      if (agentFormRegistry.has(formId)) {
+        console.log(`[WalkthroughHandler] Form registered: ${formId}`);
+      } else {
+        console.warn(`[WalkthroughHandler] Form not registered after 3s: ${formId} — using DOM fallback`);
+        // Send form_registered anyway to unblock the backend, since the dialog IS open
+        sendStatus(STATUS_EVENTS.FORM_REGISTERED, { formId });
+      }
+    }
+
+    sendStatus(STATUS_EVENTS.DIALOG_OPENED);
+  } else {
+    sendError(TOOL_TYPES.OPEN_DIALOG, `Trigger not found: ${args.selector || args.fallbackText}`);
+  }
+});
+
+registerTool(TOOL_TYPES.CLOSE_DIALOG, async (args, { send }) => {
+  await filler.closeDialog();
+  await wait(TIMING.POLL_INTERVAL_MS);
+  sendStatus(STATUS_EVENTS.DIALOG_CLOSED);
+});
+
+registerTool(TOOL_TYPES.SELECT_ITEM, async (args, { send }) => {
+  let success = false;
+
+  if (args.selector) {
+    const el = await waitForElement(args.selector);
+    if (el) {
+      await CursorManager.animateToAndClick(el);
+      el.click();
+      success = true;
+    }
+  }
+
+  if (!success && args.label) {
+    const rows = document.querySelectorAll("tr, [role='row'], [data-agent-row]");
+    for (const row of rows) {
+      if (row.textContent && row.textContent.includes(args.label)) {
+        await CursorManager.animateToAndClick(row);
+        row.click();
+        success = true;
+        break;
+      }
+    }
+  }
+
+  if (success) {
+    await wait(800); // Let sidebar/drawer open (Wait for render)
+    sendStatus(STATUS_EVENTS.ITEM_SELECTED);
+  } else {
+    sendError(TOOL_TYPES.SELECT_ITEM, `Item not found: ${args.label || args.selector}`);
+  }
+});
+
+registerTool(TOOL_TYPES.CLICK_ELEMENT, async (args, { send }) => {
+  let clicked = false;
+
+  if (args.selector) {
+    const el = await waitForElement(args.selector);
+    if (el) {
+      await CursorManager.animateToAndClick(el);
+      el.click();
+      clicked = true;
+    }
+  }
+
+  if (!clicked && args.fallbackText) {
+    const result = await filler.clickButton(args.fallbackText);
+    clicked = result.success;
+  }
+
+  if (clicked) {
+    await wait(TIMING.FIELD_RENDER_MS);
+    sendStatus(STATUS_EVENTS.ELEMENT_CLICKED);
+  } else {
+    sendError(TOOL_TYPES.CLICK_ELEMENT, `Element not found: ${args.selector || args.fallbackText}`);
+  }
+});
+
+registerTool(TOOL_TYPES.ADD_ITEM, async (args, { send, formId }) => {
+  if (formId && agentFormRegistry.has(formId)) {
+    const { addRegistryItem } = await import("../formExecutor");
+    const result = await addRegistryItem(formId, args.repeatingId);
+    if (!result.success) {
+      sendError(TOOL_TYPES.ADD_ITEM, result.reason);
+      return;
+    }
+  } else {
+    const result = await filler.clickButton(args.triggerText);
+    if (!result.success) {
+      sendError(TOOL_TYPES.ADD_ITEM, result.reason);
+      return;
+    }
+  }
+
+  await wait(TIMING.FIELD_RENDER_MS); // wait for new fields to render
+  sendStatus(STATUS_EVENTS.ITEM_ADDED);
+});
+
+registerTool(TOOL_TYPES.CLICK_CHECKBOX, async (args, { send }) => {
+  const result = await filler.clickCheckbox(args.labelText);
+  if (result.success) {
+    sendStatus(STATUS_EVENTS.CHECKBOX_CLICKED);
+  } else {
+    sendError(TOOL_TYPES.CLICK_CHECKBOX, result.reason);
+  }
+});
+
+
+================================================================================
+File: toolHandlers/begin_walkthrough.js
+================================================================================
+
+import { registerTool } from "../toolRegistry";
+import { TOOL_TYPES, STATUS_EVENTS } from "../protocol";
+import { sendStatus } from "../wsConnection";
+
+registerTool(TOOL_TYPES.BEGIN_WALKTHROUGH, async (args, { send, setActiveFormId }) => {
+  setActiveFormId(args.formId);
+  console.log(`[WalkthroughHandler] Walkthrough started: ${args.formId}`);
+  sendStatus(STATUS_EVENTS.WALKTHROUGH_BEGUN, { formId: args.formId });
+});
+
+
+================================================================================
+File: fieldFiller/fillText.js
+================================================================================
+
+import { setNativeValue } from "./nativeSetValue";
+import { CursorManager } from "../CursorManager";
+
+export async function fillTextField(element, value) {
+  const input = element.querySelector('input:not([type="hidden"]), textarea');
+  if (!input) {
+    return { success: false, reason: "Input not found inside element" };
+  }
+
+  input.focus();
+  await new Promise(r => setTimeout(r, 50)); // Small delay for focus state to settle
+
+  const str = String(value);
+  for (let i = 0; i < str.length; i++) {
+    const partial = str.slice(0, i + 1);
+    setNativeValue(input, partial);
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      data: str[i],
+      inputType: "insertText"
+    }));
+
+    // Play keystroke sound
+    CursorManager.playSingleKeystroke();
+
+    await new Promise(r => setTimeout(r, 60));
+  }
+
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+
+  // For some React versions, we need to blur to trigger final change
+  input.blur();
+
+  element.setAttribute("data-agent-filled", "text");
+  return { success: true };
+}
+
+export function fillDateField(element, value) {
+  const input = element.querySelector('input[type="date"]');
+  if (!input) {
+    // Might be a text input with type="date" rendered differently
+    const textInput = element.querySelector('input:not([type="hidden"])');
+    if (textInput) {
+      textInput.focus();
+      setNativeValue(textInput, String(value));
+      textInput.dispatchEvent(new Event("input", { bubbles: true }));
+      textInput.dispatchEvent(new Event("change", { bubbles: true }));
+      element.setAttribute("data-agent-filled", "date");
+      return { success: true };
+    }
+    return { success: false, reason: "Date input not found" };
+  }
+
+  input.focus();
+  setNativeValue(input, String(value));
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+
+  element.setAttribute("data-agent-filled", "date");
+  return { success: true };
+}
+
+
+================================================================================
+File: fieldFiller/finder.js
+================================================================================
+
+export function findField(fieldKey, label, subFormId, itemIndex, container = document) {
+  let element = null;
+
+  // Strategy 1: Look for data-agent-field attribute
+  if (fieldKey) {
+    element = container.querySelector(`[data-agent-field="${fieldKey}"]`);
+    if (element) {
+      return scrollToElement(element);
+    }
+
+    // Strategy 1.5: Look for name or id attribute (common in MUI/Forms)
+    const input = container.querySelector(`[name="${fieldKey}"]`) || container.querySelector(`[id="${fieldKey}"]`);
+    if (input) {
+      element = input.closest(".MuiFormControl-root") || 
+                input.closest(".MuiAutocomplete-root") || 
+                input.closest(".MuiFormControlLabel-root") || 
+                input;
+      return scrollToElement(element);
+    }
+  }
+
+  // Strategy 2: Find by label text
+  if (label) {
+    element = findFieldByLabel(label, subFormId, itemIndex, container);
+    if (element) {
+      return scrollToElement(element);
+    }
+  }
+
+  return null;
+}
+
+function findFieldByLabel(label, subFormId, itemIndex, container) {
+  // Search inside .MuiDialog-paper (the actual content container)
+  // ONLY if the container is document. Otherwise, search container directly.
+  const root = container === document
+    ? (container.querySelector(".MuiDialog-paper") || container.querySelector('[role="dialog"]') || container)
+    : container;
+
+  if (subFormId !== undefined && subFormId !== null) {
+    return findSubFormField(root, label, subFormId, itemIndex);
+  }
+
+  const labels = root.querySelectorAll("label");
+  const matches = Array.from(labels).filter(
+    (l) => l.textContent.trim() === label
+  );
+
+  if (matches.length === 0) return null;
+
+  if (matches.length === 1) {
+    return (
+      matches[0].closest(".MuiAutocomplete-root") ||
+      matches[0].closest(".MuiFormControl-root") ||
+      matches[0].closest(".MuiFormControlLabel-root")
+    );
+  }
+
+  // Multiple matches — prefer Autocomplete root
+  for (const match of matches) {
+    if (match.closest(".MuiAutocomplete-root")) {
+      return match.closest(".MuiAutocomplete-root");
+    }
+  }
+
+  return (
+    matches[0].closest(".MuiFormControl-root") ||
+    matches[0].closest(".MuiFormControlLabel-root")
+  );
+}
+
+function findSubFormField(root, label, subFormId, itemIndex) {
+  // Find all labels with this text inside the dialog
+  const labels = root.querySelectorAll("label");
+  const matches = Array.from(labels).filter(
+    (l) => l.textContent.trim() === label
+  );
+
+  if (matches.length === 0) return null;
+
+  // Sub-form fields are repeated — the Nth match corresponds to the Nth item (document order)
+  const targetLabel = matches[itemIndex] || matches[0];
+  if (!targetLabel) return null;
+
+  return (
+    targetLabel.closest(".MuiFormControl-root") ||
+    targetLabel.closest(".MuiAutocomplete-root") ||
+    targetLabel.closest(".MuiFormControlLabel-root")
+  );
+}
+
+function scrollToElement(element) {
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+  return element;
+}
+
+
+================================================================================
+File: fieldFiller/index.js
+================================================================================
+
+import { findField as findFieldInternal } from "./finder";
+import { fillTextField, fillDateField } from "./fillText";
+import { fillSelectField } from "./fillSelect";
+import { doFillAutocomplete } from "./fillAutocomplete";
+import { fillToggleField, fillCheckboxField } from "./fillToggle";
+import { setNativeValue } from "./nativeSetValue";
+
+export { clickButton, clickCheckbox } from "./buttonHelper";
+export { closeDialog } from "./dialogHelper";
+
+export function findField(fieldKey, label, subFormId, itemIndex, container = document) {
+  return findFieldInternal(fieldKey, label, subFormId, itemIndex, container);
+}
+
+export async function fillField(fieldKey, label, type, value, subFormId, itemIndex, container = document) {
+  const element = findField(fieldKey, label, subFormId, itemIndex, container);
+  if (!element) {
+    return { success: false, reason: `Field not found: ${fieldKey || label}` };
+  }
+
+  switch (type) {
+    case "text":
+      return fillTextField(element, value);
+    case "date":
+      return fillDateField(element, value);
+    case "select":
+      return await fillSelectField(element, value);
+    case "autocomplete":
+      return { success: false, reason: "Use fillAutocompleteField for autocomplete fields" };
+    case "toggle":
+      return fillToggleField(element, value);
+    case "checkbox":
+      return fillCheckboxField(element, value);
+    default:
+      return { success: false, reason: `Unknown field type: ${type}` };
+  }
+}
+
+export async function fillAutocompleteField(fieldKey, label, value, subFormId, itemIndex, container = document) {
+  const element = findField(fieldKey, label, subFormId, itemIndex, container);
+  if (!element) {
+    return { success: false, reason: `Field not found: ${fieldKey || label}` };
+  }
+
+  return await doFillAutocomplete(element, value);
+}
+
+export function clearAllFields(container) {
+  if (!container) {
+    console.error("[fieldFiller] clearAllFields requires an explicit container.");
+    return { success: false, reason: "Container is required" };
+  }
+
+  const filled = container.querySelectorAll("[data-agent-filled]");
+  let cleared = 0;
+
+  filled.forEach((el) => {
+    const type = el.getAttribute("data-agent-filled");
+
+    if (type === "text" || type === "date") {
+      const input = el.querySelector("input");
+      if (input) {
+        setNativeValue(input, "");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        cleared++;
+      }
+    } else if (type === "select") {
+      const select = el.querySelector('[role="combobox"]');
+      const nativeInput = el.querySelector(".MuiSelect-nativeInput") || el.querySelector("input");
+      if (nativeInput) {
+        setNativeValue(nativeInput, "");
+        nativeInput.dispatchEvent(new Event("input", { bubbles: true }));
+        nativeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (select) {
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        const display = el.querySelector(".MuiSelect-select");
+        if (display) {
+          display.textContent = "";
+        }
+      }
+      cleared++;
+    } else if (type === "autocomplete") {
+      const input = el.querySelector("input");
+      if (input) {
+        setNativeValue(input, "");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        cleared++;
+      }
+    } else if (type === "toggle") {
+      const switchInput = el.querySelector(
+        'input[type="checkbox"], [role="switch"]'
+      );
+      if (switchInput) {
+        const original = el.getAttribute("data-agent-original") === "true";
+        const current =
+          switchInput.checked ||
+          switchInput.getAttribute("aria-checked") === "true";
+        if (current !== original) {
+          switchInput.click();
+          cleared++;
+        }
+      }
+    }
+
+    el.removeAttribute("data-agent-filled");
+  });
+
+  // Also click any delete buttons for sub-form items
+  // Scoped strictly to the active container, and not the full document unless absolutely required.
+  const isDocument = container === document;
+  let deleteButtons = [];
+  if (!isDocument) {
+    deleteButtons = Array.from(
+      container.querySelectorAll('[aria-label="delete item"]')
+    );
+  } else {
+    // If it is document, let's scope to active dialog, form container, or fallback to the document itself
+    const activeForm = document.querySelector(".MuiDialog-paper") || document.querySelector("form") || document;
+    deleteButtons = Array.from(
+      activeForm.querySelectorAll('[aria-label="delete item"]')
+    );
+  }
+
+  // Delete in reverse order so indices don't shift
+  deleteButtons.reverse().forEach((btn) => {
+    btn.click();
+    cleared++;
+  });
+
+  return { success: true, cleared };
+}
+
+
+================================================================================
+File: fieldFiller/fillSelect.js
+================================================================================
+
+export async function fillSelectField(element, value) {
+  const selectTrigger = element.querySelector('[role="combobox"], .MuiSelect-select');
+  if (!selectTrigger) {
+    return { success: false, reason: "Select trigger not found" };
+  }
+
+  // Get the specific menu ID this select controls
+  const menuId = selectTrigger.getAttribute("aria-controls");
+
+  // Open the dropdown
+  selectTrigger.click();
+
+  return new Promise((resolve) => {
+    const timeout = 3000;
+    const start = Date.now();
+    const poll = () => {
+      // Find THIS select's specific menu by ID
+      const menu = menuId ? document.getElementById(menuId) : null;
+      if (menu) {
+        const options = menu.querySelectorAll('[role="option"], .MuiMenuItem-root');
+        const match = Array.from(options).find(o => {
+          const text = o.textContent.trim();
+          return text.toUpperCase() === String(value).toUpperCase() ||
+                 text.replace(/\s+/g, '').toUpperCase() === String(value).replace(/\s+/g, '').toUpperCase();
+        });
+        if (match) {
+          match.click();
+          element.setAttribute("data-agent-filled", "select");
+          return resolve({ success: true });
+        }
+      }
+      if (Date.now() - start < timeout) {
+        setTimeout(poll, 100);
+      } else {
+        document.body.click();
+        resolve({ success: false, reason: `Option "${value}" not found` });
+      }
+    };
+    setTimeout(poll, 150);
+  });
+}
+
+
+================================================================================
+File: fieldFiller/fillAutocomplete.js
+================================================================================
+
+import { setNativeValue } from "./nativeSetValue";
+import { TIMING } from "../protocol";
+import { CursorManager } from "../CursorManager";
+
+export async function doFillAutocomplete(element, value) {
+  const root = element.closest(".MuiAutocomplete-root") || element;
+  const input = root.querySelector("input");
+  if (!input) {
+    return { success: false, reason: "Autocomplete input not found" };
+  }
+
+  // Focus and open
+  input.focus();
+  input.click();
+  await new Promise(r => setTimeout(r, 50));
+
+  // Clear first
+  setNativeValue(input, "");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+
+  // Type character by character to trigger debounce + API
+  const str = String(value);
+  for (let i = 0; i < str.length; i++) {
+    const partial = str.slice(0, i + 1);
+    setNativeValue(input, partial);
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      data: str[i],
+      inputType: "insertText"
+    }));
+
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  // Wait for options
+  const option = await pollForAutocompleteOption(str);
+  if (!option) {
+    console.error(`[fieldFiller] Autocomplete option not found for value "${value}".`);
+    input.blur();
+    return { success: false, reason: `Autocomplete option not found for value: ${value}` };
+  }
+
+  option.click();
+  element.setAttribute("data-agent-filled", "autocomplete");
+  return { success: true };
+}
+
+async function pollForAutocompleteOption(searchValue) {
+  const start = Date.now();
+  const needle = searchValue.toLowerCase();
+
+  while (Date.now() - start < TIMING.AUTOCOMPLETE_TIMEOUT_MS) {
+    await new Promise(r => setTimeout(r, TIMING.AUTOCOMPLETE_POLL_MS));
+
+    const listbox = document.querySelector('[role="listbox"]');
+    if (!listbox) continue;
+
+    const options = Array.from(listbox.querySelectorAll('[role="option"], li'));
+    if (options.length === 0) continue;
+
+    const match = options.find(o =>
+      o.textContent.toLowerCase().includes(needle)
+    );
+    if (match) return match;
+  }
+  return null;
+}
+
+
+================================================================================
+File: fieldFiller/fillToggle.js
+================================================================================
+
+import { findCheckboxInput, isChecked, isTruthyValue } from "../utils";
+
+export function fillToggleField(element, value) {
+  // Use shared helper to find input
+  const switchInput = findCheckboxInput(element);
+
+  // Last resort: find the MuiSwitch-root and click it
+  if (!switchInput) {
+    const switchRoot = element.querySelector(".MuiSwitch-root") || 
+                       element.closest(".MuiSwitch-root");
+    if (switchRoot) {
+      switchRoot.click();
+      element.setAttribute("data-agent-filled", "toggle");
+      return { success: true };
+    }
+  }
+
+  if (!switchInput) {
+    return { success: false, reason: "Toggle input not found" };
+  }
+
+  const currentChecked = isChecked(switchInput);
+  const wantChecked = isTruthyValue(value);
+
+  if (currentChecked !== wantChecked) {
+    switchInput.click();
+  }
+
+  element.setAttribute("data-agent-filled", "toggle");
+  element.setAttribute("data-agent-original", String(currentChecked));
+  return { success: true };
+}
+
+export function fillCheckboxField(element, value) {
+  const checkbox = findCheckboxInput(element);
+  if (!checkbox) {
+    return { success: false, reason: "Checkbox not found" };
+  }
+
+  const currentChecked = isChecked(checkbox);
+  const wantChecked = isTruthyValue(value);
+
+  if (currentChecked !== wantChecked) {
+    checkbox.click();
+  }
+
+  element.setAttribute("data-agent-filled", "toggle");
+  element.setAttribute("data-agent-original", String(currentChecked));
+  return { success: true };
+}
+
+
+================================================================================
+File: fieldFiller/nativeSetValue.js
+================================================================================
+
+export function setNativeValue(element, value) {
+  const setter = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(element), "value"
+  )?.set;
+  if (setter) {
+    setter.call(element, value);
+  } else {
+    element.value = value;
+  }
+}
+
+
+================================================================================
+File: fieldFiller/dialogHelper.js
+================================================================================
+
+import { CursorManager } from "../CursorManager";
+
+export async function closeDialog() {
+  const closeBtn = document.querySelector(
+    '.MuiDialog-root [aria-label="close"], .MuiDialog-root [aria-label="Close"]'
+  );
+  if (closeBtn) {
+    await CursorManager.animateToAndClick(closeBtn);
+    closeBtn.click();
+    return { success: true };
+  }
+
+  const cancelBtn = Array.from(
+    document.querySelectorAll(".MuiDialog-root button")
+  ).find((b) => b.textContent.trim() === "Cancel");
+
+  if (cancelBtn) {
+    await CursorManager.animateToAndClick(cancelBtn);
+    cancelBtn.click();
+    return { success: true };
+  }
+
+  return { success: false, reason: "No dialog close control found" };
+}
+
+
+
+================================================================================
+File: fieldFiller/buttonHelper.js
+================================================================================
+
+import { TIMING } from "../protocol";
+import { findCheckboxInput } from "../utils";
+import { CursorManager } from "../CursorManager";
+
+export async function clickButton(text, timeout = TIMING.BUTTON_TIMEOUT_MS) {
+  const start = Date.now();
+
+  while (Date.now() - start < timeout) {
+    const buttons = document.querySelectorAll("button");
+    const search = text.toLowerCase();
+    
+    // Try exact match first
+    const exact = Array.from(buttons).find(b =>
+      b.textContent.trim().toLowerCase() === search
+    );
+    let chosen = exact;
+    
+    if (!chosen) {
+      // Fuzzy fallback with strict word boundaries
+      const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const fuzzyCandidates = Array.from(buttons).filter((b) => {
+        const content = b.textContent.trim().toLowerCase();
+        const regex = new RegExp("\\b" + escapeRegExp(search) + "\\b", "i");
+        return regex.test(content);
+      });
+      if (fuzzyCandidates.length > 0) {
+        // Sort to select the shortest text string (highest similarity)
+        fuzzyCandidates.sort((a, b) => a.textContent.trim().length - b.textContent.trim().length);
+        chosen = fuzzyCandidates[0];
+        console.warn(`[fieldFiller] clickButton: Fuzzy match used instead of exact match for "${text}". Matched: "${chosen.textContent.trim()}"`);
+      }
+    }
+
+    if (chosen) {
+      await CursorManager.animateToAndClick(chosen);
+      chosen.click();
+      return { success: true };
+    }
+
+    await new Promise(r => setTimeout(r, TIMING.POLL_INTERVAL_MS));
+  }
+
+  return { success: false, reason: `Button not found: ${text}` };
+}
+
+export async function clickCheckbox(labelText) {
+  const labels = Array.from(document.querySelectorAll("label"));
+  const match = labels.find((l) =>
+    l.textContent.toLowerCase().includes(labelText.toLowerCase())
+  );
+  if (!match) {
+    return { success: false, reason: `Checkbox not found: ${labelText}` };
+  }
+
+  const checkbox = findCheckboxInput(match);
+  if (checkbox) {
+    await CursorManager.animateToAndClick(checkbox);
+    checkbox.click();
+    return { success: true };
+  }
+  return { success: false, reason: `Checkbox input not found: ${labelText}` };
+}
+

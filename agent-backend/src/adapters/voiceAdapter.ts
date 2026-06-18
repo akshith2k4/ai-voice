@@ -13,6 +13,7 @@ import { VoiceResponder } from "./responders/voiceResponder.js";
 import { EventMonitor } from "../walkthrough/eventMonitor.js";
 import { walkthroughExecutor } from "../walkthrough/executor.js";
 import { processText } from "../core/flowController.js";
+import { synthesizeStream } from "../services/ttsService.js";
 
 // Shared EventMonitor — used by all VoiceResponders in this process
 const statusAwaiter = new EventMonitor();
@@ -27,8 +28,17 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
 
     if (message.type === "audio_end") {
       await startTracking(async () => {
-        const stt = await sttService.handleAudioEnd(sessionId);
-        await afterSTT(stt, context);
+        try {
+          const stt = await sttService.handleAudioEnd(sessionId);
+          await afterSTT(stt, context);
+        } catch (error) {
+          console.error("[VoiceAdapter] STT error:", error);
+          const msg = "Sorry, I had trouble hearing you. Please try again.";
+          const messageId = responseSender.sendRespond(context.send, msg, true, undefined, getLatency());
+          synthesizeStream(msg, "en", (base64, done) => {
+            context.send({ type: "tts_audio", audio: base64, messageId, done });
+          }, sessionId).catch(err => console.error(err));
+        }
       });
       return;
     }
@@ -49,9 +59,18 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
     if (msg.audio) {
       await startTracking(async () => {
         const sttStart = Date.now();
-        const stt = await sttService.transcribeAudio(msg.audio!);
-        recordStt(Date.now() - sttStart);
-        await afterSTT(stt, context);
+        try {
+          const stt = await sttService.transcribeAudio(msg.audio!);
+          recordStt(Date.now() - sttStart);
+          await afterSTT(stt, context);
+        } catch (error) {
+          console.error("[VoiceAdapter] STT error:", error);
+          const msgText = "Sorry, I had trouble hearing you. Please try again.";
+          const messageId = responseSender.sendRespond(context.send, msgText, true, undefined, getLatency());
+          synthesizeStream(msgText, "en", (base64, done) => {
+            context.send({ type: "tts_audio", audio: base64, messageId, done });
+          }, sessionId).catch(err => console.error(err));
+        }
       });
     }
   } catch (error) {
@@ -65,11 +84,13 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
 
   if (!stt.text) {
     const count = (emptyRetries.get(sessionId) || 0) + 1;
-    if (count < MAX_EMPTY_RETRIES) {
+    if (count <= MAX_EMPTY_RETRIES) {
       emptyRetries.set(sessionId, count);
       const msg = "I didn't catch that, could you repeat?";
-      responseSender.sendRespond(send, msg, true, undefined, getLatency());
-      makeResponder(context).speak(msg);
+      const messageId = responseSender.sendRespond(send, msg, true, undefined, getLatency());
+      synthesizeStream(msg, "en", (base64, done) => {
+        context.send({ type: "tts_audio", audio: base64, messageId, done });
+      }, sessionId).catch(err => console.error(err));
     } else {
       emptyRetries.delete(sessionId);
     }
@@ -116,13 +137,7 @@ export function interruptTTS(sessionId: string): void {
 
   // Pause the walkthrough if it's actively running
   if (session) {
-    const state = session.stateMachine.currentState;
-    if (state !== "DETOUR_QA" && state !== "PAUSED") {
-      console.log(`[VoiceAdapter] Barge-in — pausing walkthrough for ${sessionId}`);
-      try { session.stateMachine.transition("PAUSE"); } catch (e) {
-        console.warn("[VoiceAdapter] Failed to pause state machine:", e);
-      }
-    }
+    walkthroughExecutor.pause(sessionId);
   }
 }
 

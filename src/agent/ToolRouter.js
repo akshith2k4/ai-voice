@@ -1,6 +1,7 @@
 import { TOOL_TYPES } from "./protocol";
 import { walkthroughEngine } from "./WalkthroughEngine";
 import { handleGeneralTool } from "./GeneralHandler";
+import { sendError } from "./wsConnection";
 
 const WALKTHROUGH_TOOLS = new Set([
   TOOL_TYPES.BEGIN_WALKTHROUGH,
@@ -27,9 +28,17 @@ const WALKTHROUGH_TOOLS = new Set([
 ]);
 
 export function dispatchTool(tool, args, generalContext) {
-  if (WALKTHROUGH_TOOLS.has(tool)) {
-    walkthroughEngine.dispatch(tool, args);
-  } else {
-    handleGeneralTool(tool, args, generalContext);
+  try {
+    if (WALKTHROUGH_TOOLS.has(tool)) {
+      walkthroughEngine.dispatch(tool, args);
+    } else {
+      Promise.resolve(handleGeneralTool(tool, args, generalContext)).catch((err) => {
+        console.error(`[ToolRouter] Error in general tool ${tool}:`, err);
+        sendError(tool, err.message || String(err));
+      });
+    }
+  } catch (err) {
+    console.error(`[ToolRouter] Fatal error executing ${tool}:`, err);
+    sendError(tool, err.message || String(err));
   }
 }

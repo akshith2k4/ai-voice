@@ -224,22 +224,26 @@ export function getFieldContext(
   fieldKey: string
 ): FieldNode | null {
   const schema = getSchema(formId);
-  return findFieldInNodes(schema.nodes, fieldKey);
+  const { matchedField } = findFieldInNodes(schema.nodes, fieldKey);
+  return matchedField || null;
 }
 
-function findFieldInNodes(nodes: SchemaNode[], fieldKey: string): FieldNode | null {
+export function findFieldInNodes(
+  nodes: SchemaNode[],
+  targetKey: string
+): { matchedField: FieldNode | undefined; repeatingId: string | null } {
   for (const node of nodes) {
-    if (node.nodeType === "field" && node.key === fieldKey) return node;
+    if (node.nodeType === "field" && node.key === targetKey) return { matchedField: node, repeatingId: null };
     if (node.nodeType === "group") {
-      const found = findFieldInNodes(node.children, fieldKey);
-      if (found) return found;
+      const found = findFieldInNodes(node.children, targetKey);
+      if (found.matchedField) return found;
     }
     if (node.nodeType === "repeating") {
-      const found = findFieldInNodes(node.children, fieldKey);
-      if (found) return found;
+      const found = findFieldInNodes(node.children, targetKey);
+      if (found.matchedField) return { matchedField: found.matchedField, repeatingId: node.id };
     }
   }
-  return null;
+  return { matchedField: undefined, repeatingId: null };
 }
 
 function countNodes(nodes: SchemaNode[], nodeType: string): number {

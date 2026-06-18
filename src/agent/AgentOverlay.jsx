@@ -6,6 +6,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import CloseIcon from "@mui/icons-material/Close";
 import { useAgent } from "./AgentBridge";
 import { useAudioRecorder } from "./useAudioRecorder";
+import { audioQueue } from "./AudioQueue";
 import AgentChat from "./AgentChat";
 import { STATUS } from "./protocol";
 import "./spotlight.css";
@@ -30,6 +31,13 @@ export default function AgentOverlay() {
     onChunk: sendAudioChunk,
     onEnd: sendAudioEnd,
   });
+
+  const handleStart = () => {
+    if (canRecord) {
+      audioQueue.clear();
+      start();
+    }
+  };
 
   // Collapse when walkthrough starts
   const prevActiveRef = useRef(false);
@@ -78,7 +86,7 @@ export default function AgentOverlay() {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Box className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""} sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: isPaused ? "#f59e0b" : statusColor }} />
           <Typography variant="caption" sx={{ color: isPaused ? "#f59e0b" : isSpeaking ? "#10b981" : "#94a3b8", fontSize: 12 }}>
-            {isPaused ? "Paused" : isSpeaking ? "Speaking..." : connectionStatus}
+            {isPaused ? "Paused" : isSpeaking ? "Speaking..." : connectionStatus === STATUS.RECONNECTING ? "Reconnecting..." : connectionStatus}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 0.5 }}>
@@ -112,10 +120,10 @@ export default function AgentOverlay() {
           </Typography>
         )}
         <IconButton
-          onMouseDown={(e) => { e.preventDefault(); start(); }}
+          onMouseDown={(e) => { e.preventDefault(); handleStart(); }}
           onMouseUp={(e) => { e.preventDefault(); stop(); }}
           onMouseLeave={() => { if (isRecording) stop(); }}
-          onTouchStart={(e) => { e.preventDefault(); start(); }}
+          onTouchStart={(e) => { e.preventDefault(); handleStart(); }}
           onTouchEnd={(e) => { e.preventDefault(); stop(); }}
           disabled={!canRecord}
           className={isRecording ? "pulse-mic-animation" : ""}

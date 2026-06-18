@@ -46,6 +46,8 @@ registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
         console.log(`[WalkthroughHandler] Form registered: ${formId}`);
       } else {
         console.warn(`[WalkthroughHandler] Form not registered after 3s: ${formId} — using DOM fallback`);
+        // Send form_registered anyway to unblock the backend, since the dialog IS open
+        sendStatus(STATUS_EVENTS.FORM_REGISTERED, { formId });
       }
     }
 
