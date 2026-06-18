@@ -1136,7 +1136,7 @@ export async function processText(
     const messageId = (responder as any).getStreamMessageId?.() ?? crypto.randomUUID();
     responder.onComplete(rawContent, messageId);
 
-    if (rawContent && toolCalls.length === 0) {
+    if (rawContent) {
       const interrupted = await responder.waitForPlayback(messageId, rawContent, 8000);
       if (interrupted) return;
     }
@@ -1155,9 +1155,6 @@ export async function processText(
         return;
       }
 
-      if (rawContent) {
-        responder.interrupt();
-      }
       await toolDispatcher.dispatch(toolCalls, sessionId, lang, responder, !!rawContent);
     }
   });
@@ -1692,19 +1689,27 @@ export class WalkthroughExecutor {
       if (state === "DETOUR_QA") {
         session.stateMachine.transition("DETOUR_COMPLETE");
         this.tool(session, "detour_end", {});
-        this.sendNext(session);
+        const waitingFor = session.waitingFor;
+        if (waitingFor === "field_done" || waitingFor === "walkthrough_speak_done") {
+          this.replayCurrent(session);
+        } else if (waitingFor === "item_added" || waitingFor === "checkbox_clicked") {
+          session.waitingFor = null;
+          this.sendNext(session);
+        } else {
+          this.sendNext(session);
+        }
       } else if (state === "PAUSED") {
         session.stateMachine.transition("RESUME");
         
         // SAFETY CHECK: If we were waiting for a UI action (not just speech),
         // it's safer to advance than to re-execute and cause duplicates.
         const waitingFor = session.waitingFor;
-        if (waitingFor === "field_done" || waitingFor === "item_added" || waitingFor === "checkbox_clicked") {
+        if (waitingFor === "item_added" || waitingFor === "checkbox_clicked") {
           console.log(`[Executor] Resume detected UI action wait (${waitingFor}). Advancing to prevent duplicate execution.`);
           session.waitingFor = null;
           this.sendNext(session);
         } else {
-          // If it was waiting for speech, safe to replay
+          // If it was waiting for speech or field_done, safe to replay
           this.replayCurrent(session);
         }
       } else {
@@ -1820,6 +1825,11 @@ export class WalkthroughExecutor {
     if (!session) return;
     if (event === "dialog_closed_by_user" || event === "page_changed") {
       this.cancel(sessionId);
+    } else if (event === "field_changed") {
+      if (data && typeof data.fieldKey === "string") {
+        console.log(`[Executor] Updating filledValues for ${data.fieldKey} to ${data.value}`);
+        session.filledValues.set(data.fieldKey, data.value);
+      }
     } else if (event === "form_registered") {
       session.isRegistered = true;
       const sm1 = session.stateMachine.currentState;
@@ -5309,7 +5319,7 @@ export async function handleAudioChunk(sessionId: string, base64Chunk: string): 
 
   if (!session) {
     // Skip leading silence — don't allocate buffer until speech starts.
-    // Require sustained amplitude (e.g. 3 consecutive chunks above threshold)
+    // Require sustained amplitude (e.g. 2 consecutive chunks above threshold, or 1 immediate very loud chunk > 0.2)
     let amp: number;
     try { amp = peakAmplitude(buf); } catch { return; }
     
@@ -5323,8 +5333,11 @@ export async function handleAudioChunk(sessionId: string, base64Chunk: string): 
         tracker.chunks.push(buf);
       }
       
-      if (tracker.count >= 3) {
-        console.log(`[STT] Speech start for ${sessionId} (sustained amp over 3 chunks, latest: ${amp.toFixed(4)})`);
+      const isVeryLoud = amp > 0.2;
+      const requiredCount = isVeryLoud ? 1 : 2;
+      
+      if (tracker.count >= requiredCount) {
+        console.log(`[STT] Speech start for ${sessionId} (${isVeryLoud ? "immediate very loud chunk" : "sustained amp over 2 chunks"}, latest: ${amp.toFixed(4)})`);
         session = { chunks: [...tracker.chunks], speechDetected: true };
         activeSessions.set(sessionId, session);
         loudTrackers.delete(sessionId);
@@ -5453,12 +5466,13 @@ const activeStreams = new Map<string, SessionStream>();
 class SessionStream {
   private buffer = "";
   private scanPosition = 0;
-  private sentenceQueue: Array<{ text: string; isLast: boolean }> = [];
+  private sentenceQueue: Array<{ text: string; isLast: boolean; addedAt: number }> = [];
   private processing = false;
   private allPushed = false;
   private firstChunkReceived = false;
   private interrupted = false;
   private readonly ttsStart = Date.now();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly sessionId: string,
@@ -5476,11 +5490,19 @@ class SessionStream {
     this.processQueue();
   }
 
+  private clearFlushTimer(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+  }
+
   finish(): void {
+    this.clearFlushTimer();
     this.allPushed = true;
     const remaining = this.buffer.trim();
     if (remaining) {
-      this.sentenceQueue.push({ text: remaining, isLast: true });
+      this.sentenceQueue.push({ text: remaining, isLast: true, addedAt: Date.now() });
       this.buffer = "";
     } else if (this.sentenceQueue.length > 0) {
       this.sentenceQueue[this.sentenceQueue.length - 1].isLast = true;
@@ -5494,6 +5516,7 @@ class SessionStream {
     this.interrupted = true;
     this.sentenceQueue = [];
     this.buffer = "";
+    this.clearFlushTimer();
     this.onStop();
     activeStreams.delete(this.sessionId);
   }
@@ -5517,7 +5540,7 @@ class SessionStream {
         continue;
       }
 
-      this.sentenceQueue.push({ text: sentence, isLast: false });
+      this.sentenceQueue.push({ text: sentence, isLast: false, addedAt: Date.now() });
       this.buffer = this.buffer.substring(matchIdx + match[0].length);
       this.scanPosition = 0;
     }
@@ -5536,10 +5559,23 @@ class SessionStream {
   // so we know whether to mark it isLast before sending to the provider.
   private async drainQueue(): Promise<void> {
     while (this.sentenceQueue.length > 0) {
-      if (this.interrupted) { this.sentenceQueue = []; break; }
-      if (!this.allPushed && this.sentenceQueue.length === 1) break;
+      if (this.interrupted) { this.sentenceQueue = []; this.clearFlushTimer(); break; }
+      
+      if (!this.allPushed && this.sentenceQueue.length === 1) {
+        const elapsed = Date.now() - this.sentenceQueue[0].addedAt;
+        if (elapsed < 1500) {
+          if (!this.flushTimer) {
+            this.flushTimer = setTimeout(() => {
+              this.flushTimer = null;
+              this.processQueue();
+            }, 1500 - elapsed);
+          }
+          break;
+        }
+      }
 
       const item = this.sentenceQueue.shift()!;
+      this.clearFlushTimer();
       await this.synthesize(item.text, item.isLast);
     }
 

@@ -32,10 +32,85 @@ export default function AgentOverlay() {
     onEnd: sendAudioEnd,
   });
 
-  const handleStart = () => {
-    if (canRecord) {
+  const isRecordingRef = useRef(isRecording);
+  const canRecordRef = useRef(canRecord);
+  const isSpacePressedRef = useRef(false);
+  const isRecordingStartedBySpaceRef = useRef(false);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  useEffect(() => {
+    canRecordRef.current = canRecord;
+  }, [canRecord]);
+
+  const handleStart = useCallback(() => {
+    if (canRecordRef.current) {
       audioQueue.clear();
       start();
+    }
+  }, [start]);
+
+  useEffect(() => {
+    const isTextInput = (target) => {
+      if (!target) return false;
+      const tagName = target.tagName;
+      return (
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        target.closest?.('[contenteditable="true"]')
+      );
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.code === "Space") {
+        if (isTextInput(e.target)) return;
+        e.preventDefault();
+        if (e.repeat) return;
+
+        isSpacePressedRef.current = true;
+        if (canRecordRef.current && !isRecordingRef.current) {
+          isRecordingStartedBySpaceRef.current = true;
+          handleStart();
+        }
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.code === "Space") {
+        if (isTextInput(e.target)) return;
+        e.preventDefault();
+        isSpacePressedRef.current = false;
+        if (isRecordingRef.current && isRecordingStartedBySpaceRef.current) {
+          stop();
+          isRecordingStartedBySpaceRef.current = false;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [stop, handleStart]);
+
+  useEffect(() => {
+    if (isRecording && !isSpacePressedRef.current && isRecordingStartedBySpaceRef.current) {
+      stop();
+      isRecordingStartedBySpaceRef.current = false;
+    }
+  }, [isRecording, stop]);
+
+  const handleMicClick = () => {
+    if (isRecording) {
+      stop();
+    } else if (canRecord) {
+      handleStart();
     }
   };
 
@@ -120,19 +195,21 @@ export default function AgentOverlay() {
           </Typography>
         )}
         <IconButton
-          onMouseDown={(e) => { e.preventDefault(); handleStart(); }}
-          onMouseUp={(e) => { e.preventDefault(); stop(); }}
-          onMouseLeave={() => { if (isRecording) stop(); }}
-          onTouchStart={(e) => { e.preventDefault(); handleStart(); }}
-          onTouchEnd={(e) => { e.preventDefault(); stop(); }}
-          disabled={!canRecord}
+          onClick={handleMicClick}
+          disabled={!canRecord && !isRecording}
           className={isRecording ? "pulse-mic-animation" : ""}
           sx={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: micBg, color: "#fff", transition: "all 0.2s ease", "&:hover": { backgroundColor: micBg }, "&:active": { transform: "scale(0.95)" } }}
         >
           {canRecord ? <MicIcon sx={{ fontSize: 28 }} /> : <MicOffIcon sx={{ fontSize: 28 }} />}
         </IconButton>
         <Typography variant="caption" sx={{ color: "#64748b", fontSize: 11, mt: 1 }}>
-          {isRecording ? "Listening... release to send" : canRecord ? "Hold to speak" : isConnected ? "Processing..." : "Not connected"}
+          {isRecording
+            ? "Listening... click or release to send"
+            : canRecord
+            ? "Click to speak or hold Spacebar"
+            : isConnected
+            ? "Processing..."
+            : "Not connected"}
         </Typography>
       </Box>
     </Paper>

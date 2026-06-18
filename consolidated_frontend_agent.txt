@@ -233,6 +233,7 @@ let savedUrl = null;
 let intentionalClose = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
+let disconnectTimer = null;
 
 const statusListeners = new Set();
 const messageListeners = new Set();
@@ -260,6 +261,10 @@ function emitMessage(data) {
 // ── Connection lifecycle ──────────────────────────────────────────────────────
 
 export function connect(url) {
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
   savedUrl = url;
   intentionalClose = false;
   _connect();
@@ -268,8 +273,12 @@ export function connect(url) {
 export function disconnect() {
   intentionalClose = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  ws?.close(1000, "Intentional disconnect");
-  ws = null;
+  if (disconnectTimer) clearTimeout(disconnectTimer);
+  disconnectTimer = setTimeout(() => {
+    ws?.close(1000, "Intentional disconnect");
+    ws = null;
+    disconnectTimer = null;
+  }, 100);
 }
 
 function _connect() {
@@ -1421,15 +1430,19 @@ export function useAudioRecorder({ onChunk, onEnd, enabled }) {
       audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(streamRef.current);
       sourceRef.current = source;
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      processor.onaudioprocess = (e) => {
+
+      await audioContext.audioWorklet.addModule("/audio-processor.js");
+      const workletNode = new AudioWorkletNode(audioContext, "audio-recorder-processor");
+      processorRef.current = workletNode;
+
+      workletNode.port.onmessage = (e) => {
         if (!activeRef.current) return;
-        const chunk = arrayBufferToBase64(float32To16BitPCM(e.inputBuffer.getChannelData(0)));
+        const chunk = arrayBufferToBase64(float32To16BitPCM(e.data));
         if (chunk) onChunk(chunk);
       };
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+
+      source.connect(workletNode);
+      workletNode.connect(audioContext.destination);
       activeRef.current = true;
       setIsRecording(true);
     } catch (err) {
@@ -1443,7 +1456,14 @@ export function useAudioRecorder({ onChunk, onEnd, enabled }) {
     activeRef.current = false;
     setIsRecording(false);
     try {
-      if (processorRef.current) { processorRef.current.onaudioprocess = null; processorRef.current.disconnect(); }
+      if (processorRef.current) {
+        if (processorRef.current.port) {
+          processorRef.current.port.onmessage = null;
+        } else {
+          processorRef.current.onaudioprocess = null;
+        }
+        processorRef.current.disconnect();
+      }
       sourceRef.current?.disconnect();
       if (audioContextRef.current?.state !== "closed") audioContextRef.current?.close();
     } catch (e) {}
@@ -1898,7 +1918,55 @@ export function useAgentForm(formId, formApi, enabled = true) {
     };
     agentFormRegistry.register(formId, proxy);
     sendStatus(STATUS_EVENTS.FORM_REGISTERED, { formId });
-    return () => agentFormRegistry.unregister(formId);
+
+    const handleFieldChange = (e) => {
+      const target = e.target;
+      if (!target) return;
+
+      const name = target.name || target.id;
+      const value = target.type === "checkbox" ? target.checked : target.value;
+
+      let matchedKey = null;
+      const fields = apiRef.current?.fields || [];
+      for (const field of fields) {
+        if (field.getElement) {
+          try {
+            const el = field.getElement();
+            if (el && (el === target || el.contains(target))) {
+              matchedKey = field.key;
+              break;
+            }
+          } catch (err) {}
+        }
+        if (name) {
+          const keyLower = field.key.toLowerCase();
+          const nameLower = name.toLowerCase();
+          if (
+            field.key === name ||
+            name === `${field.key}Id` ||
+            name === `${field.key}Name` ||
+            nameLower === keyLower ||
+            nameLower === `${keyLower}id` ||
+            nameLower === `${keyLower}name`
+          ) {
+            matchedKey = field.key;
+            break;
+          }
+        }
+      }
+
+      if (matchedKey) {
+        console.log(`[useAgentForm] Field changed: ${matchedKey} =`, value);
+        sendStatus("field_changed", { fieldKey: matchedKey, value });
+      }
+    };
+
+    document.addEventListener("change", handleFieldChange, true);
+
+    return () => {
+      agentFormRegistry.unregister(formId);
+      document.removeEventListener("change", handleFieldChange, true);
+    };
   }, [formId, enabled]);
 }
 
@@ -2117,6 +2185,16 @@ registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
     await CursorManager.animateToAndClick(element, skipFocusClick);
   }
 
+  if (type === "autocomplete" && element) {
+    const input = element.querySelector("input");
+    if (input && input.value && input.value.trim().toLowerCase() === String(value).trim().toLowerCase()) {
+      console.log(`[fill_field] Autocomplete already has target value: "${value}". Skipping fill.`);
+      element.setAttribute("data-agent-filled", "autocomplete");
+      sendStatus(STATUS_EVENTS.FIELD_FILLED, { fieldKey, value });
+      return;
+    }
+  }
+
   try {
     if (formId && agentFormRegistry.has(formId)) {
       try {
@@ -2205,6 +2283,26 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
 
   // Fill if value was provided
   if (fillValue != null && fillType) {
+    if (fillType === "autocomplete" && element) {
+      const input = element.querySelector("input");
+      if (input && input.value && input.value.trim().toLowerCase() === String(fillValue).trim().toLowerCase()) {
+        console.log(`[field_step] Autocomplete already has target value: "${fillValue}". Skipping fill.`);
+        element.setAttribute("data-agent-filled", "autocomplete");
+        
+        if (speechMessageId) {
+          try {
+            await walkthroughEngine.onAudioComplete(String(speechMessageId));
+            sendStatus("field_done", { fieldKey });
+          } catch (e) {
+            console.log(`[field_step] Audio interrupted/cleared for ${fieldKey}`);
+          }
+        } else {
+          sendStatus("field_done", { fieldKey });
+        }
+        return;
+      }
+    }
+
     try {
       if (formId && agentFormRegistry.has(formId)) {
         try {
@@ -2833,6 +2931,12 @@ export async function doFillAutocomplete(element, value) {
   const input = root.querySelector("input");
   if (!input) {
     return { success: false, reason: "Autocomplete input not found" };
+  }
+
+  if (input.value && input.value.trim().toLowerCase() === String(value).trim().toLowerCase()) {
+    console.log(`[fieldFiller] Autocomplete already has target value: "${value}". Skipping fill.`);
+    element.setAttribute("data-agent-filled", "autocomplete");
+    return { success: true };
   }
 
   // Focus and open
