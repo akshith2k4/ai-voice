@@ -38,18 +38,27 @@ function* createTreeWalker(schema: FormSchema, session: WalkthroughSession): Gen
     };
   }
 
+  const lang = session.languageCode || "en";
+  const overviewText = typeof schema.overview === "string"
+    ? schema.overview
+    : (schema.overview?.[lang] || schema.overview?.["en"] || "");
+
   // Overview — frontend handler awaits this specific audio then sends walkthrough_speak_done
   yield {
-    tools: [{ tool: "speak", args: { text: schema.overview } }],
+    tools: [{ tool: "speak", args: { text: overviewText } }],
     waitFor: "walkthrough_speak_done",
   };
 
   // Main nodes
   yield* traverseNodes(schema.nodes, session);
 
+  const wrapUpText = typeof schema.wrapUp === "string"
+    ? schema.wrapUp
+    : (schema.wrapUp?.[lang] || schema.wrapUp?.["en"] || "");
+
   // Wrap-up
   yield {
-    tools: [{ tool: "speak", args: { text: schema.wrapUp } }],
+    tools: [{ tool: "speak", args: { text: wrapUpText } }],
     waitFor: "walkthrough_speak_done",
   };
 
@@ -86,10 +95,15 @@ function* traverseField(
   const demoValue = resolveDemoValue(node, session.filledValues);
   const canFill = !node.readOnly && !node.autoFilled && demoValue != null;
 
+  const lang = session.languageCode || "en";
+  const speechText = typeof node.explanation === "string"
+    ? node.explanation
+    : (node.explanation?.[lang] || node.explanation?.["en"] || "");
+
   const stepArgs: Record<string, unknown> = {
     fieldKey: node.key,
     label: node.label,
-    speech: node.explanation || "",
+    speech: speechText,
   };
 
   if (canFill) {
@@ -137,10 +151,14 @@ function* traverseRepeating(
   }
 
   // Normal path: add N items
+  const lang = session.languageCode || "en";
   for (let itemIndex = 0; itemIndex < node.demoItemCount; itemIndex++) {
-    const speech = itemIndex === 0 ? node.explanation : node.explanationForMultiple;
+    const rawSpeech = itemIndex === 0 ? node.explanation : node.explanationForMultiple;
+    const speech = typeof rawSpeech === "string"
+      ? rawSpeech
+      : (rawSpeech?.[lang] || rawSpeech?.["en"] || "");
     yield {
-      tools: [{ tool: "add_item", args: { repeatingId: node.id, triggerText: node.triggerText, speech: speech || "" } }],
+      tools: [{ tool: "add_item", args: { repeatingId: node.id, triggerText: node.triggerText, speech } }],
       waitFor: "item_added",
     };
     yield* traverseNodes(node.children, session, { id: node.id, itemIndex });

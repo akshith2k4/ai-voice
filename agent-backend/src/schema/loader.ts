@@ -20,12 +20,12 @@ export interface FieldNode {
   autoFilled?: boolean;
   demoValue: unknown;
   options?: string[];
-  explanation: string;
+  explanation: Record<string, string>;
   tips?: string;
   pauseAfterExplain?: number;
   pauseAfterFill?: number;
   waitAfterFillMs?: number;
-  commonQuestions?: Array<{ question: string; answer: string }>;
+  commonQuestions?: Array<{ question: string; answer: Record<string, string> }>;
   branching?: boolean;
   exploration?: string;
   affects?: string[];
@@ -59,8 +59,8 @@ export interface RepeatingNode {
   autoPopulatedTrigger?: { field: string; description: string };
   fallbackManual?: { triggerText: string; description: string };
   demoItemCount: number;
-  explanation?: string;
-  explanationForMultiple?: string;
+  explanation?: Record<string, string>;
+  explanationForMultiple?: Record<string, string>;
   copyFrom?: {
     subFormId: string;
     whenFieldEquals?: { field: string; value: string };
@@ -86,9 +86,9 @@ export interface FormSchema {
   aliases?: string[];
   description?: string;
   setupSteps: SetupStep[];
-  overview: string;
+  overview: Record<string, string>;
   nodes: SchemaNode[];
-  wrapUp: string;
+  wrapUp: Record<string, string>;
   prerequisites?: Array<{
     type: string;
     formId?: string;
@@ -280,8 +280,17 @@ function validateSchema(parsed: unknown): FormSchema {
     throw new SchemaValidationError(formId, "route", "Missing or invalid 'route'");
   }
 
-  if (!schema.overview || typeof schema.overview !== "string") {
+  if (!schema.overview || (typeof schema.overview !== "string" && typeof schema.overview !== "object")) {
     throw new SchemaValidationError(formId, "overview", "Missing or invalid 'overview'");
+  }
+
+  if (typeof schema.overview === "string") {
+    schema.overview = { en: schema.overview };
+  } else {
+    const overviewObj = schema.overview as Record<string, unknown>;
+    if (!overviewObj.en || typeof overviewObj.en !== "string") {
+      throw new SchemaValidationError(formId, "overview", "overview object must contain at least 'en' key");
+    }
   }
 
   if (!Array.isArray(schema.setupSteps) || schema.setupSteps.length === 0) {
@@ -295,8 +304,19 @@ function validateSchema(parsed: unknown): FormSchema {
   // Validate each node recursively
   validateNodes(schema.nodes, formId, "nodes");
 
-  // Warn about missing wrapUp
-  if (!schema.wrapUp || typeof schema.wrapUp !== "string") {
+  // Warn about missing wrapUp or normalize it
+  if (schema.wrapUp !== undefined && schema.wrapUp !== null) {
+    if (typeof schema.wrapUp === "string") {
+      schema.wrapUp = { en: schema.wrapUp };
+    } else if (typeof schema.wrapUp !== "object") {
+      throw new SchemaValidationError(formId, "wrapUp", "Invalid 'wrapUp' — must be a string or a language object");
+    } else {
+      const wrapUpObj = schema.wrapUp as Record<string, unknown>;
+      if (!wrapUpObj.en || typeof wrapUpObj.en !== "string") {
+        throw new SchemaValidationError(formId, "wrapUp", "wrapUp object must contain at least 'en' key");
+      }
+    }
+  } else {
     console.warn(
       `[SchemaLoader] ⚠️ ${formId}: Missing 'wrapUp' — agent will use default message`
     );
@@ -385,11 +405,56 @@ function validateField(
     );
   }
 
-  // Warn about missing explanation
-  if (!f.explanation || typeof f.explanation !== "string") {
+  // Warn about missing explanation or normalize it
+  if (f.explanation === undefined || f.explanation === null) {
     console.warn(
       `[SchemaLoader] ⚠️ ${formId}: Field '${f.key}' has no explanation — LLM will generate one`
     );
+  } else {
+    if (typeof f.explanation === "string") {
+      f.explanation = { en: f.explanation };
+    } else if (typeof f.explanation !== "object") {
+      throw new SchemaValidationError(
+        formId,
+        `${path}.explanation`,
+        `explanation for field '${f.key}' must be a string or a language object`
+      );
+    } else {
+      const expObj = f.explanation as Record<string, unknown>;
+      if (!expObj.en || typeof expObj.en !== "string") {
+        throw new SchemaValidationError(
+          formId,
+          `${path}.explanation`,
+          `explanation object for field '${f.key}' must contain at least 'en' key`
+        );
+      }
+    }
+  }
+
+  // Normalize commonQuestions answers
+  if (f.commonQuestions && Array.isArray(f.commonQuestions)) {
+    for (let i = 0; i < f.commonQuestions.length; i++) {
+      const cq = f.commonQuestions[i] as any;
+      if (cq && cq.answer !== undefined && cq.answer !== null) {
+        if (typeof cq.answer === "string") {
+          cq.answer = { en: cq.answer };
+        } else if (typeof cq.answer !== "object") {
+          throw new SchemaValidationError(
+            formId,
+            `${path}.commonQuestions[${i}].answer`,
+            "commonQuestion answer must be a string or a language object"
+          );
+        } else {
+          if (!cq.answer.en || typeof cq.answer.en !== "string") {
+            throw new SchemaValidationError(
+              formId,
+              `${path}.commonQuestions[${i}].answer`,
+              "commonQuestion answer object must contain at least 'en' key"
+            );
+          }
+        }
+      }
+    }
   }
 
   // Warn about missing demoValue for non-readonly fields
@@ -417,6 +482,32 @@ function validateRepeating(
 
   if (!sf.name || typeof sf.name !== "string") {
     throw new SchemaValidationError(formId, `${path}.name`, "Missing or invalid 'name'");
+  }
+
+  if (sf.explanation !== undefined && sf.explanation !== null) {
+    if (typeof sf.explanation === "string") {
+      sf.explanation = { en: sf.explanation };
+    } else if (typeof sf.explanation !== "object") {
+      throw new SchemaValidationError(formId, `${path}.explanation`, "explanation must be a string or a language object");
+    } else {
+      const expObj = sf.explanation as Record<string, unknown>;
+      if (!expObj.en || typeof expObj.en !== "string") {
+        throw new SchemaValidationError(formId, `${path}.explanation`, "explanation object must contain at least 'en' key");
+      }
+    }
+  }
+
+  if (sf.explanationForMultiple !== undefined && sf.explanationForMultiple !== null) {
+    if (typeof sf.explanationForMultiple === "string") {
+      sf.explanationForMultiple = { en: sf.explanationForMultiple };
+    } else if (typeof sf.explanationForMultiple !== "object") {
+      throw new SchemaValidationError(formId, `${path}.explanationForMultiple`, "explanationForMultiple must be a string or a language object");
+    } else {
+      const expObj = sf.explanationForMultiple as Record<string, unknown>;
+      if (!expObj.en || typeof expObj.en !== "string") {
+        throw new SchemaValidationError(formId, `${path}.explanationForMultiple`, "explanationForMultiple object must contain at least 'en' key");
+      }
+    }
   }
 
   if (sf.repeatable !== true && sf.repeatable !== false) {

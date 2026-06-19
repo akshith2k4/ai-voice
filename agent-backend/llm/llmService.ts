@@ -36,7 +36,7 @@ export async function* streamLLM(
   if (activeSession) {
     const nav = activeSession.currentNav;
     const currentField = nav ? findFieldInNodes(activeSession.schema.nodes, nav.fieldKey).matchedField : undefined;
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField);
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField, activeSession.languageCode || "en");
     console.log(`[LLMService] Active walkthrough — using walkthrough prompt`);
   }
 

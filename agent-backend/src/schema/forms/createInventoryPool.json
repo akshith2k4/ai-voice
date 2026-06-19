@@ -20,7 +20,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "[excited] Let's create an Inventory Pool! Think of this... as a smart group for your products. [friendly] We just need a NAME, a quick description, and to pick the items. Easy!",
+  "overview": {
+    "en": "[excited] Let's create an Inventory Pool! Think of this... as a smart group for your products. [friendly] We just need a NAME, a quick description, and to pick the items. Easy!",
+    "hi": "[excited] चलिए एक Inventory Pool बनाते हैं! इसे... अपने products के लिए एक स्मार्ट group की तरह सोचिए। [friendly] हमें बस एक NAME, एक छोटी description चाहिए, और items को select करना है। आसान है!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -28,7 +31,10 @@
       "label": "Pool Name",
       "type": "text",
       "demoValue": "voice-demo",
-      "explanation": "[casual] First up, give this pool a NAME. Let's call it... voice-demo."
+      "explanation": {
+        "en": "[casual] First up, give this pool a NAME. Let's call it... voice-demo.",
+        "hi": "[casual] सबसे पहले, इस pool को एक NAME दें। चलिए इसे... voice-demo कहते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -36,7 +42,10 @@
       "label": "Description",
       "type": "text",
       "demoValue": "This is a custom inventory pool created during the voice assistant walkthrough.",
-      "explanation": "[casual] Now, add a quick description. Just a note so everyone knows what this pool is FOR."
+      "explanation": {
+        "en": "[casual] Now, add a quick description. Just a note so everyone knows what this pool is FOR.",
+        "hi": "[casual] अब, एक छोटी description जोड़ें। बस एक note ताकि सबको पता चले कि इस pool का क्या काम है।"
+      }
     },
     {
       "nodeType": "field",
@@ -44,7 +53,10 @@
       "label": "Select Products",
       "type": "autocomplete",
       "demoValue": "SINGLE BED SHEET",
-      "explanation": "[friendly] Time to pick the products! Let's start with... SINGLE BED SHEET."
+      "explanation": {
+        "en": "[friendly] Time to pick the products! Let's start with... SINGLE BED SHEET.",
+        "hi": "[friendly] products को pick करने का समय! चलिए... SINGLE BED SHEET से शुरू करते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -52,7 +64,10 @@
       "label": "Select Products",
       "type": "autocomplete",
       "demoValue": "DOUBLE BED SHEET",
-      "explanation": "[casual] Good, let's add another. How about... DOUBLE BED SHEET."
+      "explanation": {
+        "en": "[casual] Good, let's add another. How about... DOUBLE BED SHEET.",
+        "hi": "[casual] अच्छा है, चलिए एक और add करते हैं। कैसा रहेगा... DOUBLE BED SHEET।"
+      }
     },
     {
       "nodeType": "field",
@@ -60,10 +75,16 @@
       "label": "Select Products",
       "type": "autocomplete",
       "demoValue": "CHAIR COVER",
-      "explanation": "[casual] And one more to round it out... CHAIR COVER."
+      "explanation": {
+        "en": "[casual] And one more to round it out... CHAIR COVER.",
+        "hi": "[casual] और एक और ताकि set पूरा हो जाए... CHAIR COVER।"
+      }
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's it! [chuckles] You've built your inventory pool. Nothing was saved here... but whenever you're ready, go group your REAL products. You've got this!",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's it! [chuckles] You've built your inventory pool. Nothing was saved here... but whenever you're ready, go group your REAL products. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] आपने अपना inventory pool बना लिया है। यहाँ कुछ भी save नहीं हुआ है... लेकिन जब भी आप तैयार हों, जाइए और अपने REAL products को group करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create inventory pool",
     "new inventory pool",

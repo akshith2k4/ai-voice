@@ -105,7 +105,19 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
 async function processUserText(text: string, languageCode: string | undefined, context: HandlerContext): Promise<void> {
   const { sessionId, send } = context;
   let lang = languageCode || "en";
-  if (lang.toLowerCase() === "eng" || lang.toLowerCase().startsWith("en")) lang = "en";
+  const lowerLang = lang.toLowerCase();
+  if (lowerLang.startsWith("en") || lowerLang === "eng") {
+    lang = "en";
+  } else if (lowerLang.startsWith("hi") || lowerLang === "hin" || lowerLang === "hindi") {
+    lang = "hi";
+  } else if (lowerLang.startsWith("es") || lowerLang === "spa" || lowerLang === "spanish") {
+    lang = "es";
+  }
+
+  const session = walkthroughExecutor.getSession(sessionId);
+  if (session && session.languageCode) {
+    lang = session.languageCode;
+  }
 
   playFiller(text, lang, sessionId, send);
 

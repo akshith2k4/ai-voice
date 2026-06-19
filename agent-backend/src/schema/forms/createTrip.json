@@ -20,7 +20,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "[excited] Let's create a Trip! Think of this... as planning the actual delivery or wash route. [friendly] We just need a type, a route, a driver, and a vehicle. Let's get moving!",
+  "overview": {
+    "en": "[excited] Let's create a Trip! Think of this... as planning the actual delivery or wash route. [friendly] We just need a type, a route, a driver, and a vehicle. Let's get moving!",
+    "hi": "[excited] चलिए एक Trip बनाते हैं! इसे... actual delivery या wash route plan करने की तरह सोचिए। [friendly] हमें बस एक type, एक route, एक driver, और एक vehicle चाहिए। चलते हैं!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -32,7 +35,10 @@
         "WASH_TRIP"
       ],
       "demoValue": "ORDER_TRIP",
-      "explanation": "[curious] What kind of trip? An ORDER trip for customer deliveries... or a WASH trip to the laundry? Let's pick ORDERTRIP."
+      "explanation": {
+        "en": "[curious] What kind of trip? An ORDER trip for customer deliveries... or a WASH trip to the laundry? Let's pick ORDER_TRIP.",
+        "hi": "[curious] किस तरह की trip? Customer deliveries के लिए ORDER trip... या laundry के लिए WASH trip? चलिए ORDER_TRIP चुनते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -40,7 +46,10 @@
       "label": "Route",
       "type": "select",
       "demoValue": "Idhi 3rd route",
-      "explanation": "[casual] Which route are we taking? Let's select... Idhi 3rd route."
+      "explanation": {
+        "en": "[casual] Which route are we taking? Let's select... Idhi 3rd route.",
+        "hi": "[casual] हम कौन सा route ले रहे हैं? चलिए... Idhi 3rd route select करते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -48,7 +57,10 @@
       "label": "Delivery Date",
       "type": "date",
       "demoValue": "2026-04-16",
-      "explanation": "[casual] When is the delivery happening? Just pick the date."
+      "explanation": {
+        "en": "[casual] When is the delivery happening? Just pick the date.",
+        "hi": "[casual] delivery कब होगी? बस date चुनें।"
+      }
     },
     {
       "nodeType": "field",
@@ -56,7 +68,10 @@
       "label": "Delivery Team",
       "type": "autocomplete",
       "demoValue": "Nishant",
-      "explanation": "[casual] Who's handling the run? Search and pick the team member... like Nishant."
+      "explanation": {
+        "en": "[casual] Who's handling the run? Search and pick the team member... like Nishant.",
+        "hi": "[casual] यह run कौन handle करेगा? team member को search करके चुनें... जैसे Nishant।"
+      }
     },
     {
       "nodeType": "field",
@@ -64,7 +79,10 @@
       "label": "Vehicle",
       "type": "select",
       "demoValue": "APZNPA13 — Cargo",
-      "explanation": "[casual] And which VEHICLE are they using? Let's assign the Cargo."
+      "explanation": {
+        "en": "[casual] And which VEHICLE are they using? Let's assign the Cargo.",
+        "hi": "[casual] और वो कौन सा VEHICLE use करेंगे? चलिए Cargo assign करते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -72,10 +90,16 @@
       "label": "Trip Notes",
       "type": "text",
       "demoValue": "Standard delivery trip.",
-      "explanation": "[casual] Any special instructions for the driver? Jot them down here."
+      "explanation": {
+        "en": "[casual] Any special instructions for the driver? Jot them down here.",
+        "hi": "[casual] driver के लिए कोई special instructions हैं? यहाँ लिख दें।"
+      }
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] Your trip is ready to roll. Nothing was saved here... but whenever you're ready, go schedule a REAL trip. You've got this!",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's a wrap! [chuckles] Your trip is ready to roll. Nothing was saved here... but whenever you're ready, go schedule a REAL trip. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] आपकी trip चलने के लिए तैयार है। यहाँ कुछ भी save नहीं हुआ... लेकिन जब भी तैयार हों, जाइए और एक REAL trip schedule करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create trip",
     "new trip",

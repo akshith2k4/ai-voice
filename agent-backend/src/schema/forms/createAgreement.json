@@ -29,7 +29,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "[excited] Let's set up an Agreement! Think of this... as the contract locking in PRICING and billing. [friendly] Looks like a lot, but we'll do it together. Once the basics are in, the rest falls into place!",
+  "overview": {
+    "en": "[excited] Let's set up an Agreement! Think of this... as the contract locking in PRICING and billing. [friendly] Looks like a lot, but we'll do it together. Once the basics are in, the rest falls into place!",
+    "hi": "[excited] चलिए एक Agreement set up करते हैं! इसे... PRICING और billing को lock करने वाले contract की तरह सोचिए। [friendly] थोड़ा ज्यादा लग सकता है, लेकिन हम साथ मिलकर करेंगे। एक बार basics हो जाएं, बाकी सब अपने आप fit हो जाता है!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -42,7 +45,10 @@
         "LAUNDRY"
       ],
       "demoValue": "RENTAL_LAUNDRY",
-      "explanation": "[curious] This is crucial! What's the deal? RENTAL_LAUNDRY means we rent them OUR linen... but LAUNDRY means they own it, and we just wash it."
+      "explanation": {
+        "en": "[curious] This is crucial! What's the deal? RENTAL_LAUNDRY means we rent them OUR linen... but LAUNDRY means they own it, and we just wash it.",
+        "hi": "[curious] यह बहुत जरूरी है! क्या deal है? RENTAL_LAUNDRY मतलब हम उन्हें अपना linen RENT करते हैं... लेकिन LAUNDRY मतलब linen उनका है, हम बस उसे wash करते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -51,7 +57,10 @@
       "type": "date",
       "required": true,
       "demoValue": "2026-02-01",
-      "explanation": "[casual] When does this kick in? All pricing and billing start right HERE."
+      "explanation": {
+        "en": "[casual] When does this kick in? All pricing and billing start right HERE.",
+        "hi": "[casual] यह कब से शुरू होता है? सारी pricing और billing यहीं से शुरू होती है।"
+      }
     },
     {
       "nodeType": "field",
@@ -60,7 +69,10 @@
       "type": "date",
       "required": true,
       "demoValue": "2027-01-31",
-      "explanation": "[casual] When does it wrap up? The system STOPS applying these terms after this date."
+      "explanation": {
+        "en": "[casual] When does it wrap up? The system STOPS applying these terms after this date.",
+        "hi": "[casual] यह कब खत्म होता है? इस date के बाद system इन terms को apply करना बंद कर देता है।"
+      }
     },
     {
       "nodeType": "field",
@@ -72,7 +84,10 @@
         "INACTIVE"
       ],
       "demoValue": "ACTIVE",
-      "explanation": "[casual] Simple — only ACTIVE agreements are used for billing. Need to pause it? Set it to INACTIVE."
+      "explanation": {
+        "en": "[casual] Simple — only ACTIVE agreements are used for billing. Need to pause it? Set it to INACTIVE.",
+        "hi": "[casual] सीधी बात — billing के लिए सिर्फ ACTIVE agreements use होते हैं। रोकना है? INACTIVE set कर दें।"
+      }
     },
     {
       "nodeType": "field",
@@ -80,7 +95,10 @@
       "label": "Total Rooms",
       "type": "text",
       "demoValue": "120",
-      "explanation": "[casual] How many rooms here? Helps us figure out how much linen they'll ACTUALLY need."
+      "explanation": {
+        "en": "[casual] How many rooms here? Helps us figure out how much linen they'll ACTUALLY need.",
+        "hi": "[casual] यहाँ कितने rooms हैं? इससे हमें पता चलता है कि उन्हें ACTUALLY कितना linen चाहिए।"
+      }
     },
     {
       "nodeType": "field",
@@ -88,7 +106,10 @@
       "label": "Occupancy Rate",
       "type": "text",
       "demoValue": "75",
-      "explanation": "[curious] Expected occupancy? Just the percentage. Helps estimate how much LINEN is in circulation."
+      "explanation": {
+        "en": "[curious] Expected occupancy? Just the percentage. Helps estimate how much LINEN is in circulation.",
+        "hi": "[curious] Expected occupancy कितनी है? बस percentage डालें। इससे अंदाज़ा होता है कि कितना LINEN circulation में है।"
+      }
     },
     {
       "nodeType": "field",
@@ -100,7 +121,10 @@
         "field": "type",
         "value": "RENTAL_LAUNDRY"
       },
-      "explanation": "[casual] If we're RENTING... we usually collect a security deposit. Just type the amount."
+      "explanation": {
+        "en": "[casual] If we're RENTING... we usually collect a security deposit. Just type the amount.",
+        "hi": "[casual] अगर हम RENTING कर रहे हैं... तो आमतौर पर security deposit लेते हैं। बस amount type करें।"
+      }
     },
     {
       "nodeType": "field",
@@ -112,7 +136,10 @@
         "field": "type",
         "value": "RENTAL_LAUNDRY"
       },
-      "explanation": "[casual] Days they get to pay the rental invoice? Just pop in the number."
+      "explanation": {
+        "en": "[casual] Days they get to pay the rental invoice? Just pop in the number.",
+        "hi": "[casual] rental invoice pay करने के लिए कितने दिन मिलते हैं? बस number डालें।"
+      }
     },
     {
       "nodeType": "field",
@@ -124,7 +151,10 @@
         "field": "type",
         "value": "RENTAL_LAUNDRY"
       },
-      "explanation": "[casual] How many days a week do we drop off FRESH linen? Enter the number."
+      "explanation": {
+        "en": "[casual] How many days a week do we drop off FRESH linen? Enter the number.",
+        "hi": "[casual] हम हफ्ते में कितने दिन FRESH linen deliver करते हैं? number डालें।"
+      }
     },
     {
       "nodeType": "field",
@@ -142,7 +172,10 @@
         "field": "type",
         "value": "RENTAL_LAUNDRY"
       },
-      "explanation": "[curious] How often are we doing pickup and delivery? Every day, alternate days, or a CUSTOM schedule?"
+      "explanation": {
+        "en": "[curious] How often are we doing pickup and delivery? Every day, alternate days, or a CUSTOM schedule?",
+        "hi": "[curious] हम कितनी बार pickup और delivery करते हैं? हर दिन, alternate days, या CUSTOM schedule?"
+      }
     },
     {
       "nodeType": "field",
@@ -154,7 +187,10 @@
         "field": "type",
         "value": "LAUNDRY"
       },
-      "explanation": "[casual] Laundry-only customers! How many days to pay the INVOICE? Just the number."
+      "explanation": {
+        "en": "[casual] Laundry-only customers! How many days to pay the INVOICE? Just the number.",
+        "hi": "[casual] Laundry-only customers के लिए! INVOICE pay करने के लिए कितने दिन? बस number।"
+      }
     },
     {
       "nodeType": "field",
@@ -166,7 +202,10 @@
         "field": "type",
         "value": "LAUNDRY"
       },
-      "explanation": "[casual] Days between each pickup? For example, 1 means EVERY day."
+      "explanation": {
+        "en": "[casual] Days between each pickup? For example, 1 means EVERY day.",
+        "hi": "[casual] हर pickup के बीच कितने दिन? जैसे, 1 मतलब हर रोज़।"
+      }
     },
     {
       "nodeType": "field",
@@ -178,7 +217,10 @@
         "field": "type",
         "value": "LAUNDRY"
       },
-      "explanation": "[casual] Turnaround time! Days from picking up DIRTY linen to delivering it CLEAN."
+      "explanation": {
+        "en": "[casual] Turnaround time! Days from picking up DIRTY linen to delivering it CLEAN.",
+        "hi": "[casual] Turnaround time! DIRTY linen pickup से CLEAN deliver करने तक के दिन।"
+      }
     },
     {
       "nodeType": "field",
@@ -186,7 +228,10 @@
       "label": "Billing Cycle",
       "type": "text",
       "demoValue": "1",
-      "explanation": "[casual] How often do we bill? 1 means monthly, 2 means bi-monthly... you get the idea."
+      "explanation": {
+        "en": "[casual] How often do we bill? 1 means monthly, 2 means bi-monthly... you get the idea.",
+        "hi": "[casual] हम कितनी बार bill करते हैं? 1 मतलब monthly, 2 मतलब bi-monthly... समझ गए ना।"
+      }
     },
     {
       "nodeType": "field",
@@ -194,7 +239,10 @@
       "label": "Billing Start Day",
       "type": "text",
       "demoValue": "1",
-      "explanation": "[casual] What day does billing kick off? The 1st is the usual default."
+      "explanation": {
+        "en": "[casual] What day does billing kick off? The 1st is the usual default.",
+        "hi": "[casual] billing किस दिन से शुरू होती है? आमतौर पर 1 तारीख default होती है।"
+      }
     },
     {
       "nodeType": "field",
@@ -202,7 +250,10 @@
       "label": "Billing End Day",
       "type": "text",
       "demoValue": "30",
-      "explanation": "[casual] And when does billing wrap up? Usually the 30th or last day."
+      "explanation": {
+        "en": "[casual] And when does billing wrap up? Usually the 30th or last day.",
+        "hi": "[casual] और billing कब खत्म होती है? आमतौर पर 30 तारीख या आखिरी दिन।"
+      }
     },
     {
       "nodeType": "field",
@@ -214,7 +265,10 @@
         "FIXED"
       ],
       "demoValue": "FLEXIBLE",
-      "explanation": "[curious] How do we charge? FLEXIBLE means we bill per item... FIXED means a flat rate every month, no matter what."
+      "explanation": {
+        "en": "[curious] How do we charge? FLEXIBLE means we bill per item... FIXED means a flat rate every month, no matter what.",
+        "hi": "[curious] हम कैसे charge करते हैं? FLEXIBLE मतलब per item bill होता है... FIXED मतलब हर महीने एक flat rate, चाहे कुछ भी हो।"
+      }
     },
     {
       "nodeType": "field",
@@ -226,7 +280,10 @@
         "field": "billingType",
         "value": "FIXED"
       },
-      "explanation": "[casual] Flat rate it is! Just type the EXACT amount they get invoiced monthly."
+      "explanation": {
+        "en": "[casual] Flat rate it is! Just type the EXACT amount they get invoiced monthly.",
+        "hi": "[casual] Flat rate है तो! बस वो EXACT amount type करें जो हर महीने invoice होती है।"
+      }
     },
     {
       "nodeType": "repeating",
@@ -235,8 +292,14 @@
       "triggerText": "Add Price Item",
       "repeatable": true,
       "demoItemCount": 2,
-      "explanation": "[excited] The meat of it — the price list! Add the products, their cost, and the service we provide.",
-      "explanationForMultiple": "[friendly] Add as many products as needed — let me add a second one so you see how it looks.",
+      "explanation": {
+        "en": "[excited] The meat of it — the price list! Add the products, their cost, and the service we provide.",
+        "hi": "[excited] असली काम — price list! products, उनकी cost, और हमारी service add करें।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] Add as many products as needed — let me add a second one so you see how it looks.",
+        "hi": "[friendly] जितने products चाहिए add करें — चलिए एक दूसरा add करते हैं ताकि आप देख सकें यह कैसा दिखता है।"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -244,7 +307,10 @@
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel",
-          "explanation": "[casual] Pick the linen product. Pulls straight from your catalog.",
+          "explanation": {
+            "en": "[casual] Pick the linen product. Pulls straight from your catalog.",
+            "hi": "[casual] linen product चुनें। यह सीधे आपके catalog से आता है।"
+          },
           "commonQuestions": []
         },
         {
@@ -253,7 +319,10 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "100",
-          "explanation": "[casual] How many are we supplying or servicing? Just the number.",
+          "explanation": {
+            "en": "[casual] How many are we supplying or servicing? Just the number.",
+            "hi": "[casual] हम कितने supply या service कर रहे हैं? बस number।"
+          },
           "commonQuestions": []
         },
         {
@@ -262,7 +331,10 @@
           "label": "Price",
           "type": "text",
           "demoValue": "25",
-          "explanation": "[casual] Price per unit? This is what the billing is based on.",
+          "explanation": {
+            "en": "[casual] Price per unit? This is what the billing is based on.",
+            "hi": "[casual] Price per unit? billing इसी पर based होती है।"
+          },
           "commonQuestions": []
         },
         {
@@ -281,7 +353,10 @@
             "PACKAGING"
           ],
           "demoValue": "WASHING_RENTING",
-          "explanation": "[curious] What service? Washing, renting, dry cleaning? Pick what applies to this item.",
+          "explanation": {
+            "en": "[curious] What service? Washing, renting, dry cleaning? Pick what applies to this item.",
+            "hi": "[curious] कौन सी service? Washing, renting, dry cleaning? इस item के लिए जो सही हो वो चुनें।"
+          },
           "tips": "[thoughtful] Important! The SAME product can have different prices depending on the service... like washing vs renting!",
           "commonQuestions": []
         },
@@ -291,13 +366,19 @@
           "label": "Remarks",
           "type": "text",
           "demoValue": "Premium quality",
-          "explanation": "[casual] Special notes for this item? Quality, handling... jot it down here.",
+          "explanation": {
+            "en": "[casual] Special notes for this item? Quality, handling... jot it down here.",
+            "hi": "[casual] इस item के लिए कोई special notes? Quality, handling... यहाँ लिख दें।"
+          },
           "commonQuestions": []
         }
       ]
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We covered the type, timelines, commercial terms, and price list. Nothing was saved here... so when you're ready, go set up a REAL agreement. You've got this!",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's a wrap! [chuckles] We covered the type, timelines, commercial terms, and price list. Nothing was saved here... so when you're ready, go set up a REAL agreement. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] हमने type, timelines, commercial terms, और price list सब cover कर लिया। यहाँ कुछ भी save नहीं हुआ... तो जब भी तैयार हों, जाइए और एक REAL agreement set up करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create agreement",
     "new agreement",

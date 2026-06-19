@@ -8,7 +8,6 @@ export class ElevenLabsSTT implements ISTTService {
 
     const form = new FormData();
     form.append("model_id", config.elevenlabs.sttModel);
-    form.append("language_code", "en"); // pin to English — prevents mis-detection as Hindi for accented speech
     form.append("file", new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" }), "audio.wav");
 
     const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {

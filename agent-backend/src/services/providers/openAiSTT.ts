@@ -8,7 +8,7 @@ export class OpenAISTT implements ISTTService {
 
     const form = new FormData();
     form.append("model", "whisper-1");
-    form.append("language", "en"); // pin to English — prevents mis-detection as Hindi for accented speech
+    form.append("response_format", "verbose_json");
     form.append("file", new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" }), "audio.wav");
 
     const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -25,6 +25,14 @@ export class OpenAISTT implements ISTTService {
     const data = await res.json() as { text?: string; language?: string };
     const text = (data.text || "").trim();
     console.log(`[OpenAISTT] Transcribed: "${text}"`);
-    return { text, languageCode: data.language || "en", confidence: 1.0 };
+
+    let languageCode = "en";
+    if (data.language) {
+      const lower = data.language.toLowerCase();
+      if (lower === "hindi" || lower === "hi") {
+        languageCode = "hi";
+      }
+    }
+    return { text, languageCode, confidence: 1.0 };
   }
 }

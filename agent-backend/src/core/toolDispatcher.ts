@@ -45,7 +45,7 @@ class ToolDispatcher {
           responder,
           true,
           lang,
-          tc.args.message ? String(tc.args.message) : undefined
+          hadTextResponse ? undefined : (tc.args.message ? String(tc.args.message) : undefined)
         );
         break;
       }

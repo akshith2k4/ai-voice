@@ -20,7 +20,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "[excited] Let's create a Damage Request! Think of this... as logging damaged linen. [friendly] We just link it to a Customer's Order or a Laundry Wash Fulfillment. Let's get started!",
+  "overview": {
+    "en": "[excited] Let's create a Damage Request! Think of this... as logging damaged linen. [friendly] We just link it to a Customer's Order or a Laundry Wash Fulfillment. Let's get started!",
+    "hi": "[excited] चलिए एक Damage Request बनाते हैं! इसे... damaged linen को log करने की तरह सोचिए। [friendly] हमें बस इसे किसी Customer के Order या Laundry Wash Fulfillment से link करना है। चलते हैं!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -28,7 +31,10 @@
       "label": "Item Damage Request Date",
       "type": "date",
       "demoValue": "",
-      "explanation": "[casual] When was the damage reported? Just pick the date."
+      "explanation": {
+        "en": "[casual] When was the damage reported? Just pick the date.",
+        "hi": "[casual] damage कब report हुआ? बस date चुनें।"
+      }
     },
     {
       "nodeType": "field",
@@ -40,7 +46,10 @@
         "WASH_FULFILLMENT"
       ],
       "demoValue": "ORDER",
-      "explanation": "[curious] Where did this happen? An ORDER for a customer... or a WASH_FULFILLMENT for a laundry vendor? Let's pick ORDER."
+      "explanation": {
+        "en": "[curious] Where did this happen? An ORDER for a customer... or a WASH_FULFILLMENT for a laundry vendor? Let's pick ORDER.",
+        "hi": "[curious] यह कहाँ हुआ? किसी customer के लिए ORDER... या laundry vendor के लिए WASH_FULFILLMENT? चलिए ORDER चुनते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -48,7 +57,10 @@
       "label": "Search Customer",
       "type": "autocomplete",
       "demoValue": "Charan",
-      "explanation": "[casual] Search for the customer involved. Let's use... Charan."
+      "explanation": {
+        "en": "[casual] Search for the customer involved. Let's use... Charan.",
+        "hi": "[casual] involved customer को search करें। चलिए... Charan use करते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -56,7 +68,10 @@
       "label": "Order Date",
       "type": "date",
       "demoValue": "2026-04-16",
-      "explanation": "[casual] Pick the Order Date. This automatically loads their orders for that day."
+      "explanation": {
+        "en": "[casual] Pick the Order Date. This automatically loads their orders for that day.",
+        "hi": "[casual] Order Date चुनें। यह automatically उस दिन के उनके orders load कर देता है।"
+      }
     },
     {
       "nodeType": "field",
@@ -64,7 +79,10 @@
       "label": "Select Order",
       "type": "select",
       "demoValue": "",
-      "explanation": "[casual] Which specific order is this for? If there's only one, it auto-fills!"
+      "explanation": {
+        "en": "[casual] Which specific order is this for? If there's only one, it auto-fills!",
+        "hi": "[casual] यह किस specific order के लिए है? अगर सिर्फ एक ही है, तो यह auto-fill हो जाता है!"
+      }
     },
     {
       "nodeType": "field",
@@ -72,7 +90,10 @@
       "label": "Notes / Description",
       "type": "text",
       "demoValue": "Linen damaged during transit.",
-      "explanation": "[casual] What EXACTLY happened? Jot down the damage details here."
+      "explanation": {
+        "en": "[casual] What EXACTLY happened? Jot down the damage details here.",
+        "hi": "[casual] EXACTLY क्या हुआ? damage की details यहाँ लिख दें।"
+      }
     },
     {
       "nodeType": "field",
@@ -80,7 +101,10 @@
       "label": "Product",
       "type": "autocomplete",
       "demoValue": "SINGLE BED SHEET",
-      "explanation": "[casual] Which product got damaged? Pick it from the list."
+      "explanation": {
+        "en": "[casual] Which product got damaged? Pick it from the list.",
+        "hi": "[casual] कौन सा product damage हुआ? list में से चुनें।"
+      }
     },
     {
       "nodeType": "field",
@@ -88,7 +112,10 @@
       "label": "Quantity",
       "type": "text",
       "demoValue": "5",
-      "explanation": "[casual] How many items were damaged? Just the number."
+      "explanation": {
+        "en": "[casual] How many items were damaged? Just the number.",
+        "hi": "[casual] कितने items damage हुए? बस number डालें।"
+      }
     },
     {
       "nodeType": "field",
@@ -96,10 +123,16 @@
       "label": "Price",
       "type": "text",
       "demoValue": "150",
-      "explanation": "[casual] And what's the price per item? This helps with billing adjustments."
+      "explanation": {
+        "en": "[casual] And what's the price per item? This helps with billing adjustments.",
+        "hi": "[casual] और प्रति item की price क्या है? इससे billing adjustments में मदद मिलती है।"
+      }
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We logged the damage request. Nothing was saved here... but whenever you're ready, go report a REAL issue. You've got this!",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's a wrap! [chuckles] We logged the damage request. Nothing was saved here... but whenever you're ready, go report a REAL issue. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] हमने damage request log कर ली। यहाँ कुछ भी save नहीं हुआ... लेकिन जब भी तैयार हों, जाइए और एक REAL issue report करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create damage request",
     "new damage request",

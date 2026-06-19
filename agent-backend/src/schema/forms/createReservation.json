@@ -20,7 +20,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "[excited] Let's create an Inventory Reservation! Think of this... as holding specific products for a customer. [friendly] We just link a pool, pick a customer, and set the dates. Easy!",
+  "overview": {
+    "en": "[excited] Let's create an Inventory Reservation! Think of this... as holding specific products for a customer. [friendly] We just link a pool, pick a customer, and set the dates. Easy!",
+    "hi": "[excited] चलिए एक Inventory Reservation बनाते हैं! इसे... किसी customer के लिए specific products hold करने की तरह सोचिए। [friendly] हमें बस एक pool link करना है, customer चुनना है, और dates set करनी हैं। आसान है!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -28,7 +31,10 @@
       "label": "Inventory Pool",
       "type": "select",
       "demoValue": "voice-demo",
-      "explanation": "[casual] First, pick the inventory pool. Let's go with... voice-demo."
+      "explanation": {
+        "en": "[casual] First, pick the inventory pool. Let's go with... voice-demo.",
+        "hi": "[casual] सबसे पहले, inventory pool चुनें। चलिए... voice-demo लेते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -36,7 +42,10 @@
       "label": "Customer Name",
       "type": "autocomplete",
       "demoValue": "voice-demo",
-      "explanation": "[casual] Now, search for the customer. Let's use... voice-demo."
+      "explanation": {
+        "en": "[casual] Now, search for the customer. Let's use... voice-demo.",
+        "hi": "[casual] अब, customer को search करें। चलिए... voice-demo use करते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -49,7 +58,10 @@
         "ROTATIONAL"
       ],
       "demoValue": "FIXED",
-      "explanation": "[curious] What's the type? FIXED, FLEXIBLE, or ROTATIONAL? Let's pick FIXED."
+      "explanation": {
+        "en": "[curious] What's the type? FIXED, FLEXIBLE, or ROTATIONAL? Let's pick FIXED.",
+        "hi": "[curious] type क्या है? FIXED, FLEXIBLE, या ROTATIONAL? चलिए FIXED चुनते हैं।"
+      }
     },
     {
       "nodeType": "field",
@@ -57,7 +69,10 @@
       "label": "Start Date",
       "type": "date",
       "demoValue": "2026-06-02T12:18",
-      "explanation": "[casual] When does the reservation kick in? Pick the start date and time."
+      "explanation": {
+        "en": "[casual] When does the reservation kick in? Pick the start date and time.",
+        "hi": "[casual] reservation कब से शुरू होती है? start date और time चुनें।"
+      }
     },
     {
       "nodeType": "field",
@@ -65,7 +80,10 @@
       "label": "End Date",
       "type": "date",
       "demoValue": "2026-07-11T12:18",
-      "explanation": "[casual] And when does it end? Pick the end date and time."
+      "explanation": {
+        "en": "[casual] And when does it end? Pick the end date and time.",
+        "hi": "[casual] और यह कब खत्म होती है? end date और time चुनें।"
+      }
     },
     {
       "nodeType": "repeating",
@@ -74,7 +92,10 @@
       "repeatable": false,
       "autoPopulated": true,
       "demoItemCount": 3,
-      "explanation": "[excited] Now we allocate quantities! This auto-pulls from the active agreement. Let's look at the items.",
+      "explanation": {
+        "en": "[excited] Now we allocate quantities! This auto-pulls from the active agreement. Let's look at the items.",
+        "hi": "[excited] अब हम quantities allocate करते हैं! यह active agreement से automatically आता है। चलिए items देखते हैं।"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -82,7 +103,10 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "12",
-          "explanation": "[casual] How much of this product are we reserving? Just type the number."
+          "explanation": {
+            "en": "[casual] How much of this product are we reserving? Just type the number.",
+            "hi": "[casual] इस product का कितना reserve कर रहे हैं? बस number type करें।"
+          }
         },
         {
           "nodeType": "field",
@@ -90,7 +114,10 @@
           "label": "Qty with Customer",
           "type": "text",
           "demoValue": "0",
-          "explanation": "[casual] How much do they ALREADY have? Enter that quantity here."
+          "explanation": {
+            "en": "[casual] How much do they ALREADY have? Enter that quantity here.",
+            "hi": "[casual] उनके पास पहले से कितना है? वो quantity यहाँ डालें।"
+          }
         }
       ]
     },
@@ -100,10 +127,16 @@
       "label": "Notes",
       "type": "text",
       "demoValue": "Standard inventory reservation for voice demo.",
-      "explanation": "[casual] Any special instructions? Jot them down here."
+      "explanation": {
+        "en": "[casual] Any special instructions? Jot them down here.",
+        "hi": "[casual] कोई special instructions हैं? यहाँ लिख दें।"
+      }
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] Your reservation is set up. Nothing was saved here... but whenever you're ready, go reserve some REAL inventory. You've got this!",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's a wrap! [chuckles] Your reservation is set up. Nothing was saved here... but whenever you're ready, go reserve some REAL inventory. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] आपकी reservation set हो गई है। यहाँ कुछ भी save नहीं हुआ... लेकिन जब भी तैयार हों, जाइए और REAL inventory reserve करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create reservation",
     "new reservation",
