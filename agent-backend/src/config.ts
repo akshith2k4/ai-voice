@@ -15,7 +15,9 @@ export const config = {
 
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || "",
-    voiceId: process.env.ELEVENLABS_VOICE_ID || "YoPh8Er6cOk7bwEreyKu",
+    voiceId: process.env.ELEVENLABS_VOICE_ID || process.env.ELEVENLABS_VOICE_EN,
+    voiceIdEn: process.env.ELEVENLABS_VOICE_ID_EN || process.env.ELEVENLABS_VOICE_EN || process.env.ELEVENLABS_VOICE_ID,
+    voiceIdHi: process.env.ELEVENLABS_VOICE_ID_HI || process.env.ELEVENLABS_VOICE_HI || process.env.ELEVENLABS_VOICE_ID,
     ttsModel: process.env.ELEVENLABS_TTS_MODEL || "eleven_v3",
     sttModel: process.env.ELEVENLABS_STT_MODEL || "scribe_v1",
   },

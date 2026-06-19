@@ -1,18 +1,7 @@
 import { buildIdlePrompt, buildWalkthroughPrompt } from "./prompts.js";
 import { walkthroughExecutor } from "../src/walkthrough/executor.js";
 import { LLMProvider } from "../src/services/providersConfig.js";
-import type { SchemaNode, FieldNode } from "../src/schema/loader.js";
-
-function findField(nodes: SchemaNode[], key: string): FieldNode | undefined {
-  for (const node of nodes) {
-    if (node.nodeType === "field" && node.key === key) return node;
-    if (node.nodeType === "group" || node.nodeType === "repeating") {
-      const found = findField(node.children, key);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
+import { type SchemaNode, type FieldNode, findFieldInNodes } from "../src/schema/loader.js";
 import { OpenAILLM } from "./providers/openAiLLM.js";
 import { ClaudeLLM } from "./providers/claudeLLM.js";
 import { ILLMService, LLMToolCall, LLMResult, LLMStreamChunk } from "../src/services/interfaces.js";
@@ -46,8 +35,8 @@ export async function* streamLLM(
   const activeSession = walkthroughExecutor.getSession(sessionId);
   if (activeSession) {
     const nav = activeSession.currentNav;
-    const currentField = nav ? findField(activeSession.schema.nodes, nav.fieldKey) : undefined;
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField);
+    const currentField = nav ? findFieldInNodes(activeSession.schema.nodes, nav.fieldKey).matchedField : undefined;
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField, activeSession.languageCode || "en");
     console.log(`[LLMService] Active walkthrough — using walkthrough prompt`);
   }
 

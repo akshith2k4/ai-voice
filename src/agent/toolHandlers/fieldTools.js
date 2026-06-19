@@ -91,6 +91,16 @@ registerTool(TOOL_TYPES.FILL_FIELD, async (args, { send, formId }) => {
     await CursorManager.animateToAndClick(element, skipFocusClick);
   }
 
+  if (type === "autocomplete" && element) {
+    const input = element.querySelector("input");
+    if (input && input.value && input.value.trim().toLowerCase() === String(value).trim().toLowerCase()) {
+      console.log(`[fill_field] Autocomplete already has target value: "${value}". Skipping fill.`);
+      element.setAttribute("data-agent-filled", "autocomplete");
+      sendStatus(STATUS_EVENTS.FIELD_FILLED, { fieldKey, value });
+      return;
+    }
+  }
+
   try {
     if (formId && agentFormRegistry.has(formId)) {
       try {
@@ -179,6 +189,26 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
 
   // Fill if value was provided
   if (fillValue != null && fillType) {
+    if (fillType === "autocomplete" && element) {
+      const input = element.querySelector("input");
+      if (input && input.value && input.value.trim().toLowerCase() === String(fillValue).trim().toLowerCase()) {
+        console.log(`[field_step] Autocomplete already has target value: "${fillValue}". Skipping fill.`);
+        element.setAttribute("data-agent-filled", "autocomplete");
+        
+        if (speechMessageId) {
+          try {
+            await walkthroughEngine.onAudioComplete(String(speechMessageId));
+            sendStatus("field_done", { fieldKey });
+          } catch (e) {
+            console.log(`[field_step] Audio interrupted/cleared for ${fieldKey}`);
+          }
+        } else {
+          sendStatus("field_done", { fieldKey });
+        }
+        return;
+      }
+    }
+
     try {
       if (formId && agentFormRegistry.has(formId)) {
         try {
@@ -209,10 +239,12 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
   }
 
   if (speechMessageId) {
-    walkthroughEngine.onAudioComplete(String(speechMessageId), () => {
-      console.log(`[field_step] audio done — sending field_done for ${fieldKey}`);
+    try {
+      await walkthroughEngine.onAudioComplete(String(speechMessageId));
       sendStatus("field_done", { fieldKey });
-    });
+    } catch (e) {
+      console.log(`[field_step] Audio interrupted/cleared for ${fieldKey}`);
+    }
   } else {
     sendStatus("field_done", { fieldKey });
   }
@@ -221,12 +253,15 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
 // Wait for the exact TTS audio for this speak step, then signal the backend.
 // Uses messageId (included in speak tool args) so we don't react to LLM response TTS
 // or other concurrent audio finishing first.
-registerTool(TOOL_TYPES.SPEAK, (args) => {
+registerTool(TOOL_TYPES.SPEAK, async (args) => {
   const { messageId } = args;
   if (messageId) {
-    walkthroughEngine.onAudioComplete(String(messageId), () => {
+    try {
+      await walkthroughEngine.onAudioComplete(String(messageId));
       sendStatus("walkthrough_speak_done");
-    });
+    } catch (e) {
+      console.log(`[speak] Audio interrupted/cleared:`, e.message);
+    }
   } else {
     sendStatus("walkthrough_speak_done");
   }

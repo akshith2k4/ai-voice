@@ -38,15 +38,19 @@ export function useAudioRecorder({ onChunk, onEnd, enabled }) {
       audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(streamRef.current);
       sourceRef.current = source;
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      processor.onaudioprocess = (e) => {
+
+      await audioContext.audioWorklet.addModule("/audio-processor.js");
+      const workletNode = new AudioWorkletNode(audioContext, "audio-recorder-processor");
+      processorRef.current = workletNode;
+
+      workletNode.port.onmessage = (e) => {
         if (!activeRef.current) return;
-        const chunk = arrayBufferToBase64(float32To16BitPCM(e.inputBuffer.getChannelData(0)));
+        const chunk = arrayBufferToBase64(float32To16BitPCM(e.data));
         if (chunk) onChunk(chunk);
       };
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+
+      source.connect(workletNode);
+      workletNode.connect(audioContext.destination);
       activeRef.current = true;
       setIsRecording(true);
     } catch (err) {
@@ -60,12 +64,25 @@ export function useAudioRecorder({ onChunk, onEnd, enabled }) {
     activeRef.current = false;
     setIsRecording(false);
     try {
-      if (processorRef.current) { processorRef.current.onaudioprocess = null; processorRef.current.disconnect(); }
+      if (processorRef.current) {
+        if (processorRef.current.port) {
+          processorRef.current.port.onmessage = null;
+        } else {
+          processorRef.current.onaudioprocess = null;
+        }
+        processorRef.current.disconnect();
+      }
       sourceRef.current?.disconnect();
       if (audioContextRef.current?.state !== "closed") audioContextRef.current?.close();
     } catch (e) {}
     onEnd();
   }, [onEnd]);
+
+  useEffect(() => {
+    if (!enabled && activeRef.current) {
+      stop();
+    }
+  }, [enabled, stop]);
 
   useEffect(() => {
     return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };

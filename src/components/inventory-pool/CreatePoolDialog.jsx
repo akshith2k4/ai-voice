@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAgentForm } from '../../agent/useAgentForm';
 import {
     Dialog,
     DialogTitle,
@@ -54,6 +55,44 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
         setError('');
     };
 
+    useAgentForm("createInventoryPool", {
+        fields: [
+            {
+                key: "name",
+                type: "text",
+                set: (v) => setName(v),
+            },
+            {
+                key: "description",
+                type: "text",
+                set: (v) => setDescription(v),
+            },
+            {
+                key: "products",
+                type: "autocomplete",
+                set: (prod) => {
+                    if (!prod) return;
+                    setSelectedProducts((prev) => {
+                        const list = Array.isArray(prod) ? prod : [prod];
+                        const merged = [...prev];
+                        list.forEach(p => {
+                            if (!merged.some(m => m.id === p.id)) {
+                                merged.push(p);
+                            }
+                        });
+                        return merged;
+                    });
+                },
+                getOptions: () => products,
+                getElement: () => {
+                    const autocompletes = Array.from(document.querySelectorAll('.MuiAutocomplete-root'));
+                    return autocompletes.find(a => a.querySelector('label')?.textContent?.includes('Products')) || null;
+                }
+            }
+        ],
+        clearAll: reset,
+    }, open);
+
     const handleClose = () => {
         reset();
         onClose?.();
@@ -104,6 +143,7 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, minHeight: 200 }}>
 
                     <TextField
+                        name="name"
                         label="Pool Name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
@@ -112,6 +152,7 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
                     />
 
                     <TextField
+                        name="description"
                         label="Description"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}

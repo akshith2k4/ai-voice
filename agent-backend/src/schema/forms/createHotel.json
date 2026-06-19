@@ -21,7 +21,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "A hotel is a customer in the LinenGrass system. Each hotel has basic contact details, tax registration numbers, billing and shipping addresses, and contact persons. Once created, you can create orders and agreements for this hotel.",
+  "overview": {
+    "en": "[excited] Let's create a Hotel! Think of this... as adding a new customer. [friendly] We need their contact info, tax IDs, addresses, and key people. Once they're in, we can start billing and ordering. Let's do it!",
+    "hi": "[excited] चलिए एक Hotel बनाते हैं! इसे... एक नया customer add करने की तरह सोचिए। [friendly] हमें उनकी contact info, tax IDs, addresses, और key लोगों की जरूरत है। एक बार वो system में आ गए, तो हम billing और ordering शुरू कर सकते हैं। चलते हैं!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -30,7 +33,10 @@
       "type": "text",
       "required": true,
       "demoValue": "Grand Hyatt Mumbai",
-      "explanation": "This is the name of the hotel or customer. It appears on invoices, orders, and throughout the system. Use the official business name.",
+      "explanation": {
+        "en": "[casual] First, the Hotel Name. Use the OFFICIAL business name... it shows up on all invoices and orders.",
+        "hi": "[casual] सबसे पहले, Hotel Name। OFFICIAL business name use करें... यह सभी invoices और orders पर दिखता है।"
+      },
       "tips": "Use the full official name. You can always search by partial name later.",
       "commonQuestions": [
         {
@@ -45,7 +51,10 @@
       "label": "Contact Phone",
       "type": "text",
       "demoValue": "+91 98765 43210",
-      "explanation": "The primary phone number for contacting this hotel. This is used for delivery coordination and general communication.",
+      "explanation": {
+        "en": "[casual] What's their primary phone number? We use this for delivery coordination.",
+        "hi": "[casual] उनका primary phone number क्या है? हम इसे delivery coordination के लिए use करते हैं।"
+      },
       "commonQuestions": []
     },
     {
@@ -54,7 +63,10 @@
       "label": "Contact Email",
       "type": "text",
       "demoValue": "reservations@grandhyatt.com",
-      "explanation": "The primary email address for this hotel. Invoices and order confirmations are sent to this email.",
+      "explanation": {
+        "en": "[casual] And their main email. Invoices and confirmations go right HERE.",
+        "hi": "[casual] और उनका main email। Invoices और confirmations सीधे यहीं जाते हैं।"
+      },
       "tips": "Use a generic department email rather than a personal one, so it stays active even if staff changes.",
       "commonQuestions": []
     },
@@ -69,7 +81,10 @@
         "INACTIVE"
       ],
       "demoValue": "ACTIVE",
-      "explanation": "This controls whether the hotel is active in the system. Only active hotels appear when creating orders. Set to Inactive if the hotel has stopped doing business with you.",
+      "explanation": {
+        "en": "[curious] Are they ACTIVE? Only active hotels show up for new orders. Set it to INACTIVE if you stop working with them.",
+        "hi": "[curious] क्या वो ACTIVE हैं? नए orders के लिए सिर्फ active hotels ही दिखते हैं। अगर उनके साथ काम बंद हो जाए तो INACTIVE set करें।"
+      },
       "tips": "New hotels should always be Active. Use Inactive only when the relationship has ended.",
       "commonQuestions": [
         {
@@ -85,7 +100,10 @@
       "type": "select",
       "required": true,
       "demoValue": "HOTEL",
-      "explanation": "This categorizes the customer. Hotels, resorts, hospitals, and other businesses may have different billing rules and product agreements.",
+      "explanation": {
+        "en": "[casual] What type of customer is this? Hotel, hospital, resort... this affects billing rules and agreements.",
+        "hi": "[casual] यह किस type का customer है? Hotel, hospital, resort... यह billing rules और agreements को affect करता है।"
+      },
       "tips": "Choose the type that best matches the business. This affects which product agreements are available.",
       "commonQuestions": []
     },
@@ -95,7 +113,10 @@
       "label": "GSTIN Number",
       "type": "text",
       "demoValue": "27AABCU9603R1ZM",
-      "explanation": "The GST Identification Number for this hotel. This is required for tax compliance and appears on invoices. It is a 15-character alphanumeric code.",
+      "explanation": {
+        "en": "[curious] Got their GSTIN? This 15-character code is a MUST for tax compliance and invoices.",
+        "hi": "[curious] उनका GSTIN मिला? यह 15-character code tax compliance और invoices के लिए जरूरी है।"
+      },
       "tips": "Verify the GSTIN on the government GST portal before entering. An incorrect GSTIN will cause invoice mismatches.",
       "commonQuestions": [
         {
@@ -110,7 +131,10 @@
       "label": "PAN Number",
       "type": "text",
       "demoValue": "AABCU9603R",
-      "explanation": "The Permanent Account Number for this hotel. It is a 10-character code used for tax identification. The PAN is usually the first 10 characters of the GSTIN.",
+      "explanation": {
+        "en": "[casual] And their PAN number. It's a 10-character code... usually the first part of the GSTIN.",
+        "hi": "[casual] और उनका PAN number। यह एक 10-character code है... आमतौर पर GSTIN का पहला हिस्सा होता है।"
+      },
       "commonQuestions": []
     },
     {
@@ -119,7 +143,10 @@
       "label": "Address Line 1",
       "type": "text",
       "demoValue": "Off Western Express Highway",
-      "explanation": "The first line of the billing address. This address appears on invoices and is used for all financial correspondence.",
+      "explanation": {
+        "en": "[casual] Now the billing address. This goes on all financial records.",
+        "hi": "[casual] अब billing address। यह सभी financial records पर जाता है।"
+      },
       "commonQuestions": []
     },
     {
@@ -128,7 +155,10 @@
       "label": "Address Line 2",
       "type": "text",
       "demoValue": "Santacruz East",
-      "explanation": "The second line of the billing address. Use this for area name, landmark, or building details.",
+      "explanation": {
+        "en": "[casual] Add the area or landmark in line two.",
+        "hi": "[casual] Line two में area या landmark add करें।"
+      },
       "commonQuestions": []
     },
     {
@@ -137,7 +167,10 @@
       "label": "City",
       "type": "text",
       "demoValue": "Mumbai",
-      "explanation": "The city for the billing address.",
+      "explanation": {
+        "en": "[casual] The city.",
+        "hi": "[casual] शहर का नाम।"
+      },
       "commonQuestions": []
     },
     {
@@ -146,7 +179,10 @@
       "label": "State",
       "type": "text",
       "demoValue": "Maharashtra",
-      "explanation": "The state for the billing address. This affects GST calculation \u2014 interstate and intrastate deliveries have different tax rates.",
+      "explanation": {
+        "en": "[curious] The state. This is IMPORTANT... it affects the GST calculation for interstate deliveries!",
+        "hi": "[curious] State। यह IMPORTANT है... यह interstate deliveries के लिए GST calculation को affect करता है!"
+      },
       "tips": "Make sure the state matches the GSTIN registration state for correct tax calculation.",
       "commonQuestions": []
     },
@@ -156,7 +192,10 @@
       "label": "ZIP Code",
       "type": "text",
       "demoValue": "400055",
-      "explanation": "The postal code for the billing address.",
+      "explanation": {
+        "en": "[casual] The ZIP code.",
+        "hi": "[casual] ZIP code।"
+      },
       "commonQuestions": []
     },
     {
@@ -165,7 +204,10 @@
       "label": "Country",
       "type": "text",
       "demoValue": "India",
-      "explanation": "The country for the billing address.",
+      "explanation": {
+        "en": "[casual] And the country.",
+        "hi": "[casual] और देश का नाम।"
+      },
       "commonQuestions": []
     },
     {
@@ -174,7 +216,10 @@
       "label": "Address Line 1",
       "type": "text",
       "demoValue": "Off Western Express Highway",
-      "explanation": "The first line of the shipping address. This is where deliveries will be sent. It can be the same as the billing address or a different location.",
+      "explanation": {
+        "en": "[casual] Now the shipping address! Where do deliveries actually GO? It can be the same as billing.",
+        "hi": "[casual] अब shipping address! deliveries actually कहाँ जाती हैं? यह billing address जैसा भी हो सकता है।"
+      },
       "commonQuestions": [
         {
           "question": "Is the shipping address the same as billing?",
@@ -188,7 +233,10 @@
       "label": "Address Line 2",
       "type": "text",
       "demoValue": "Santacruz East",
-      "explanation": "The second line of the shipping address.",
+      "explanation": {
+        "en": "[casual] Line two for the shipping area.",
+        "hi": "[casual] Shipping area के लिए Line two।"
+      },
       "commonQuestions": []
     },
     {
@@ -197,7 +245,10 @@
       "label": "City",
       "type": "text",
       "demoValue": "Mumbai",
-      "explanation": "The city for the shipping address.",
+      "explanation": {
+        "en": "[casual] The shipping city.",
+        "hi": "[casual] Shipping वाला शहर।"
+      },
       "commonQuestions": []
     },
     {
@@ -206,7 +257,10 @@
       "label": "State",
       "type": "text",
       "demoValue": "Maharashtra",
-      "explanation": "The state for the shipping address.",
+      "explanation": {
+        "en": "[casual] The state.",
+        "hi": "[casual] State का नाम।"
+      },
       "commonQuestions": []
     },
     {
@@ -215,7 +269,10 @@
       "label": "ZIP Code",
       "type": "text",
       "demoValue": "400055",
-      "explanation": "The postal code for the shipping address.",
+      "explanation": {
+        "en": "[casual] The ZIP code.",
+        "hi": "[casual] ZIP code।"
+      },
       "commonQuestions": []
     },
     {
@@ -224,7 +281,10 @@
       "label": "Country",
       "type": "text",
       "demoValue": "India",
-      "explanation": "The country for the shipping address.",
+      "explanation": {
+        "en": "[casual] And the country.",
+        "hi": "[casual] और देश का नाम।"
+      },
       "commonQuestions": []
     },
     {
@@ -234,8 +294,14 @@
       "triggerText": "Add Contact Person",
       "repeatable": true,
       "demoItemCount": 1,
-      "explanation": "Contact persons are the people at this hotel you communicate with directly \u2014 the linen manager, housekeeping head, or procurement officer. Adding them here makes it easy to track who you coordinate with.",
-      "explanationForMultiple": "Let me add a second contact person to show you.",
+      "explanation": {
+        "en": "[excited] Finally, the Contact Persons! These are the people you actually talk to... like the housekeeping head or procurement officer.",
+        "hi": "[excited] आखिर में, Contact Persons! ये वो लोग हैं जिनसे आप actually बात करते हैं... जैसे housekeeping head या procurement officer।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] Let's add a second contact so you can see how it looks.",
+        "hi": "[friendly] चलिए एक दूसरा contact add करते हैं ताकि आप देख सकें यह कैसा दिखता है।"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -243,7 +309,10 @@
           "label": "Name",
           "type": "text",
           "demoValue": "Rajesh Kumar",
-          "explanation": "The name of the contact person at this hotel.",
+          "explanation": {
+            "en": "[casual] Their full name.",
+            "hi": "[casual] उनका पूरा नाम।"
+          },
           "commonQuestions": []
         },
         {
@@ -252,7 +321,10 @@
           "label": "Phone",
           "type": "text",
           "demoValue": "+91 99887 76655",
-          "explanation": "Their direct phone number for quick communication about deliveries or issues.",
+          "explanation": {
+            "en": "[casual] Their direct phone... for quick updates or issues.",
+            "hi": "[casual] उनका direct phone... quick updates या किसी problem के लिए।"
+          },
           "commonQuestions": []
         },
         {
@@ -261,7 +333,10 @@
           "label": "Email",
           "type": "text",
           "demoValue": "rajesh@grandhyatt.com",
-          "explanation": "Their email address. Order notifications and delivery updates can be sent to this person.",
+          "explanation": {
+            "en": "[casual] And their email. We can send them order notifications right here.",
+            "hi": "[casual] और उनका email। हम उन्हें सीधे यहाँ order notifications भेज सकते हैं।"
+          },
           "commonQuestions": []
         },
         {
@@ -270,13 +345,19 @@
           "label": "Tag",
           "type": "text",
           "demoValue": "Housekeeping Manager",
-          "explanation": "A tag or title to identify their role. For example, 'Housekeeping Manager', 'Procurement', or 'General Manager'. This helps your team know who to contact for what.",
+          "explanation": {
+            "en": "[curious] What's their role? Manager, procurement... this helps your team know exactly WHO to call.",
+            "hi": "[curious] उनकी role क्या है? Manager, procurement... इससे आपकी team को पता चलता है कि exactly किसे call करना है।"
+          },
           "commonQuestions": []
         }
       ]
     }
   ],
-  "wrapUp": "That covers all the fields for creating a hotel! You've seen how to enter basic details, tax information, addresses, and contact persons. Remember, this was a demo \u2014 all the data has been cleared. When you're ready, you can create a real hotel entry.",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's a wrap! [chuckles] We covered basics, taxes, addresses, and contacts. Nothing was saved here... so when you're ready, go add a REAL hotel. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] हमने basics, taxes, addresses, और contacts सब cover कर लिया। यहाँ कुछ भी save नहीं हुआ... तो जब भी तैयार हों, जाइए और एक REAL hotel add करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create hotel",
     "new hotel",

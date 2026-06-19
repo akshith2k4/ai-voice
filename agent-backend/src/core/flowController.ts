@@ -38,6 +38,19 @@ export async function processText(
     }
 
     if (toolCalls.length > 0) {
+      const currentSession = walkthroughExecutor.getSession(sessionId);
+      const isPaused = currentSession?.stateMachine.currentState === "PAUSED" || currentSession?.cancelled;
+
+      // If the user interrupted/paused, only execute tools explicitly safe mid-pause.
+      // Discard everything else (like stale text or duplicate actions).
+      const safePausedTools = ["resume_walkthrough", "detour_to_field", "answer_question", "ask_clarification"];
+      const isSafeTool = toolCalls.every(tc => safePausedTools.includes(tc.name));
+
+      if (isPaused && !isSafeTool) {
+        console.log("[FlowController] Discarding stale LLM response due to barge-in/pause.");
+        return;
+      }
+
       await toolDispatcher.dispatch(toolCalls, sessionId, lang, responder, !!rawContent);
     }
   });

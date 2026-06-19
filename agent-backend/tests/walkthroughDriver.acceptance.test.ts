@@ -11,9 +11,14 @@ const mockConnectionSend = mock((sessionId: string, msg: any) => {
   return true;
 });
 
-mock.module("../src/connectionManager.js", () => ({
+const mockConnectionManager = {
   connectionManager: {
-    send: mockConnectionSend,
+    send: mock((sessionId: string, msg: any) => {
+      if (globalThis.__mockConnectionSend) {
+        return (globalThis as any).__mockConnectionSend(sessionId, msg);
+      }
+      return true;
+    }),
     add: mock(() => {}),
     remove: mock(() => {}),
     get: mock(() => undefined),
@@ -23,7 +28,10 @@ mock.module("../src/connectionManager.js", () => ({
     getSessionIds: mock(() => []),
     size: 0,
   },
-}));
+};
+
+mock.module("../src/connectionManager.js", () => mockConnectionManager);
+mock.module("../connectionManager.js", () => mockConnectionManager);
 
 const mockSynthesize = mock(async (text: string, lang: string) => {
   return "data:audio/mpeg;base64,aGVsbG8=";
@@ -36,13 +44,52 @@ const mockSynthesizeStream = mock(async (text: string, lang: string, onChunk: (b
 });
 
 mock.module("../src/services/ttsService.js", () => ({
-  synthesize: mockSynthesize,
-  synthesizeStream: mockSynthesizeStream,
+  synthesizeToBase64: mock((text: string, lang: string) => {
+    if (globalThis.__mockSynthesizeToBase64) {
+      return (globalThis as any).__mockSynthesizeToBase64(text, lang);
+    }
+    return Promise.resolve("aGVsbG8=");
+  }),
+  synthesizeStream: mock((text: string, lang: string, onChunk: any, sessionId?: string) => {
+    if (globalThis.__mockSynthesizeStream) {
+      return (globalThis as any).__mockSynthesizeStream(text, lang, onChunk, sessionId);
+    }
+    onChunk("aGVsbG8=", true);
+    return Promise.resolve();
+  }),
+  synthesize: mock((text: string, lang: string) => {
+    if (globalThis.__mockSynthesize) {
+      return (globalThis as any).__mockSynthesize(text, lang);
+    }
+    return Promise.resolve("data:audio/mpeg;base64,aGVsbG8=");
+  }),
+  interruptActiveTTS: mock(() => {}),
+  openStream: mock((sessionId: any, lang: any, onAudio: any, onReady: any, onStop: any) => {
+    if (globalThis.__mockOpenStream) {
+      return (globalThis as any).__mockOpenStream(sessionId, lang, onAudio, onReady, onStop);
+    }
+    return {
+      push: mock(() => {}),
+      finish: mock(() => {}),
+      interrupt: mock(() => {}),
+    };
+  }),
+  cleanupSession: mock(() => {}),
 }));
 
 mock.module("../src/services/s3Service.js", () => ({
-  checkS3ObjectExists: mock(async () => false),
-  getPresignedUrl: mock(async () => "https://mocked-s3-url.com/audio.mp3"),
+  checkS3ObjectExists: mock(async () => {
+    if (globalThis.__mockCheckS3ObjectExists) {
+      return (globalThis as any).__mockCheckS3ObjectExists();
+    }
+    return false;
+  }),
+  getPresignedUrl: mock(async () => {
+    if (globalThis.__mockGetPresignedUrl) {
+      return (globalThis as any).__mockGetPresignedUrl();
+    }
+    return "https://mocked-s3-url.com/audio.mp3";
+  }),
   uploadToS3: mock(async () => {}),
 }));
 
@@ -51,10 +98,22 @@ const ORDER_SCHEMA = {
   name: "Create Order",
   mode: "guided",
   route: "/orders",
-  openAction: { type: "click", fallbackText: "Create Order" },
-  overview: "Unique order creation form testing overview.",
-  fields: [
+  setupSteps: [
     {
+      tool: "navigate",
+      args: { route: "/orders" },
+      waitFor: "navigation_complete"
+    },
+    {
+      tool: "open_dialog",
+      args: { selector: ".add-btn", fallbackText: "Create Order" },
+      waitFor: "form_registered"
+    }
+  ],
+  overview: "Unique order creation form testing overview.",
+  nodes: [
+    {
+      nodeType: "field" as const,
       key: "customer",
       label: "Customer",
       type: "text" as const,
@@ -62,6 +121,7 @@ const ORDER_SCHEMA = {
       explanation: "Select the customer for this order.",
     },
     {
+      nodeType: "field" as const,
       key: "orderType",
       label: "Order Type",
       type: "select" as const,
@@ -69,20 +129,33 @@ const ORDER_SCHEMA = {
       explanation: "Choose the order type.",
     },
   ],
-  subForms: [],
   wrapUp: "That completes the order form walkthrough!",
 };
 
-mock.module("../src/schema/loader.js", () => ({
+const mockLoader = {
   getSchema: (formId: string) => {
-    if (formId === "createOrder") return ORDER_SCHEMA;
+    if (globalThis.__mockGetSchema) {
+      return (globalThis as any).__mockGetSchema(formId);
+    }
     throw new Error(`Schema not found: "${formId}"`);
   },
-  getAvailableForms: () => [{ id: "createOrder", name: "Create Order", route: "/orders" }],
-}));
+  getAvailableForms: () => {
+    if (globalThis.__mockGetAvailableForms) {
+      return (globalThis as any).__mockGetAvailableForms();
+    }
+    return [];
+  },
+  findFieldInNodes: (nodes: any[], targetKey: string) => {
+    return { matchedField: { label: "Customer" }, repeatingId: null };
+  },
+};
+
+mock.module("../src/schema/loader.js", () => mockLoader);
+mock.module("../schema/loader.js", () => mockLoader);
 
 // --- Import after mocks ---
 const { walkthroughExecutor: walkthroughDriver } = await import("../src/walkthrough/executor.js") as any;
+const { connectionManager } = await import("../src/connectionManager.js");
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -95,6 +168,10 @@ function sentMessages(sessionId: string): any[] {
 }
 
 function resetAllMocks() {
+  globalThis.__mockConnectionSend = (sessionId: string, msg: any) => {
+    console.log("[walkthroughDriver] globalThis.__mockConnectionSend called for sessionId:", sessionId, "msg:", JSON.stringify(msg));
+    return mockConnectionSend(sessionId, msg);
+  };
   mockConnectionSend.mockReset();
   mockSynthesize.mockReset();
   mockSynthesizeStream.mockReset();
@@ -112,6 +189,21 @@ function resetAllMocks() {
     const base64 = result.split(",")[1];
     onChunk(base64, true);
   });
+
+  // Set the dynamic global delegates!
+  globalThis.__mockSynthesize = (text: string, lang: string) => {
+    return mockSynthesize(text, lang);
+  };
+  globalThis.__mockSynthesizeStream = (text: string, lang: string, onChunk: any) => {
+    return mockSynthesizeStream(text, lang, onChunk);
+  };
+  globalThis.__mockCheckS3ObjectExists = async () => false;
+  globalThis.__mockGetPresignedUrl = async () => "https://mocked-s3-url.com/audio.mp3";
+  globalThis.__mockGetSchema = (formId: string) => {
+    if (formId === "createOrder") return ORDER_SCHEMA;
+    throw new Error(`Schema not found: "${formId}"`);
+  };
+  globalThis.__mockGetAvailableForms = () => [{ id: "createOrder", name: "Create Order", route: "/orders" }];
 }
 
 /**
@@ -196,8 +288,8 @@ describe("WalkthroughDriver — acceptance tests", () => {
       const sid = "cleanup-session";
       walkthroughDriver.start("createOrder", sid);
 
-      // Wait for navigation timeout (5000ms) + cleanup
-      await delay(6000);
+      // Wait for navigation timeout (10000ms) + cleanup
+      await delay(11000);
 
       // After cleanup, starting again should work
       mockConnectionSend.mockReset();
@@ -210,7 +302,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
         (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
       );
       expect(beginMsg).toBeDefined();
-    }, { timeout: 10000 });
+    }, { timeout: 15000 });
   });
 
   // =============================================
@@ -333,7 +425,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
         (m: any) => m.type === "tts_audio"
       );
       const toolMsgs = sentMessages(sid).filter(
-        (m: any) => m.type === "tool" && m.args?.tts === true && m.args?.messageId
+        (m: any) => m.type === "tool" && m.args?.tts === true && (m.args?.messageId || m.args?.speechMessageId)
       );
 
       // At least some tts_audio should be present
@@ -342,7 +434,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
       // Each tts_audio should match a tool message
       for (const ttsMsg of ttsAudioMsgs) {
         const matching = toolMsgs.find(
-          (t: any) => t.args.messageId === ttsMsg.messageId
+          (t: any) => (t.args.messageId || t.args.speechMessageId) === ttsMsg.messageId
         );
         expect(matching).toBeDefined();
       }
@@ -450,12 +542,12 @@ describe("WalkthroughDriver — acceptance tests", () => {
       await delay(2000);
 
       const msgs = sentMessages(sid);
-      // Should have go_to_field for the first field
-      const goToFieldMsg = msgs.find(
-        (m: any) => m.type === "tool" && m.tool === "go_to_field"
+      // Should have field_step for the first field
+      const fieldStepMsg = msgs.find(
+        (m: any) => m.type === "tool" && m.tool === "field_step"
       );
-      expect(goToFieldMsg).toBeDefined();
-      expect(goToFieldMsg.args.fieldKey).toBe("customer");
+      expect(fieldStepMsg).toBeDefined();
+      expect(fieldStepMsg.args.fieldKey).toBe("customer");
     });
 
     test("speaks introMessage first if provided", async () => {
@@ -473,40 +565,106 @@ describe("WalkthroughDriver — acceptance tests", () => {
       );
       expect(introMsg).toBeDefined();
     });
+
+    // =============================================
+    // CONTRACT 8: Walkthrough resumption behavior
+    // =============================================
+    describe("resumption behavior", () => {
+      test("resuming from PAUSE during a field step replays the current field step", async () => {
+        const sid = "paused-field-session";
+        await driveToOverview(sid);
+        await delay(2000); // Wait for the first field step to be dispatched
+
+        // Verify that field_step was sent
+        const originalMsgs = sentMessages(sid);
+        const firstFieldStep = originalMsgs.find(
+          (m: any) => m.type === "tool" && m.tool === "field_step"
+        );
+        expect(firstFieldStep).toBeDefined();
+        expect(firstFieldStep.args.fieldKey).toBe("customer");
+        const originalSpeechMsgId = firstFieldStep.args.speechMessageId;
+
+        // Pause the walkthrough executor
+        walkthroughDriver.pause(sid);
+
+        // Clear the mock calls to easily track the next messages
+        mockConnectionSend.mockReset();
+        mockConnectionSend.mockImplementation(() => true);
+
+        // Resume walkthrough
+        walkthroughDriver.resumeWalkthrough(sid);
+        await delay(200);
+
+        // Verify it re-sent the same field step but with a new speech message ID (replaying)
+        const newMsgs = sentMessages(sid);
+        const replayedFieldStep = newMsgs.find(
+          (m: any) => m.type === "tool" && m.tool === "field_step"
+        );
+        expect(replayedFieldStep).toBeDefined();
+        expect(replayedFieldStep.args.fieldKey).toBe("customer");
+        expect(replayedFieldStep.args.speechMessageId).not.toBe(originalSpeechMsgId);
+      });
+
+      test("resuming from DETOUR_QA during a field step replays the current field step", async () => {
+        const sid = "detour-field-session";
+        await driveToOverview(sid);
+        await delay(2000); // Wait for the first field step to be dispatched
+
+        // Verify that field_step was sent
+        const originalMsgs = sentMessages(sid);
+        const firstFieldStep = originalMsgs.find(
+          (m: any) => m.type === "tool" && m.tool === "field_step"
+        );
+        expect(firstFieldStep).toBeDefined();
+        expect(firstFieldStep.args.fieldKey).toBe("customer");
+        const originalSpeechMsgId = firstFieldStep.args.speechMessageId;
+
+        // Initiate a detour
+        walkthroughDriver.detour("customer", sid);
+
+        // Clear the mock calls to easily track the next messages
+        mockConnectionSend.mockReset();
+        mockConnectionSend.mockImplementation(() => true);
+
+        // Resume walkthrough
+        walkthroughDriver.resumeWalkthrough(sid);
+        await delay(200);
+
+        // Verify it re-sent the same field step but with a new speech message ID (replaying)
+        const newMsgs = sentMessages(sid);
+        const replayedFieldStep = newMsgs.find(
+          (m: any) => m.type === "tool" && m.tool === "field_step"
+        );
+        expect(replayedFieldStep).toBeDefined();
+        expect(replayedFieldStep.args.fieldKey).toBe("customer");
+        expect(replayedFieldStep.args.speechMessageId).not.toBe(originalSpeechMsgId);
+      });
+    });
   });
 });
 
 describe("WalkthroughStateMachine — detour transitions", () => {
-  test("allows DETOUR event from DETOUR_QA and retains original context", async () => {
-    const { WalkthroughStateMachine } = await import("../src/state/stateMachine.js");
+  test("allows detour transitions", async () => {
+    const { WalkthroughStateMachine } = await import("../src/walkthrough/stateMachine.js");
     const sm = new WalkthroughStateMachine();
-    sm.reset("WALKING_THROUGH", {
-      formId: "createOrder",
-      fieldIndex: 1,
-    });
+    expect(sm.currentState).toBe("IDLE");
 
-    // 1. Transition to DETOUR
+    sm.transition("START_WALKTHROUGH");
+    expect(sm.currentState).toBe("ACTIVE");
+
     sm.transition("DETOUR");
     expect(sm.currentState).toBe("DETOUR_QA");
-    expect(sm.currentContext.detourOrigin).toBeDefined();
-    expect(sm.currentContext.detourOrigin?.state).toBe("WALKING_THROUGH");
-    expect(sm.currentContext.detourOrigin?.fieldIndex).toBe(1);
 
-    // 2. Transition to DETOUR again (multi-hop detour)
-    // Modify index to simulate looking at another field
-    const ctx = sm.currentContext as any;
-    ctx.fieldIndex = 5; // Simulates looking at another field key
-    
-    sm.transition("DETOUR");
-    expect(sm.currentState).toBe("DETOUR_QA");
-    // Ensure detourOrigin is NOT overwritten (it should still point to WALKING_THROUGH at fieldIndex 1)
-    expect(sm.currentContext.detourOrigin?.state).toBe("WALKING_THROUGH");
-    expect(sm.currentContext.detourOrigin?.fieldIndex).toBe(1);
-
-    // 3. Complete detour
     sm.transition("DETOUR_COMPLETE");
-    expect(sm.currentState).toBe("WALKING_THROUGH");
-    expect(sm.currentContext.fieldIndex).toBe(1);
-    expect(sm.currentContext.detourOrigin).toBeNull();
+    expect(sm.currentState).toBe("ACTIVE");
+
+    sm.transition("PAUSE");
+    expect(sm.currentState).toBe("PAUSED");
+
+    sm.transition("RESUME");
+    expect(sm.currentState).toBe("ACTIVE");
+
+    sm.transition("RESET");
+    expect(sm.currentState).toBe("IDLE");
   });
 });

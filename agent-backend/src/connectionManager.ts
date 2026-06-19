@@ -7,6 +7,7 @@ import type { ClientData, OutgoingMessage } from "./types";
 
 class ConnectionManager {
   private connections: Map<string, { ws: any; data: ClientData }> = new Map();
+  private voiceAdapterModule: any = null;
 
   /**
    * Register a new WebSocket connection
@@ -35,14 +36,27 @@ class ConnectionManager {
       console.log(
         `[ConnectionManager] Client disconnected: ${sessionId} (total: ${this.connections.size})`
       );
-      // Dynamic import to avoid circular dependency (connectionManager ↔ voicePipeline)
-      import("./adapters/voiceAdapter.js")
-        .then(({ cleanupSession }) => {
-          cleanupSession(sessionId);
-        })
-        .catch((err) => {
-          console.warn(`[ConnectionManager] Failed to cleanup session ${sessionId}:`, err);
-        });
+
+      const performCleanup = (mod: any) => {
+        if (!this.has(sessionId)) {
+          mod.cleanupSession(sessionId);
+        } else {
+          console.log(`[ConnectionManager] Skipped cleanup for ${sessionId} because it reconnected`);
+        }
+      };
+
+      if (this.voiceAdapterModule) {
+        performCleanup(this.voiceAdapterModule);
+      } else {
+        import("./adapters/voiceAdapter.js")
+          .then((mod) => {
+            this.voiceAdapterModule = mod;
+            performCleanup(mod);
+          })
+          .catch((err) => {
+            console.warn(`[ConnectionManager] Failed to cleanup session ${sessionId}:`, err);
+          });
+      }
     }
   }
 
@@ -79,28 +93,7 @@ class ConnectionManager {
     }
   }
 
-  /**
-   * Broadcast a message to all connected clients
-   */
-  broadcast(message: OutgoingMessage): number {
-    const payload = JSON.stringify(message);
-    let sentCount = 0;
 
-    for (const [sessionId, connection] of this.connections) {
-      try {
-        connection.ws.send(payload);
-        connection.data.lastActivityAt = Date.now();
-        sentCount++;
-      } catch (error) {
-        console.error(
-          `[ConnectionManager] Broadcast failed for ${sessionId}:`,
-          error
-        );
-      }
-    }
-
-    return sentCount;
-  }
 
   /**
    * Update last activity timestamp for a session

@@ -243,6 +243,7 @@ const handleStatusChange = (e) => {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => setOpenCreatePoolDialog(true)}
+              data-agent-action="create-pool"
             >
               Create Pool
             </Button>

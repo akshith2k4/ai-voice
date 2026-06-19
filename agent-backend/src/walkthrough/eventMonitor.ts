@@ -21,27 +21,37 @@ export class EventMonitor {
         expectedEvent,
         matcher,
         resolve: (data: any) => {
-          session.eventWaiters = session.eventWaiters.filter((w) => w !== waiter);
+          if (session.eventWaiters) {
+            session.eventWaiters = session.eventWaiters.filter((w) => w !== waiter);
+          }
           resolve(data);
         },
         reject: (reason: any) => {
-          session.eventWaiters = session.eventWaiters.filter((w) => w !== waiter);
+          if (session.eventWaiters) {
+            session.eventWaiters = session.eventWaiters.filter((w) => w !== waiter);
+          }
           reject(reason);
         },
         timer: null as any,
       };
 
       waiter.timer = setTimeout(() => {
-        session.eventWaiters = session.eventWaiters.filter((w) => w !== waiter);
+        if (session.eventWaiters) {
+          session.eventWaiters = session.eventWaiters.filter((w) => w !== waiter);
+        }
         reject(new Error(`Timeout waiting for "${expectedEvent}" (${timeout}ms)`));
       }, timeout);
 
+      if (!session.eventWaiters) {
+        session.eventWaiters = [];
+      }
       session.eventWaiters.push(waiter);
     });
   }
 
   // Notify any pending TTS waiters that an event arrived.
   notify(session: WalkthroughSession, event: string, data?: any): void {
+    if (!session.eventWaiters) return;
     const matching = session.eventWaiters.filter(
       (w) => w.expectedEvent === event && (!w.matcher || w.matcher(data))
     );
@@ -53,6 +63,7 @@ export class EventMonitor {
   }
 
   rejectPending(session: WalkthroughSession, reason: any): void {
+    if (!session.eventWaiters) return;
     const list = [...session.eventWaiters];
     session.eventWaiters = [];
     for (const waiter of list) {

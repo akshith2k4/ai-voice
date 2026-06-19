@@ -45,11 +45,6 @@ export async function speakNarration(sessionId: string, lang: string, text: stri
   }
 }
 
-export function interruptNarration(sessionId: string): void {
-  const state = activeNarrations.get(sessionId);
-  if (state) state.interrupted = true;
-  activeNarrations.delete(sessionId);
-}
 
 function getHash(text: string, lang: string): string {
   const normalized = text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");

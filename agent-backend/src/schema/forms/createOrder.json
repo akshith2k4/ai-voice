@@ -21,7 +21,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "[excited] Okay..., so we're on the Order form now! Think of this as the plan that tells us what linen goes out..., what comes back..., and when. [friendly] Let's walk through it together \u2014 it's pretty straightforward once you see it![chuckles]",
+  "overview": {
+    "en": "[excited] Okay..., so we're on the Order form now! Think of this as the plan that tells us what linen goes out..., what comes back..., and when. [friendly] Let's walk through it together — it's pretty straightforward once you see it![chuckles]",
+    "hi": "[excited] ठीक है..., तो हम अब Order form पर हैं! इसे उस plan की तरह सोचिए जो हमें बताता है कि कौन सा linen बाहर जाता है..., क्या वापस आता है..., और कब। [friendly] चलिए साथ मिलकर करते हैं — एक बार देख लिया तो बिल्कुल आसान है![chuckles]"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -31,8 +34,11 @@
       "readOnly": false,
       "demoValue": "ORD-2026-001",
       "visibleWhen": null,
-      "explanation": "[casual] This is just a unique name for the order. You can type your own\u2026 or leave it blank and the system will generate one for you automatically.",
-      "tips": "[thoughtful] Something like ORD-2026-001 works really well \u2014 keeps things nice and easy to find later.",
+      "explanation": {
+        "en": "[casual] This is just a unique name for the order. You can type your own… or leave it blank and the system will generate one for you automatically.",
+        "hi": "[casual] यह बस order का एक unique नाम है। आप खुद type कर सकते हैं… या blank छोड़ दें और system automatically एक generate कर देगा।"
+      },
+      "tips": "[thoughtful] Something like ORD-2026-001 works really well — keeps things nice and easy to find later.",
       "commonQuestions": [
         {
           "question": "What happens if I leave this blank?",
@@ -52,8 +58,11 @@
       "required": true,
       "demoValue": "Arama Suites",
       "visibleWhen": null,
-      "explanation": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up\u2026 they might be inactive.",
-      "tips": "[thoughtful] Head over to the Customers page and make sure they're marked as active \u2014 that's usually the reason.",
+      "explanation": {
+        "en": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up… they might be inactive.",
+        "hi": "[friendly] बस customer का नाम type करना शुरू करें और list में से चुनें। इतना ही! अगर वो दिख नहीं रहे… तो शायद वो inactive हों।"
+      },
+      "tips": "[thoughtful] Head over to the Customers page and make sure they're marked as active — that's usually the reason.",
       "waitAfterFillMs": 1000,
       "commonQuestions": [
         {
@@ -73,7 +82,10 @@
       "type": "date",
       "demoValue": "2026-01-15",
       "visibleWhen": null,
-      "explanation": "[casual] This is just the date the order's being created. It defaults to today\u2026 so most of the time, you won't even need to touch it.",
+      "explanation": {
+        "en": "[casual] This is just the date the order's being created. It defaults to today… so most of the time, you won't even need to touch it.",
+        "hi": "[casual] यह बस वो date है जब order बनाया जा रहा है। यह automatically आज की date होती है… तो ज्यादातर बार आपको इसे छूना भी नहीं पड़ेगा।"
+      },
       "tips": "[thoughtful] Only change it if you're backdating an older order that was missed.",
       "commonQuestions": [
         {
@@ -95,8 +107,11 @@
       ],
       "demoValue": "LEASING",
       "visibleWhen": null,
-      "explanation": "[curious] Okay, THIS one is really important. It tells the whole system what kind of order this is. Leasing is your everyday order\u2026 Rental is for short-term use\u2026 and Washing is when a customer sends in their OWN linen to be cleaned.",
-      "tips": "[thoughtful] Whatever you pick here will actually change which fields appear below \u2014 so make sure it's right before moving on.",
+      "explanation": {
+        "en": "[curious] Okay, THIS one is really important. It tells the whole system what kind of order this is. Leasing is your everyday order… Rental is for short-term use… and Washing is when a customer sends in their OWN linen to be cleaned.",
+        "hi": "[curious] ठीक है, यह वाला बहुत जरूरी है। यह पूरे system को बताता है कि यह किस तरह का order है। Leasing आपका रोज़ का order है… Rental short-term use के लिए है… और Washing तब होता है जब customer अपना खुद का linen clean करवाने के लिए भेजता है।"
+      },
+      "tips": "[thoughtful] Whatever you pick here will actually change which fields appear below — so make sure it's right before moving on.",
       "commonQuestions": [
         {
           "question": "What is the difference between Leasing and Rental?",
@@ -115,8 +130,11 @@
       "type": "toggle",
       "demoValue": false,
       "visibleWhen": null,
-      "explanation": "[casual] For a brand new order\u2026 just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
-      "tips": "When in doubt, leave it off \u2014 it's rarely needed for day-to-day orders. [chuckles]",
+      "explanation": {
+        "en": "[casual] For a brand new order… just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
+        "hi": "[casual] बिल्कुल नए order के लिए… इसे off ही रहने दें। आप इसे तभी on करेंगे जब किसी existing order में कुछ fix या update करना हो।"
+      },
+      "tips": "When in doubt, leave it off — it's rarely needed for day-to-day orders. [chuckles]",
       "commonQuestions": [
         {
           "question": "When should I use Adjustment Order?",
@@ -139,7 +157,10 @@
         "field": "orderType",
         "value": "LEASING"
       },
-      "explanation": "[curious] So\u2026 are we dropping off linen, picking it up, or doing BOTH in the same trip? For most leasing customers, it's Both \u2014 fresh linen goes out while the used stuff comes back.",
+      "explanation": {
+        "en": "[curious] So… are we dropping off linen, picking it up, or doing BOTH in the same trip? For most leasing customers, it's Both — fresh linen goes out while the used stuff comes back.",
+        "hi": "[curious] तो… क्या हम linen drop off कर रहे हैं, pick up कर रहे हैं, या एक ही trip में BOTH कर रहे हैं? ज्यादातर leasing customers के लिए Both होता है — fresh linen बाहर जाता है और used वापस आता है।"
+      },
       "tips": "[friendly] If you're not sure, Both is almost always the right call for leasing orders.",
       "commonQuestions": [
         {
@@ -165,8 +186,11 @@
           "BOTH"
         ]
       },
-      "explanation": "[casual] This is the day your team heads out to collect the used linen. It defaults to tomorrow\u2026 just change it if your schedule's different.",
-      "tips": "[thoughtful] Just double-check it's not landing on a weekend or holiday\u2026 unless your team's working that day.",
+      "explanation": {
+        "en": "[casual] This is the day your team heads out to collect the used linen. It defaults to tomorrow… just change it if your schedule's different.",
+        "hi": "[casual] यह वो दिन है जब आपकी team used linen collect करने निकलती है। यह automatically कल की date होती है… अगर schedule अलग हो तो बदल लें।"
+      },
+      "tips": "[thoughtful] Just double-check it's not landing on a weekend or holiday… unless your team's working that day.",
       "commonQuestions": [
         {
           "question": "Can the pickup date be before the order date?",
@@ -191,7 +215,10 @@
           "BOTH"
         ]
       },
-      "explanation": "[casual] And this is when the fresh linen gets delivered to the customer. Also defaults to tomorrow \u2014 adjust it if needed.",
+      "explanation": {
+        "en": "[casual] And this is when the fresh linen gets delivered to the customer. Also defaults to tomorrow — adjust it if needed.",
+        "hi": "[casual] और यह वो दिन है जब customer को fresh linen deliver होता है। यह भी automatically कल की date होती है — जरूरत हो तो बदल लें।"
+      },
       "tips": "[thoughtful] Make sure the warehouse has enough time to get everything ready before this date rolls around.",
       "commonQuestions": [
         {
@@ -227,8 +254,14 @@
           "BOTH"
         ]
       },
-      "explanationForMultiple": "[friendly] You can add as many items as the order needs \u2014 let me show you a second one real quick.",
-      "explanation": "[excited] Now we're adding the actual linen items going out to the customer! Good news \u2014 these usually fill in automatically based on what's in their agreement.",
+      "explanation": {
+        "en": "[excited] Now we're adding the actual linen items going out to the customer! Good news — these usually fill in automatically based on what's in their agreement.",
+        "hi": "[excited] अब हम customer के पास जाने वाले actual linen items add कर रहे हैं! अच्छी खबर — ये आमतौर पर उनके agreement के हिसाब से automatically भर जाते हैं।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] You can add as many items as the order needs — let me show you a second one real quick.",
+        "hi": "[friendly] आप जितने items चाहें add कर सकते हैं — चलिए जल्दी से एक दूसरा दिखाते हैं।"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -237,7 +270,10 @@
           "type": "select",
           "autoFilled": true,
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "[casual] Pick the product being delivered. Only items from the customer's agreement will show up here.",
+          "explanation": {
+            "en": "[casual] Pick the product being delivered. Only items from the customer's agreement will show up here.",
+            "hi": "[casual] deliver होने वाला product चुनें। यहाँ सिर्फ customer के agreement वाले items दिखेंगे।"
+          },
           "commonQuestions": []
         },
         {
@@ -246,7 +282,10 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "50",
-          "explanation": "How many are going out this cycle? Just type the number.",
+          "explanation": {
+            "en": "How many are going out this cycle? Just type the number.",
+            "hi": "इस cycle में कितने बाहर जा रहे हैं? बस number type करें।"
+          },
           "commonQuestions": []
         },
         {
@@ -255,7 +294,10 @@
           "label": "Remarks",
           "type": "text",
           "demoValue": "Premium quality required",
-          "explanation": "[casual] Got any special instructions for this item? Things like quality requirements or handling notes \u2014 pop them in here.",
+          "explanation": {
+            "en": "[casual] Got any special instructions for this item? Things like quality requirements or handling notes — pop them in here.",
+            "hi": "[casual] इस item के लिए कोई special instructions हैं? जैसे quality requirements या handling notes — यहाँ लिख दें।"
+          },
           "commonQuestions": []
         }
       ]
@@ -287,8 +329,14 @@
         },
         "checkboxLabel": "Use same items and quantities as Delivery"
       },
-      "explanationForMultiple": "[friendly] Let me add a second pickup item to show you how it works.",
-      "explanation": "[casual] Now for what's coming BACK. If it's the same items as the delivery\u2026 just tick that checkbox and it'll copy everything over automatically. Super handy!",
+      "explanation": {
+        "en": "[casual] Now for what's coming BACK. If it's the same items as the delivery… just tick that checkbox and it'll copy everything over automatically. Super handy!",
+        "hi": "[casual] अब जो वापस आएगा उसके लिए। अगर delivery वाले same items हैं… तो बस वो checkbox tick करें और सब automatically copy हो जाएगा। बहुत काम की चीज़!"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] Let me add a second pickup item to show you how it works.",
+        "hi": "[friendly] चलिए एक दूसरा pickup item add करते हैं ताकि आप देख सकें यह कैसे काम करता है।"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -296,7 +344,10 @@
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "Which product are we collecting from the customer?",
+          "explanation": {
+            "en": "Which product are we collecting from the customer?",
+            "hi": "हम customer से कौन सा product collect कर रहे हैं?"
+          },
           "commonQuestions": []
         },
         {
@@ -305,7 +356,10 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "50",
-          "explanation": "[thoughtful] How many are we picking up? This can be different from the delivery if they're still holding onto some.",
+          "explanation": {
+            "en": "[thoughtful] How many are we picking up? This can be different from the delivery if they're still holding onto some.",
+            "hi": "[thoughtful] हम कितने pick up कर रहे हैं? अगर उन्होंने कुछ अपने पास रखे हों तो यह delivery से अलग हो सकता है।"
+          },
           "commonQuestions": []
         },
         {
@@ -314,7 +368,10 @@
           "label": "Remarks",
           "type": "text",
           "demoValue": "For washing",
-          "explanation": "[casual] Anything the team should know on the way back? Damaged items, special handling \u2014 just note it here.",
+          "explanation": {
+            "en": "[casual] Anything the team should know on the way back? Damaged items, special handling — just note it here.",
+            "hi": "[casual] वापसी में team को कुछ जानना चाहिए? Damaged items, special handling — बस यहाँ note कर दें।"
+          },
           "commonQuestions": []
         }
       ]
@@ -331,7 +388,10 @@
         "field": "orderType",
         "value": "RENTAL"
       },
-      "explanation": "[friendly] Here's where we add what's being rented out \u2014 the product, how many, and how long they're keeping it. Easy stuff!",
+      "explanation": {
+        "en": "[friendly] Here's where we add what's being rented out — the product, how many, and how long they're keeping it. Easy stuff!",
+        "hi": "[friendly] यहाँ हम वो add करते हैं जो rent पर जा रहा है — product, कितने, और कितने दिन के लिए। बिल्कुल आसान!"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -339,7 +399,10 @@
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "What product is going out on rental?",
+          "explanation": {
+            "en": "What product is going out on rental?",
+            "hi": "कौन सा product rental पर जा रहा है?"
+          },
           "commonQuestions": []
         },
         {
@@ -348,7 +411,10 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "100",
-          "explanation": "How many units are they renting?",
+          "explanation": {
+            "en": "How many units are they renting?",
+            "hi": "वो कितने units rent कर रहे हैं?"
+          },
           "commonQuestions": []
         },
         {
@@ -357,7 +423,10 @@
           "label": "Rental Duration (days)",
           "type": "text",
           "demoValue": "30",
-          "explanation": "[casual] And how many days are they keeping it? Just type the number of days.",
+          "explanation": {
+            "en": "[casual] And how many days are they keeping it? Just type the number of days.",
+            "hi": "[casual] और वो इसे कितने दिन रखेंगे? बस दिनों की संख्या type करें।"
+          },
           "commonQuestions": []
         }
       ]
@@ -374,7 +443,10 @@
         "field": "orderType",
         "value": "WASHING"
       },
-      "explanation": "[casual] For a washing order, just add what the customer sent in to be cleaned \u2014 the product type and how many pieces. That's all there is to it.",
+      "explanation": {
+        "en": "[casual] For a washing order, just add what the customer sent in to be cleaned — the product type and how many pieces. That's all there is to it.",
+        "hi": "[casual] washing order के लिए, बस वो add करें जो customer ने clean करवाने के लिए भेजा है — product type और कितने pieces। बस इतना ही है।"
+      },
       "children": [
         {
           "nodeType": "field",
@@ -382,7 +454,10 @@
           "label": "Product",
           "type": "select",
           "demoValue": "Bath Towel (Standard)",
-          "explanation": "Which product did they send in for washing?",
+          "explanation": {
+            "en": "Which product did they send in for washing?",
+            "hi": "उन्होंने washing के लिए कौन सा product भेजा?"
+          },
           "commonQuestions": []
         },
         {
@@ -391,13 +466,19 @@
           "label": "Quantity",
           "type": "text",
           "demoValue": "200",
-          "explanation": "And how many pieces came in? Just type the count.",
+          "explanation": {
+            "en": "And how many pieces came in? Just type the count.",
+            "hi": "और कितने pieces आए? बस count type करें।"
+          },
           "commonQuestions": []
         }
       ]
     }
   ],
-  "wrapUp": "[warm and satisfied] And that's a wrap! [chuckles] We covered the customer, order type, dates, and all the items. Nothing was actually saved during this walkthrough\u2026 so whenever you're ready, go ahead and create your first REAL order. You've got this!",
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's a wrap! [chuckles] We covered the customer, order type, dates, and all the items. Nothing was actually saved during this walkthrough… so whenever you're ready, go ahead and create your first REAL order. You've got this!",
+    "hi": "[warm and satisfied] और यह हो गया! [chuckles] हमने customer, order type, dates, और सारे items cover कर लिए। इस walkthrough में कुछ भी actually save नहीं हुआ… तो जब भी तैयार हों, जाइए और अपना पहला REAL order बनाएं। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create order",
     "new order",

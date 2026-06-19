@@ -23,13 +23,32 @@ export function getTTSService(): ITTSService {
   return service;
 }
 
-export function synthesizeStream(
+export async function synthesizeStream(
   text: string,
   languageCode: string,
   onChunk: (base64Chunk: string, isDone: boolean) => void,
   sessionId = "default"
 ): Promise<void> {
-  return getTTSService().synthesizeStream(text, languageCode, onChunk, sessionId);
+  const provider = getTTSProvider();
+  try {
+    await getTTSService().synthesizeStream(text, languageCode, onChunk, sessionId);
+  } catch (err) {
+    console.error(`[TTS] Primary provider (${provider}) failed:`, err);
+    const fallbackProvider = provider === TTSProvider.OPEN_AI ? TTSProvider.ELEVEN_LABS : TTSProvider.OPEN_AI;
+    console.log(`[TTS] Attempting fallback to: ${fallbackProvider}`);
+    try {
+      let service = providers.get(fallbackProvider);
+      if (!service) {
+        service = fallbackProvider === TTSProvider.OPEN_AI ? new OpenAITTS() : new ElevenLabsTTS();
+        providers.set(fallbackProvider, service);
+      }
+      await service.synthesizeStream(text, languageCode, onChunk, sessionId);
+      console.log(`[TTS] Fallback to ${fallbackProvider} succeeded.`);
+    } catch (fallbackErr) {
+      console.error(`[TTS] Fallback provider (${fallbackProvider}) also failed:`, fallbackErr);
+      throw fallbackErr;
+    }
+  }
 }
 
 export function interruptActiveTTS(sessionId = "default"): void {
@@ -58,12 +77,13 @@ const activeStreams = new Map<string, SessionStream>();
 class SessionStream {
   private buffer = "";
   private scanPosition = 0;
-  private sentenceQueue: Array<{ text: string; isLast: boolean }> = [];
+  private sentenceQueue: Array<{ text: string; isLast: boolean; addedAt: number }> = [];
   private processing = false;
   private allPushed = false;
   private firstChunkReceived = false;
   private interrupted = false;
   private readonly ttsStart = Date.now();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly sessionId: string,
@@ -81,11 +101,19 @@ class SessionStream {
     this.processQueue();
   }
 
+  private clearFlushTimer(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+  }
+
   finish(): void {
+    this.clearFlushTimer();
     this.allPushed = true;
     const remaining = this.buffer.trim();
     if (remaining) {
-      this.sentenceQueue.push({ text: remaining, isLast: true });
+      this.sentenceQueue.push({ text: remaining, isLast: true, addedAt: Date.now() });
       this.buffer = "";
     } else if (this.sentenceQueue.length > 0) {
       this.sentenceQueue[this.sentenceQueue.length - 1].isLast = true;
@@ -99,6 +127,7 @@ class SessionStream {
     this.interrupted = true;
     this.sentenceQueue = [];
     this.buffer = "";
+    this.clearFlushTimer();
     this.onStop();
     activeStreams.delete(this.sessionId);
   }
@@ -122,7 +151,7 @@ class SessionStream {
         continue;
       }
 
-      this.sentenceQueue.push({ text: sentence, isLast: false });
+      this.sentenceQueue.push({ text: sentence, isLast: false, addedAt: Date.now() });
       this.buffer = this.buffer.substring(matchIdx + match[0].length);
       this.scanPosition = 0;
     }
@@ -141,10 +170,23 @@ class SessionStream {
   // so we know whether to mark it isLast before sending to the provider.
   private async drainQueue(): Promise<void> {
     while (this.sentenceQueue.length > 0) {
-      if (this.interrupted) { this.sentenceQueue = []; break; }
-      if (!this.allPushed && this.sentenceQueue.length === 1) break;
+      if (this.interrupted) { this.sentenceQueue = []; this.clearFlushTimer(); break; }
+      
+      if (!this.allPushed && this.sentenceQueue.length === 1) {
+        const elapsed = Date.now() - this.sentenceQueue[0].addedAt;
+        if (elapsed < 1500) {
+          if (!this.flushTimer) {
+            this.flushTimer = setTimeout(() => {
+              this.flushTimer = null;
+              this.processQueue();
+            }, 1500 - elapsed);
+          }
+          break;
+        }
+      }
 
       const item = this.sentenceQueue.shift()!;
+      this.clearFlushTimer();
       await this.synthesize(item.text, item.isLast);
     }
 
@@ -167,8 +209,11 @@ class SessionStream {
           this.onAudio(base64Chunk, isLast && chunkDone);
         }
         if (chunkDone || this.interrupted) resolve();
-      }, this.sessionId).catch(err => {
+      }).catch(err => {
         console.error("[TTS] Synthesis failed for:", text, err);
+        if (isLast && !this.interrupted) {
+          this.onAudio("", true);
+        }
         resolve();
       });
     });
@@ -185,6 +230,4 @@ export function openStream(
   return new SessionStream(sessionId, lang, onAudio, onReady, onStop);
 }
 
-export function interruptStream(sessionId: string): void {
-  activeStreams.get(sessionId)?.interrupt();
-}
+

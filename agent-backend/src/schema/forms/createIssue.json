@@ -20,8 +20,10 @@
       "waitFor": "form_registered"
     }
   ],
-  "overview": "This form allows you to report a new issue, such as quality issues, missing linens, or heavy soilage. It dynamically branches depending on whether the source is a Customer or a Laundry vendor.",
-  "wrapUp": "Great! We have walked through reporting an issue for both Customer and Laundry branches, seeing how fields dynamically show up.",
+  "overview": {
+    "en": "[excited] Let's report a new Issue! Think of this... as logging a problem — like missing linen or quality defects. [friendly] It dynamically changes depending on if the source is a Customer or a Laundry vendor. Let's walk through it!",
+    "hi": "[excited] चलिए एक नई Issue report करते हैं! इसे... एक problem log करने की तरह सोचिए — जैसे missing linen या quality defects। [friendly] यह dynamically बदलता है इस बात पर निर्भर करके कि source एक Customer है या Laundry vendor। चलते हैं!"
+  },
   "nodes": [
     {
       "nodeType": "field",
@@ -29,7 +31,10 @@
       "label": "Issue Date",
       "type": "date",
       "demoValue": "2026-05-18",
-      "explanation": "Select the date the issue was recorded."
+      "explanation": {
+        "en": "[casual] When did this happen? Just pick the date.",
+        "hi": "[casual] यह कब हुआ? बस date चुनें।"
+      }
     },
     {
       "nodeType": "field",
@@ -50,9 +55,15 @@
         "washDate"
       ],
       "demoValue": "CUSTOMER",
-      "explanation": "Source Type decides who the issue is about \u2013 a Customer hotel or a Laundry vendor.",
+      "explanation": {
+        "en": "[curious] Who is this about? A CUSTOMER hotel or a LAUNDRY vendor? This choice changes what happens next!",
+        "hi": "[curious] यह किसके बारे में है? एक CUSTOMER hotel या LAUNDRY vendor? यह choice आगे क्या होता है वो बदल देती है!"
+      },
       "explain": {
-        "full": "Source Type decides who the issue is about \u2013 a Customer hotel or a Laundry vendor. This controls what appears in Source Name and Trigger Entity."
+        "full": {
+          "en": "[curious] Who is this about? A CUSTOMER hotel or a LAUNDRY vendor? This choice changes the Source Name and Trigger Entity.",
+          "hi": "[curious] यह किसके बारे में है? एक CUSTOMER hotel या LAUNDRY vendor? यह choice Source Name और Trigger Entity को बदल देती है।"
+        }
       }
     },
     {
@@ -65,12 +76,24 @@
         "CUSTOMER": "ARAMA SUITES",
         "LAUNDRY": "Laundry Solutions"
       },
-      "explanation": "Select the specific Customer or Laundry Vendor.",
+      "explanation": {
+        "en": "[casual] Search and pick the exact Customer or Vendor.",
+        "hi": "[casual] सही Customer या Vendor को search करके चुनें।"
+      },
       "explain": {
-        "full": "Search and select the customer hotel or laundry vendor related to this issue.",
+        "full": {
+          "en": "[casual] Search and pick the exact Customer or Vendor involved.",
+          "hi": "[casual] involved Customer या Vendor को search करके चुनें।"
+        },
         "delta": {
-          "CUSTOMER": "Now we select the customer hotel. Let's select Arama Suites.",
-          "LAUNDRY": "Now we select the laundry vendor. Let's select LinenCare Services."
+          "CUSTOMER": {
+            "en": "[casual] Let's pick the customer hotel... Arama Suites.",
+            "hi": "[casual] चलिए customer hotel चुनते हैं... Arama Suites।"
+          },
+          "LAUNDRY": {
+            "en": "[casual] Let's pick the laundry vendor... LinenCare Services.",
+            "hi": "[casual] चलिए laundry vendor चुनते हैं... LinenCare Services।"
+          }
         }
       }
     },
@@ -84,12 +107,24 @@
         "CUSTOMER": "ORDER",
         "LAUNDRY": "WASH_FULFILLMENT"
       },
-      "explanation": "Select the associated entity type.",
+      "explanation": {
+        "en": "[casual] What triggered this? An ORDER or a WASH FULFILLMENT?",
+        "hi": "[casual] यह किससे trigger हुआ? एक ORDER से या WASH FULFILLMENT से?"
+      },
       "explain": {
-        "full": "Select the entity that triggered this issue \u2013 either an Order or a Wash Fulfillment.",
+        "full": {
+          "en": "[casual] What triggered this? An ORDER or a WASH FULFILLMENT?",
+          "hi": "[casual] यह किससे trigger हुआ? एक ORDER से या WASH FULFILLMENT से?"
+        },
         "delta": {
-          "CUSTOMER": "Notice that Trigger Entity automatically changed to ORDER for the Customer.",
-          "LAUNDRY": "Notice that Trigger Entity automatically changed to WASH_FULFILLMENT for the Laundry."
+          "CUSTOMER": {
+            "en": "[curious] Notice it auto-changed to ORDER for the customer!",
+            "hi": "[curious] देखिए, customer के लिए यह automatically ORDER में बदल गया!"
+          },
+          "LAUNDRY": {
+            "en": "[curious] Notice it auto-changed to WASH_FULFILLMENT for the laundry!",
+            "hi": "[curious] देखिए, laundry के लिए यह automatically WASH_FULFILLMENT में बदल गया!"
+          }
         }
       }
     },
@@ -99,12 +134,19 @@
       "label": "Order Date",
       "type": "date",
       "visibleWhen": {
-        "sourceType": "CUSTOMER"
+        "field": "sourceType",
+        "value": "CUSTOMER"
       },
       "demoValue": "2026-05-18",
-      "explanation": "Select the order date to filter orders.",
+      "explanation": {
+        "en": "[casual] Pick the Order Date. This loads their orders for that day.",
+        "hi": "[casual] Order Date चुनें। यह उस दिन के orders load कर देता है।"
+      },
       "explain": {
-        "full": "Select the Order Date. This will automatically load the customer's orders for that day."
+        "full": {
+          "en": "[casual] Pick the Order Date. This automatically loads their orders for that day.",
+          "hi": "[casual] Order Date चुनें। यह automatically उस दिन के उनके orders load कर देता है।"
+        }
       }
     },
     {
@@ -113,12 +155,16 @@
       "label": "Orders",
       "type": "select",
       "visibleWhen": {
-        "sourceType": "CUSTOMER"
+        "field": "sourceType",
+        "value": "CUSTOMER"
       },
       "autoLoad": true,
       "demoValue": "",
       "emptyMessage": "No orders found for this selection. You can still continue without linking one.",
-      "explanation": "Link a specific order to this issue if applicable."
+      "explanation": {
+        "en": "[casual] Link a specific order... if there is one.",
+        "hi": "[casual] किसी specific order से link करें... अगर कोई हो तो।"
+      }
     },
     {
       "nodeType": "field",
@@ -126,12 +172,19 @@
       "label": "Wash Date",
       "type": "date",
       "visibleWhen": {
-        "sourceType": "LAUNDRY"
+        "field": "sourceType",
+        "value": "LAUNDRY"
       },
       "demoValue": "2026-05-18",
-      "explanation": "Select the wash date.",
+      "explanation": {
+        "en": "[casual] Pick the Wash Date to link this to laundry processing.",
+        "hi": "[casual] Wash Date चुनें ताकि इसे laundry processing से link किया जा सके।"
+      },
       "explain": {
-        "full": "Select the Wash Date to link this issue with laundry processing on that date."
+        "full": {
+          "en": "[casual] Pick the Wash Date to link this issue with laundry processing on that day.",
+          "hi": "[casual] Wash Date चुनें ताकि इस issue को उस दिन की laundry processing से link किया जा सके।"
+        }
       }
     },
     {
@@ -140,7 +193,10 @@
       "label": "Issue Type",
       "type": "select",
       "demoValue": "QUALITY",
-      "explanation": "Select the category of the issue, like missing items or quality defects."
+      "explanation": {
+        "en": "[curious] What's the category? Missing items, quality defects... pick one.",
+        "hi": "[curious] category क्या है? Missing items, quality defects... एक चुनें।"
+      }
     },
     {
       "nodeType": "field",
@@ -148,7 +204,10 @@
       "label": "Status",
       "type": "select",
       "demoValue": "OPEN",
-      "explanation": "Choose the initial status of the issue."
+      "explanation": {
+        "en": "[casual] What's the initial status? Usually OPEN.",
+        "hi": "[casual] initial status क्या है? आमतौर पर OPEN होता है।"
+      }
     },
     {
       "nodeType": "field",
@@ -156,7 +215,10 @@
       "label": "Description",
       "type": "text",
       "demoValue": "Stained sheets observed in batch",
-      "explanation": "Enter details explaining the issue."
+      "explanation": {
+        "en": "[casual] Give us the details. What EXACTLY happened?",
+        "hi": "[casual] details बताएं। EXACTLY क्या हुआ?"
+      }
     },
     {
       "nodeType": "field",
@@ -164,7 +226,10 @@
       "label": "Product",
       "type": "autocomplete",
       "demoValue": "Double Bed Sheet",
-      "explanation": "Optionally select the product affected by the issue."
+      "explanation": {
+        "en": "[casual] Which product is affected? This is optional, but helpful.",
+        "hi": "[casual] कौन सा product affected है? यह optional है, लेकिन helpful है।"
+      }
     },
     {
       "nodeType": "field",
@@ -172,9 +237,16 @@
       "label": "Quantity",
       "type": "text",
       "demoValue": "5",
-      "explanation": "Enter the quantity of items affected."
+      "explanation": {
+        "en": "[casual] How many items were affected? Just the number.",
+        "hi": "[casual] कितने items affected हुए? बस number डालें।"
+      }
     }
   ],
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's all for reporting this issue! [friendly] We've logged all the details. Nothing was saved... but whenever you are ready, go report a REAL issue. You've got this!",
+    "hi": "[warm and satisfied] और इस issue को report करने के लिए बस इतना ही! [friendly] हमने सारी details log कर ली हैं। कुछ भी save नहीं हुआ... लेकिन जब भी तैयार हों, जाइए और एक REAL issue report करें। आप यह कर सकते हैं!"
+  },
   "aliases": [
     "create issue",
     "new issue",

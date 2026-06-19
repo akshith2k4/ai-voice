@@ -110,7 +110,13 @@ export class ElevenLabsTTS implements ITTSService {
     sessionId: string = "default",
     attempt = 1
   ): Promise<void> {
-    const { apiKey: ELEVENLABS_API_KEY, voiceId: ELEVENLABS_VOICE_ID, ttsModel: ELEVENLABS_TTS_MODEL } = config.elevenlabs;
+    const {
+      apiKey: ELEVENLABS_API_KEY,
+      voiceId: ELEVENLABS_VOICE_ID,
+      voiceIdEn: ELEVENLABS_VOICE_ID_EN,
+      voiceIdHi: ELEVENLABS_VOICE_ID_HI,
+      ttsModel: ELEVENLABS_TTS_MODEL
+    } = config.elevenlabs;
 
     if (!ELEVENLABS_API_KEY) {
       throw new Error("ELEVENLABS_API_KEY not configured");
@@ -119,7 +125,12 @@ export class ElevenLabsTTS implements ITTSService {
       throw new Error("Empty text for TTS");
     }
 
-    const voiceId = ELEVENLABS_VOICE_ID;
+    let voiceId = ELEVENLABS_VOICE_ID;
+    if (languageCode === "hi" && ELEVENLABS_VOICE_ID_HI) {
+      voiceId = ELEVENLABS_VOICE_ID_HI;
+    } else if (ELEVENLABS_VOICE_ID_EN) {
+      voiceId = ELEVENLABS_VOICE_ID_EN;
+    }
     const state = this.getSessionState(sessionId);
     const controller = new AbortController();
     state.abortController = controller;

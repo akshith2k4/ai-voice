@@ -2,6 +2,47 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 
 // --- Mock setup (before imports) ---
 
+let activeSend: ((msg: any) => void) | null = null;
+
+const mockConnectionSend = mock((sessionId: string, msg: any) => {
+  if (activeSend) activeSend(msg);
+  return true;
+});
+
+mock.module("../src/connectionManager.js", () => ({
+  connectionManager: {
+    send: mock((sessionId: string, msg: any) => {
+      if (globalThis.__mockConnectionSend) {
+        return (globalThis as any).__mockConnectionSend(sessionId, msg);
+      }
+      return true;
+    }),
+    add: mock(() => {}),
+    remove: mock(() => {}),
+    get: mock(() => undefined),
+    has: mock(() => true),
+    broadcast: mock(() => 0),
+    touch: mock(() => {}),
+    getSessionIds: mock(() => []),
+    size: 0,
+  },
+}));
+
+mock.module("../src/schema/loader.js", () => ({
+  getSchema: (formId: string) => {
+    if (globalThis.__mockGetSchema) {
+      return (globalThis as any).__mockGetSchema(formId);
+    }
+    throw new Error(`Schema not found: "${formId}"`);
+  },
+  getAvailableForms: () => {
+    if (globalThis.__mockGetAvailableForms) {
+      return (globalThis as any).__mockGetAvailableForms();
+    }
+    return [];
+  },
+}));
+
 const mockTranscribeAudio = mock(async (audio: string) => ({
   text: "hello world",
   languageCode: "en",
@@ -52,8 +93,37 @@ mock.module("../src/services/sttService.js", () => ({
 }));
 
 mock.module("../src/services/ttsService.js", () => ({
-  synthesizeToBase64: mockSynthesizeToBase64,
-  synthesizeStream: mockSynthesizeStream,
+  synthesizeToBase64: mock((text: string, lang: string) => {
+    if (globalThis.__mockSynthesizeToBase64) {
+      return (globalThis as any).__mockSynthesizeToBase64(text, lang);
+    }
+    return Promise.resolve("aGVsbG8=");
+  }),
+  synthesizeStream: mock((text: string, lang: string, onChunk: any, sessionId?: string) => {
+    if (globalThis.__mockSynthesizeStream) {
+      return (globalThis as any).__mockSynthesizeStream(text, lang, onChunk, sessionId);
+    }
+    onChunk("aGVsbG8=", true);
+    return Promise.resolve();
+  }),
+  synthesize: mock((text: string, lang: string) => {
+    if (globalThis.__mockSynthesize) {
+      return (globalThis as any).__mockSynthesize(text, lang);
+    }
+    return Promise.resolve("data:audio/mpeg;base64,aGVsbG8=");
+  }),
+  interruptActiveTTS: mock(() => {}),
+  openStream: mock((sessionId: any, lang: any, onAudio: any, onReady: any, onStop: any) => {
+    if (globalThis.__mockOpenStream) {
+      return (globalThis as any).__mockOpenStream(sessionId, lang, onAudio, onReady, onStop);
+    }
+    return {
+      push: mock(() => {}),
+      finish: mock(() => {}),
+      interrupt: mock(() => {}),
+    };
+  }),
+  cleanupSession: mock(() => {}),
 }));
 
 mock.module("../llm/llmService.js", () => ({
@@ -67,24 +137,66 @@ mock.module("../src/walkthrough/executor.js", () => ({
     getSession: mockGetSession,
     cancel: mock(() => {}),
     handleEvent: mock(() => {}),
+    detour: mock((fieldKey: string, sessionId: string, responder: any, skipSpeech: boolean) => {
+      const session = mockGetSession(sessionId);
+      if (session) {
+        session.stateMachine.transition("DETOUR", {
+          fieldIndex: 0,
+          subFormId: undefined,
+          subFormFieldIndex: undefined,
+        });
+        
+        const { connectionManager } = require("../src/connectionManager.js");
+        connectionManager.send(sessionId, { type: "tool", tool: "detour_start", args: { fieldKey } });
+        connectionManager.send(sessionId, { type: "tool", tool: "go_to_field", args: { fieldKey, label: "Customer" } });
+        
+        const speechText = skipSpeech ? undefined : `Here's the Customer field`;
+        if (speechText) responder.speak(speechText);
+      }
+    }),
+    resumeWalkthrough: mock((sessionId: string) => {
+      const session = mockGetSession(sessionId);
+      if (session) {
+        const state = session.stateMachine.currentState;
+        if (state === "DETOUR_QA") {
+          session.stateMachine.transition("DETOUR_COMPLETE");
+          const { connectionManager } = require("../src/connectionManager.js");
+          connectionManager.send(sessionId, { type: "tool", tool: "detour_end", args: {} });
+          connectionManager.send(sessionId, { type: "tool", tool: "go_to_field", args: { fieldKey: "customer", label: "Customer" } });
+          session.responder?.speak(`Returning to our walkthrough at Customer`);
+        } else if (state === "PAUSED") {
+          session.stateMachine.transition("RESUME");
+          session.responder?.speak(`Resuming walkthrough at Customer`);
+        }
+      }
+    }),
   },
 }));
 
 // --- Import after mocks ---
 const { handleIncoming: handleVoice } = await import("../src/adapters/voiceAdapter.js") as any;
 const sttService = await import("../src/services/sttService.js");
+const { connectionManager } = await import("../src/connectionManager.js");
+const { VoiceResponder } = await import("../src/adapters/responders/voiceResponder.js");
+VoiceResponder.prototype.waitForPlayback = mock(async () => false);
 
 function createCtx(overrides?: Record<string, unknown>) {
   const sent: any[] = [];
+  const send = (msg: any) => sent.push(msg);
+  activeSend = send;
   return {
     sessionId: "test-session-1",
-    send: (msg: any) => sent.push(msg),
+    send,
     sent,
     ...overrides,
   };
 }
 
 function resetAllMocks() {
+  activeSend = null;
+  mockConnectionSend.mockReset();
+  mockConnectionSend.mockImplementation(() => true);
+
   mockTranscribeAudio.mockReset();
   mockSynthesizeToBase64.mockReset();
   mockSynthesizeStream.mockReset();
@@ -118,8 +230,35 @@ function resetAllMocks() {
     return res;
   });
 
-  // Reset the real sttService retry counts by re-importing (sttService is already mocked)
-  // We need to track retry behavior through the mocked sttService
+  // Set the dynamic global delegates!
+  globalThis.__mockConnectionSend = (sessionId: string, msg: any) => {
+    mockConnectionSend(sessionId, msg);
+    if (activeSend) activeSend(msg);
+    return true;
+  };
+  globalThis.__mockSynthesizeToBase64 = async (text: string, lang: string) => {
+    return mockSynthesizeToBase64(text, lang);
+  };
+  globalThis.__mockSynthesizeStream = async (text: string, lang: string, onChunk: any) => {
+    return mockSynthesizeStream(text, lang, onChunk);
+  };
+  globalThis.__mockOpenStream = (sessionId: string, lang: string, onAudio: any, onReady: any, onStop: any) => {
+    let accumulated = "";
+    return {
+      push: (chunk: string) => {
+        accumulated += chunk;
+      },
+      finish: () => {
+        if (accumulated) {
+          onReady(accumulated);
+          onAudio("aGVsbG8=", true);
+        }
+      },
+      interrupt: () => {
+        onStop();
+      },
+    };
+  };
 }
 
 // Track retry counts per session since sttService is mocked
@@ -148,6 +287,12 @@ describe("VoiceHandler — acceptance tests", () => {
   beforeEach(() => {
     resetAllMocks();
     makeRetryMock();
+    globalThis.__mockConnectionSend = (sessionId: string, msg: any) => {
+      mockConnectionSend(sessionId, msg);
+      if (activeSend) activeSend(msg);
+      return true;
+    };
+    connectionManager.has = () => true;
   });
 
   // =============================================
@@ -159,7 +304,7 @@ describe("VoiceHandler — acceptance tests", () => {
       await handleVoice({ type: "voice", text: "test:createOrder" }, ctx as any);
 
       expect(mockDriverStart).toHaveBeenCalledTimes(1);
-      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", false);
+      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", expect.any(Object), false);
     });
 
     test("test: path does not call transcribe or orchestrate", async () => {
@@ -174,7 +319,7 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", text: "test:  createHotel  " }, ctx as any);
 
-      expect(mockDriverStart).toHaveBeenCalledWith("createHotel", "test-session-1", false);
+      expect(mockDriverStart).toHaveBeenCalledWith("createHotel", "test-session-1", expect.any(Object), false);
     });
   });
 
@@ -276,9 +421,10 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", audio: "base64audio" }, ctx as any);
 
-      expect(ctx.sent).toHaveLength(1);
-      expect(ctx.sent[0].args.message).toBe("I didn't catch that, could you repeat?");
-      expect(ctx.sent[0].args.tts).toBe(true);
+      const respondMsg = ctx.sent.find((m: any) => m.type === "tool" && m.tool === "respond");
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe("I didn't catch that, could you repeat?");
+      expect(respondMsg.args.tts).toBe(true);
     });
 
     test("sends retry prompt on second empty transcription", async () => {
@@ -291,12 +437,13 @@ describe("VoiceHandler — acceptance tests", () => {
       const sid = "retry-session";
       const ctx1 = createCtx({ sessionId: sid });
       await handleVoice({ type: "voice", audio: "a1" }, ctx1 as any);
-      expect(ctx1.sent).toHaveLength(1);
-
+      expect(ctx1.sent.filter(m => m.type === "tool" && m.tool === "respond")).toHaveLength(1);
+ 
       const ctx2 = createCtx({ sessionId: sid });
       await handleVoice({ type: "voice", audio: "a2" }, ctx2 as any);
-      expect(ctx2.sent).toHaveLength(1);
-      expect(ctx2.sent[0].args.message).toBe("I didn't catch that, could you repeat?");
+      const resMsg = ctx2.sent.find(m => m.type === "tool" && m.tool === "respond");
+      expect(resMsg).toBeDefined();
+      expect(resMsg.args.message).toBe("I didn't catch that, could you repeat?");
     });
 
     test("stops retrying after MAX_EMPTY_RETRIES (2) and resets", async () => {
@@ -310,11 +457,11 @@ describe("VoiceHandler — acceptance tests", () => {
 
       const ctx1 = createCtx({ sessionId: sid });
       await handleVoice({ type: "voice", audio: "a1" }, ctx1 as any);
-      expect(ctx1.sent).toHaveLength(1);
+      expect(ctx1.sent.filter(m => m.type === "tool" && m.tool === "respond")).toHaveLength(1);
 
       const ctx2 = createCtx({ sessionId: sid });
       await handleVoice({ type: "voice", audio: "a2" }, ctx2 as any);
-      expect(ctx2.sent).toHaveLength(1);
+      expect(ctx2.sent.filter(m => m.type === "tool" && m.tool === "respond")).toHaveLength(1);
 
       // Third empty — should NOT send anything (resets counter silently)
       const ctx3 = createCtx({ sessionId: sid });
@@ -333,7 +480,7 @@ describe("VoiceHandler — acceptance tests", () => {
       }));
       const ctx1 = createCtx({ sessionId: sid });
       await handleVoice({ type: "voice", audio: "a1" }, ctx1 as any);
-      expect(ctx1.sent).toHaveLength(1);
+      expect(ctx1.sent.filter(m => m.type === "tool" && m.tool === "respond")).toHaveLength(1);
 
       // Second call: success — resets counter
       mockTranscribeAudio.mockImplementationOnce(async () => ({
@@ -357,8 +504,10 @@ describe("VoiceHandler — acceptance tests", () => {
       }));
       const ctx3 = createCtx({ sessionId: sid });
       await handleVoice({ type: "voice", audio: "a3" }, ctx3 as any);
-      expect(ctx3.sent).toHaveLength(1);
-      expect(ctx3.sent[0].args.message).toBe("I didn't catch that, could you repeat?");
+      expect(ctx3.sent.filter(m => m.type === "tool" && m.tool === "respond")).toHaveLength(1);
+      const resMsg3 = ctx3.sent.find(m => m.type === "tool" && m.tool === "respond");
+      expect(resMsg3).toBeDefined();
+      expect(resMsg3.args.message).toBe("I didn't catch that, could you repeat?");
     });
   });
 
@@ -398,7 +547,7 @@ describe("VoiceHandler — acceptance tests", () => {
       await handleVoice({ type: "voice", text: "show me orders" }, ctx as any);
 
       expect(mockDriverStart).toHaveBeenCalledTimes(1);
-      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", true, "Let me show you the order form.", "en");
+      expect(mockDriverStart).toHaveBeenCalledWith("createOrder", "test-session-1", expect.any(Object), true, "en", "Let me show you the order form.");
     });
 
     test("answer_question sends respond with TTS", async () => {
@@ -523,7 +672,9 @@ describe("VoiceHandler — acceptance tests", () => {
       expect(respondMsg.args.message).toBe("This will fail TTS");
 
       const ttsMsg = ctx.sent.find((m: any) => m.type === "tts_audio");
-      expect(ttsMsg).toBeUndefined();
+      expect(ttsMsg).toBeDefined();
+      expect(ttsMsg.audio).toBe("");
+      expect(ttsMsg.done).toBe(true);
     });
   });
 
@@ -537,10 +688,9 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", audio: "base64audio" }, ctx as any);
 
-      expect(ctx.sent).toHaveLength(1);
-      expect(ctx.sent[0].type).toBe("tool");
-      expect(ctx.sent[0].tool).toBe("respond");
-      expect(ctx.sent[0].args.message).toBe(
+      const respondMsg = ctx.sent.find((m: any) => m.type === "tool" && m.tool === "respond");
+      expect(respondMsg).toBeDefined();
+      expect(respondMsg.args.message).toBe(
         "Sorry, I had trouble hearing you. Please try again."
       );
       expect(ctx.sent[0].args.tts).toBe(true);

@@ -12,6 +12,10 @@ export class AudioQueue {
     this._playing = new Set();         // messageIds currently making sound
     this._audioElements = new Map();   // messageId -> HTML5 Audio
     this._audioSources = new Map();    // messageId -> BufferSourceNode
+    this._activeMessages = new Set();  // messageIds enqueued but not yet finished/ended
+    
+    // Playback chain to guarantee sequential playback
+    this.playbackQueue = Promise.resolve();
 
     // ── Events ────────────────────────────────────────────────────────────────
     // Caller registers via onPlaybackChange(cb) — supports multiple listeners
@@ -32,25 +36,35 @@ export class AudioQueue {
 
   async enqueueUrl(url, messageId) {
     console.log(`[AudioQueue] enqueueUrl: ${messageId}`);
-    const arrivedAt = Date.now();
-    const audio = new Audio(url);
-    this._audioElements.set(messageId, audio);
-    this._onStarted(messageId);
+    this._activeMessages.add(messageId);
 
-    audio.onended = () => {
-      console.log(`[AudioQueue] url ended: ${messageId} (${Date.now() - arrivedAt}ms)`);
-      this._onEnded(messageId);
-    };
-    audio.onerror = (err) => {
-      console.error(`[AudioQueue] url error: ${messageId}`, err);
-      this._onEnded(messageId);
-    };
-    try {
-      await audio.play();
-    } catch (err) {
-      console.error(`[AudioQueue] play() failed: ${messageId}`, err);
-      this._onEnded(messageId);
-    }
+    this.playbackQueue = this.playbackQueue.then(() => new Promise((resolve) => {
+      if (!this._activeMessages.has(messageId)) {
+        resolve();
+        return;
+      }
+
+      const arrivedAt = Date.now();
+      const audio = new Audio(url);
+      this._audioElements.set(messageId, audio);
+      this._onStarted(messageId);
+
+      audio.onended = () => {
+        console.log(`[AudioQueue] url ended: ${messageId} (${Date.now() - arrivedAt}ms)`);
+        this._onEnded(messageId);
+        resolve();
+      };
+      audio.onerror = (err) => {
+        console.error(`[AudioQueue] url error: ${messageId}`, err);
+        this._onEnded(messageId);
+        resolve();
+      };
+      audio.play().catch((err) => {
+        console.error(`[AudioQueue] play() failed: ${messageId}`, err);
+        this._onEnded(messageId);
+        resolve();
+      });
+    }));
   }
 
   // ── Play base64 audio (streaming chunks → Web Audio API) ─────────────────
@@ -59,10 +73,11 @@ export class AudioQueue {
     if (this.audioContext.state === "suspended") {
       try { await this.audioContext.resume(); } catch (e) {}
     }
+    this._activeMessages.add(messageId);
 
     let arrayBuffer;
     try {
-      arrayBuffer = this._base64ToArrayBuffer(base64Audio);
+      arrayBuffer = await this._base64ToArrayBuffer(base64Audio);
     } catch (err) {
       console.error(`[AudioQueue] base64 decode failed: ${messageId}`, err);
       if (done !== false) this._onEnded(messageId);
@@ -92,6 +107,7 @@ export class AudioQueue {
 
   clear() {
     this._pendingBuffers.clear();
+    this._activeMessages.clear();
     this._audioElements.forEach(audio => { try { audio.pause(); } catch (e) {} });
     this._audioElements.clear();
     this._audioSources.forEach(source => {
@@ -102,6 +118,7 @@ export class AudioQueue {
     this._playing.clear();
     this.isPlaying = false;
     this.nextPlaybackTime = 0;
+    this.playbackQueue = Promise.resolve(); // Reset the playback queue chain
     this._playbackListeners.forEach(cb => cb(false));
     this.onCleared?.();
   }
@@ -109,19 +126,26 @@ export class AudioQueue {
   // ── Internal ──────────────────────────────────────────────────────────────
 
   _schedulePlayback(audioBuffer, messageId) {
-    const source = this.audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(this.audioContext.destination);
-    this._audioSources.set(messageId, source);
-    this._onStarted(messageId);
+    this.playbackQueue = this.playbackQueue.then(() => new Promise((resolve) => {
+      if (!this._activeMessages.has(messageId)) {
+        resolve();
+        return;
+      }
 
-    const startTime = Math.max(this.audioContext.currentTime, this.nextPlaybackTime);
-    source.start(startTime);
-    this.nextPlaybackTime = startTime + audioBuffer.duration;
-    source.onended = () => {
-      console.log(`[AudioQueue] base64 ended: ${messageId}`);
-      this._onEnded(messageId);
-    };
+      const source = this.audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.audioContext.destination);
+      this._audioSources.set(messageId, source);
+      this._onStarted(messageId);
+
+      source.onended = () => {
+        console.log(`[AudioQueue] base64 ended: ${messageId}`);
+        this._onEnded(messageId);
+        resolve();
+      };
+
+      source.start(0);
+    }));
   }
 
   _onStarted(messageId) {
@@ -133,12 +157,17 @@ export class AudioQueue {
   }
 
   _onEnded(messageId) {
-    if (!this._playing.has(messageId)) return;
+    if (!this._activeMessages.has(messageId)) return;
+    this._activeMessages.delete(messageId);
+
+    const wasPlaying = this._playing.has(messageId);
     this._playing.delete(messageId);
     this._audioElements.delete(messageId);
     this._audioSources.delete(messageId);
+
     this.onMessageEnded?.(messageId);
-    if (this._playing.size === 0) {
+
+    if (wasPlaying && this._playing.size === 0) {
       this.isPlaying = false;
       this.nextPlaybackTime = 0;
       this._playbackListeners.forEach(cb => cb(false));
@@ -153,11 +182,9 @@ export class AudioQueue {
     return out.buffer;
   }
 
-  _base64ToArrayBuffer(base64) {
-    const binary = window.atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes.buffer;
+  async _base64ToArrayBuffer(base64) {
+    const res = await fetch(`data:application/octet-stream;base64,${base64}`);
+    return await res.arrayBuffer();
   }
 }
 

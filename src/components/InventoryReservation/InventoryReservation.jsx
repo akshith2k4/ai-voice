@@ -338,6 +338,7 @@ const filteredReservations =
                 boxShadow: "0 2px 4px rgba(46, 125, 50, 0.25)",
                 whiteSpace: "nowrap",
               }}
+              data-agent-action="create-reservation"
             >
               Create Reservation
             </Button>

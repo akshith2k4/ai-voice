@@ -75,15 +75,24 @@ RESPONSE RULES:
  * Builds a highly optimized system prompt for active walkthrough sessions.
  * Compacts the field list to remain well under the token performance threshold.
  */
-export function buildWalkthroughPrompt(schema: FormSchema, currentField: FieldSchema | undefined): string {
+export function buildWalkthroughPrompt(
+  schema: FormSchema,
+  currentField: FieldSchema | undefined,
+  languageCode: string = "en"
+): string {
   // Collect simplified schema for ALL fields (both main form and sub-forms)
   const allFieldsSimplified: Array<{ key: string; label: string; explanation?: string; options?: string[]; aliases: string[] }> = [];
 
   for (const f of flattenFields(schema.nodes)) {
+    const rawExplanation = f.explanation;
+    const explanationStr = typeof rawExplanation === "object" && rawExplanation
+      ? (rawExplanation[languageCode] || rawExplanation["en"] || "")
+      : (rawExplanation || "");
+
     allFieldsSimplified.push({
       key: f.key,
       label: f.label,
-      explanation: f.explanation,
+      explanation: explanationStr,
       options: f.options ?? undefined,
       aliases: f.commonQuestions?.map((q: { question: string }) => q.question.toLowerCase()) || [],
     });
@@ -93,6 +102,11 @@ export function buildWalkthroughPrompt(schema: FormSchema, currentField: FieldSc
   
   let currentFieldContextBlock = "";
   if (currentField) {
+    const rawExplanation = currentField.explanation;
+    const explanationStr = typeof rawExplanation === "object" && rawExplanation
+      ? (rawExplanation[languageCode] || rawExplanation["en"] || "")
+      : (rawExplanation || "");
+
     const contextObj: Record<string, any> = {
       key: currentField.key,
       label: currentField.label,
@@ -102,12 +116,21 @@ export function buildWalkthroughPrompt(schema: FormSchema, currentField: FieldSc
     if (currentField.options !== undefined && currentField.options !== null) {
       contextObj.options = currentField.options;
     }
-    contextObj.explanation = currentField.explanation;
+    contextObj.explanation = explanationStr;
     if (currentField.tips) {
       contextObj.tips = currentField.tips;
     }
     if (currentField.commonQuestions && currentField.commonQuestions.length > 0) {
-      contextObj.commonQuestions = currentField.commonQuestions;
+      contextObj.commonQuestions = currentField.commonQuestions.map((q) => {
+        const rawAnswer = q.answer;
+        const answerStr = typeof rawAnswer === "object" && rawAnswer
+          ? (rawAnswer[languageCode] || rawAnswer["en"] || "")
+          : (rawAnswer || "");
+        return {
+          question: q.question,
+          answer: answerStr,
+        };
+      });
     }
     currentFieldContextBlock = `CURRENT FIELD FULL CONTEXT:
 ${JSON.stringify(contextObj, null, 2)}`;
@@ -133,6 +156,9 @@ Choose the appropriate tool based on the user's intent:
 
 CRITICAL FIELD DIRECTORY MAP:
 ${JSON.stringify(allFieldsSimplified)}
+
+LANGUAGE RULES:
+- You MUST respond in the following language: ${languageCode}. Keep technical terms (field names, option values) in English.
 
 RESPONSE RULES:
 - For explanation, generate 1-3 sentences directly answering the question. Do NOT replay the field's standard explanation.

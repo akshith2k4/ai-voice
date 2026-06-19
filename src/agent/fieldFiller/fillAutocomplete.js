@@ -9,6 +9,12 @@ export async function doFillAutocomplete(element, value) {
     return { success: false, reason: "Autocomplete input not found" };
   }
 
+  if (input.value && input.value.trim().toLowerCase() === String(value).trim().toLowerCase()) {
+    console.log(`[fieldFiller] Autocomplete already has target value: "${value}". Skipping fill.`);
+    element.setAttribute("data-agent-filled", "autocomplete");
+    return { success: true };
+  }
+
   // Focus and open
   input.focus();
   input.click();
