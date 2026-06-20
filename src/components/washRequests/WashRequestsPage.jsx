@@ -196,7 +196,7 @@ function WashRequestsPage() {
           }}
         >
           <Tab
-            label="Wash Requests"
+            data-agent-action="tab-wash-requests" label="Wash Requests"
             sx={{
               fontWeight: 600,
               textTransform: "none",
@@ -213,7 +213,7 @@ function WashRequestsPage() {
             }}
           />
           <Tab
-            label="Wash Fulfillment"
+            data-agent-action="tab-wash-fulfillment" label="Wash Fulfillment"
             sx={{
               fontWeight: 600,
               textTransform: "none",

@@ -1,0 +1,274 @@
+JSON_HASHES_START
+[
+  {
+    "text": "[excited] Okay..., so we're on the Order form now! Think of this as the plan that tells us what linen goes out..., what comes back..., and when. [friendly] Let's walk through it together — it's pretty straightforward once you see it![chuckles]",
+    "lang": "en",
+    "hash": "1f0e3603a89f24b61ec3d2cf2c0731aa"
+  },
+  {
+    "text": "[excited] ठीक है..., तो हम अब Order form पर हैं! इसे उस plan की तरह सोचिए जो हमें बताता है कि कौन सा linen बाहर जाता है..., क्या वापस आता है..., और कब। [friendly] चलिए साथ मिलकर करते हैं — एक बार देख लिया तो बिल्कुल आसान है![chuckles]",
+    "lang": "hi",
+    "hash": "e243c4937549e0b78e4ec2bce30706db"
+  },
+  {
+    "text": "[casual] This is just a unique name for the order. You can type your own… or leave it blank and the system will generate one for you automatically.",
+    "lang": "en",
+    "hash": "2c0a9ae3bd89461717907e77b79b0be4"
+  },
+  {
+    "text": "[casual] यह बस order का एक unique नाम है। आप खुद type कर सकते हैं… या blank छोड़ दें और system automatically एक generate कर देगा।",
+    "lang": "hi",
+    "hash": "dec8e4328789860879480d0536fb6ab0"
+  },
+  {
+    "text": "[friendly] Just start typing the customer's name and pick them from the list. Simple as that! If they're not showing up… they might be inactive.",
+    "lang": "en",
+    "hash": "761c614a404fdacbddd45c57c0884e93"
+  },
+  {
+    "text": "[friendly] बस customer का नाम type करना शुरू करें और list में से चुनें। इतना ही! अगर वो दिख नहीं रहे… तो शायद वो inactive हों।",
+    "lang": "hi",
+    "hash": "26443cff8be85e52f0e9b4842a0e00f6"
+  },
+  {
+    "text": "[casual] This is just the date the order's being created. It defaults to today… so most of the time, you won't even need to touch it.",
+    "lang": "en",
+    "hash": "2bc66862763fccb9a66dd0a9de8de231"
+  },
+  {
+    "text": "[casual] यह बस वो date है जब order बनाया जा रहा है। यह automatically आज की date होती है… तो ज्यादातर बार आपको इसे छूना भी नहीं पड़ेगा।",
+    "lang": "hi",
+    "hash": "e8dfd1bd7b9a9d16b572811375b30f5f"
+  },
+  {
+    "text": "[curious] Okay, THIS one is really important. It tells the whole system what kind of order this is. Leasing is your everyday order… Rental is for short-term use… and Washing is when a customer sends in their OWN linen to be cleaned.",
+    "lang": "en",
+    "hash": "b66efee9fe5a1bfbed0b30bf25f8aed6"
+  },
+  {
+    "text": "[curious] ठीक है, यह वाला बहुत जरूरी है। यह पूरे system को बताता है कि यह किस तरह का order है। Leasing आपका रोज़ का order है… Rental short-term use के लिए है… और Washing तब होता है जब customer अपना खुद का linen clean करवाने के लिए भेजता है।",
+    "lang": "hi",
+    "hash": "c5daec9b231dab2569e714d458fc0327"
+  },
+  {
+    "text": "[casual] For a brand new order… just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
+    "lang": "en",
+    "hash": "a05fb4ed2e6885f969402000553a67a6"
+  },
+  {
+    "text": "[casual] बिल्कुल नए order के लिए… इसे off ही रहने दें। आप इसे तभी on करेंगे जब किसी existing order में कुछ fix या update करना हो।",
+    "lang": "hi",
+    "hash": "7d191f6619e5cd4e24adeb82e91160c0"
+  },
+  {
+    "text": "[curious] So… are we dropping off linen, picking it up, or doing BOTH in the same trip? For most leasing customers, it's Both — fresh linen goes out while the used stuff comes back.",
+    "lang": "en",
+    "hash": "4ca2c3acc1f3ae2693713a49fc7b6c3f"
+  },
+  {
+    "text": "[curious] तो… क्या हम linen drop off कर रहे हैं, pick up कर रहे हैं, या एक ही trip में BOTH कर रहे हैं? ज्यादातर leasing customers के लिए Both होता है — fresh linen बाहर जाता है और used वापस आता है।",
+    "lang": "hi",
+    "hash": "945d88f09a69ebc1a95f3fcff764c358"
+  },
+  {
+    "text": "[casual] This is the day your team heads out to collect the used linen. It defaults to tomorrow… just change it if your schedule's different.",
+    "lang": "en",
+    "hash": "f925f9fa9eab945fdb0d9a745200e7e4"
+  },
+  {
+    "text": "[casual] यह वो दिन है जब आपकी team used linen collect करने निकलती है। यह automatically कल की date होती है… अगर schedule अलग हो तो बदल लें।",
+    "lang": "hi",
+    "hash": "64f66ad601f9fa2dc901b98172d79320"
+  },
+  {
+    "text": "[casual] And this is when the fresh linen gets delivered to the customer. Also defaults to tomorrow — adjust it if needed.",
+    "lang": "en",
+    "hash": "751e60a4146462a97c5b2e65077bd38a"
+  },
+  {
+    "text": "[casual] और यह वो दिन है जब customer को fresh linen deliver होता है। यह भी automatically कल की date होती है — जरूरत हो तो बदल लें।",
+    "lang": "hi",
+    "hash": "3a6de7babf721b19d0ca22a4eb55c761"
+  },
+  {
+    "text": "[excited] Now we're adding the actual linen items going out to the customer! Good news — these usually fill in automatically based on what's in their agreement.",
+    "lang": "en",
+    "hash": "5b4ebc74acd03440372b6a26566e3930"
+  },
+  {
+    "text": "[excited] अब हम customer के पास जाने वाले actual linen items add कर रहे हैं! अच्छी खबर — ये आमतौर पर उनके agreement के हिसाब से automatically भर जाते हैं।",
+    "lang": "hi",
+    "hash": "e4b1bba7bdb9c32f2a9706fba9ded5c6"
+  },
+  {
+    "text": "[friendly] You can add as many items as the order needs — let me show you a second one real quick.",
+    "lang": "en",
+    "hash": "96b61f19eff003dce2a0f3decb748601"
+  },
+  {
+    "text": "[friendly] आप जितने items चाहें add कर सकते हैं — चलिए जल्दी से एक दूसरा दिखाते हैं।",
+    "lang": "hi",
+    "hash": "7e9c3050d44c2de8107407aaa673b8bf"
+  },
+  {
+    "text": "[casual] Pick the product being delivered. Only items from the customer's agreement will show up here.",
+    "lang": "en",
+    "hash": "48abf986011c400bb6323a1004f778e4"
+  },
+  {
+    "text": "[casual] deliver होने वाला product चुनें। यहाँ सिर्फ customer के agreement वाले items दिखेंगे।",
+    "lang": "hi",
+    "hash": "3cfa1ac372db0a427680e06755a1e83d"
+  },
+  {
+    "text": "How many are going out this cycle? Just type the number.",
+    "lang": "en",
+    "hash": "61056c4794fc639247ebdca3057a6b87"
+  },
+  {
+    "text": "इस cycle में कितने बाहर जा रहे हैं? बस number type करें।",
+    "lang": "hi",
+    "hash": "aab6e0ae8800dcf97d9b72635244055e"
+  },
+  {
+    "text": "[casual] Got any special instructions for this item? Things like quality requirements or handling notes — pop them in here.",
+    "lang": "en",
+    "hash": "09fec44510e68613417865c9fef06e5a"
+  },
+  {
+    "text": "[casual] इस item के लिए कोई special instructions हैं? जैसे quality requirements या handling notes — यहाँ लिख दें।",
+    "lang": "hi",
+    "hash": "d9347cdd100d8a53175dfb412bf2d618"
+  },
+  {
+    "text": "[casual] Now for what's coming BACK. If it's the same items as the delivery… just tick that checkbox and it'll copy everything over automatically. Super handy!",
+    "lang": "en",
+    "hash": "c6f089654e330f2098ab2c68985fba5a"
+  },
+  {
+    "text": "[casual] अब जो वापस आएगा उसके लिए। अगर delivery वाले same items हैं… तो बस वो checkbox tick करें और सब automatically copy हो जाएगा। बहुत काम की चीज़!",
+    "lang": "hi",
+    "hash": "808a754998a62f45f2774f8d86682d0b"
+  },
+  {
+    "text": "[friendly] Let me add a second pickup item to show you how it works.",
+    "lang": "en",
+    "hash": "df353d9a207b02912cfc786b3c244f04"
+  },
+  {
+    "text": "[friendly] चलिए एक दूसरा pickup item add करते हैं ताकि आप देख सकें यह कैसे काम करता है।",
+    "lang": "hi",
+    "hash": "64f66b31d760aa41813572187b57c7d2"
+  },
+  {
+    "text": "Which product are we collecting from the customer?",
+    "lang": "en",
+    "hash": "cbc4f7d494bbbe3c2180d8ddb9013acc"
+  },
+  {
+    "text": "हम customer से कौन सा product collect कर रहे हैं?",
+    "lang": "hi",
+    "hash": "d285d3a8043aa40412ffc14839116a71"
+  },
+  {
+    "text": "[thoughtful] How many are we picking up? This can be different from the delivery if they're still holding onto some.",
+    "lang": "en",
+    "hash": "f8d71a712fed819610f472b69a259172"
+  },
+  {
+    "text": "[thoughtful] हम कितने pick up कर रहे हैं? अगर उन्होंने कुछ अपने पास रखे हों तो यह delivery से अलग हो सकता है।",
+    "lang": "hi",
+    "hash": "bb855babf44cfa4f7cb1c10159eb01b3"
+  },
+  {
+    "text": "[casual] Anything the team should know on the way back? Damaged items, special handling — just note it here.",
+    "lang": "en",
+    "hash": "0a1431bb9156296af672150535cb3a13"
+  },
+  {
+    "text": "[casual] वापसी में team को कुछ जानना चाहिए? Damaged items, special handling — बस यहाँ note कर दें।",
+    "lang": "hi",
+    "hash": "9d27c7f9b60fb7f1f722ec52ebdbb559"
+  },
+  {
+    "text": "[friendly] Here's where we add what's being rented out — the product, how many, and how long they're keeping it. Easy stuff!",
+    "lang": "en",
+    "hash": "2591a59e02f822054d0ea9d54a970257"
+  },
+  {
+    "text": "[friendly] यहाँ हम वो add करते हैं जो rent पर जा रहा है — product, कितने, और कितने दिन के लिए। बिल्कुल आसान!",
+    "lang": "hi",
+    "hash": "71249ebabca9e82e7df5ac459af68aa5"
+  },
+  {
+    "text": "What product is going out on rental?",
+    "lang": "en",
+    "hash": "4e9822ced0e2814160b381baf6777746"
+  },
+  {
+    "text": "कौन सा product rental पर जा रहा है?",
+    "lang": "hi",
+    "hash": "89f2d51291d6614247239294ac602ddf"
+  },
+  {
+    "text": "How many units are they renting?",
+    "lang": "en",
+    "hash": "aa1010f9e479f5a8f7a73947939473ef"
+  },
+  {
+    "text": "वो कितने units rent कर रहे हैं?",
+    "lang": "hi",
+    "hash": "c7f90ce9a124be2636f84b6720de57a1"
+  },
+  {
+    "text": "[casual] And how many days are they keeping it? Just type the number of days.",
+    "lang": "en",
+    "hash": "95749da21bbef7d15d32ee6f4ed72326"
+  },
+  {
+    "text": "[casual] और वो इसे कितने दिन रखेंगे? बस दिनों की संख्या type करें।",
+    "lang": "hi",
+    "hash": "64a269ad3f7939dd0f0c6341d2576bf8"
+  },
+  {
+    "text": "[casual] For a washing order, just add what the customer sent in to be cleaned — the product type and how many pieces. That's all there is to it.",
+    "lang": "en",
+    "hash": "edd8b3727d10605f1016dee90d6be714"
+  },
+  {
+    "text": "[casual] washing order के लिए, बस वो add करें जो customer ने clean करवाने के लिए भेजा है — product type और कितने pieces। बस इतना ही है।",
+    "lang": "hi",
+    "hash": "0b61208041e856843f95ba07f896ef4e"
+  },
+  {
+    "text": "Which product did they send in for washing?",
+    "lang": "en",
+    "hash": "90fc6bdb297d2d75aec81942efbc23e6"
+  },
+  {
+    "text": "उन्होंने washing के लिए कौन सा product भेजा?",
+    "lang": "hi",
+    "hash": "cc5f62aef7f9020af45fabfb591014e9"
+  },
+  {
+    "text": "And how many pieces came in? Just type the count.",
+    "lang": "en",
+    "hash": "a3efdc0bba0e4a7062a39cec540acb55"
+  },
+  {
+    "text": "और कितने pieces आए? बस count type करें।",
+    "lang": "hi",
+    "hash": "4ac869e9ea77eb7af00dc0a7f6f554a1"
+  },
+  {
+    "text": "[warm and satisfied] And that's a wrap! [chuckles] We covered the customer, order type, dates, and all the items. Nothing was actually saved during this walkthrough… so whenever you're ready, go ahead and create your first REAL order. You've got this!",
+    "lang": "en",
+    "hash": "8d465a4d84fdc8a3d3d0ae2d0ca8be67"
+  },
+  {
+    "text": "[warm and satisfied] और यह हो गया! [chuckles] हमने customer, order type, dates, और सारे items cover कर लिए। इस walkthrough में कुछ भी actually save नहीं हुआ… तो जब भी तैयार हों, जाइए और अपना पहला REAL order बनाएं। आप यह कर सकते हैं!",
+    "lang": "hi",
+    "hash": "b906ec960608584c56cc6c1be61b6886"
+  }
+]
+JSON_HASHES_END

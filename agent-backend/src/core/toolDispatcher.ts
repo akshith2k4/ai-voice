@@ -51,12 +51,16 @@ class ToolDispatcher {
       }
 
       case "answer_question": {
-        await responder.speakAndWait(String(tc.args.response));
+        if (!hadTextResponse) {
+          await responder.speakAndWait(String(tc.args.response));
+        }
         break;
       }
 
       case "ask_clarification": {
-        await responder.speakAndWait(String(tc.args.message));
+        if (!hadTextResponse) {
+          await responder.speakAndWait(String(tc.args.message));
+        }
         break;
       }
 

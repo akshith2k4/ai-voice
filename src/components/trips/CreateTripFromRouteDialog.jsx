@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { useAgentForm } from "../../agent/useAgentForm";
+import { useCreateTripAgent } from "../../useagent/useCreateTripAgent";
 import {
     Dialog,
     DialogTitle,
@@ -538,82 +538,29 @@ export default function CreateTripFromRouteDialog({
         onClose?.();
     };
 
-    useAgentForm("createTrip", {
-        fields: [
-            {
-                key: "tripType",
-                type: "select",
-                set: (v) => setResolvedTripType(v === "WASH_TRIP" ? WASH_TRIP : ORDER_TRIP),
-                getElement: () => document.querySelector('[data-agent-field="tripType"]') || null,
-            },
-            {
-                key: "route",
-                type: "select",
-                set: (v) => {
-                    const normV = normalizeString(v);
-                    const r = routes.find(route => 
-                        normalizeString(route.id) === normV ||
-                        normalizeString(route.name) === normV ||
-                        normalizeString(route.name).includes(normV) ||
-                        normV.includes(normalizeString(route.name))
-                    );
-                    setSelectedRoute(r || null);
-                },
-                getOptions: () => routes,
-                getElement: () => document.querySelector('[data-agent-field="route"] [role="combobox"]') || document.querySelector('[data-agent-field="route"]') || null,
-            },
-            {
-                key: "deliveryDate",
-                type: "date",
-                set: (v) => setDeliveryDate(v ? new Date(v) : new Date()),
-                getElement: () => document.querySelector('[data-agent-field="deliveryDate"] input') || document.querySelector('[data-agent-field="deliveryDate"]') || null,
-            },
-            {
-                key: "deliveryTeam",
-                type: "autocomplete",
-                set: (users) => {
-                    const list = Array.isArray(users) ? users : [users];
-                    const ids = list.map(u => u.id);
-                    setSelectedDriverIds(ids);
-                    const next = { ...rolesByUserId };
-                    ids.forEach((uid, idx) => {
-                        if (!next[uid]) next[uid] = idx === 0 ? 'DRIVER' : 'HELPER';
-                    });
-                    Object.keys(next).forEach((uid) => {
-                        if (!ids.includes(Number(uid)) && !ids.includes(uid)) delete next[uid];
-                    });
-                    setRolesByUserId(next);
-                },
-                getOptions: () => drivers,
-                getElement: () => document.querySelector('[data-agent-field="deliveryTeam"] [role="combobox"]') || document.querySelector('[data-agent-field="deliveryTeam"] input') || document.querySelector('[data-agent-field="deliveryTeam"]') || null,
-            },
-            {
-                key: "vehicle",
-                type: "select",
-                set: (v) => {
-                    const normV = normalizeString(v);
-                    const veh = vehicles.find(veh => {
-                        const label = `${veh.vehicleNumber}${veh.type ? ` — ${veh.type}` : ""}`;
-                        return normalizeString(veh.id) === normV ||
-                               normalizeString(veh.vehicleNumber) === normV ||
-                               normalizeString(label) === normV ||
-                               normV.includes(normalizeString(veh.vehicleNumber)) ||
-                               normalizeString(veh.vehicleNumber).includes(normV);
-                    });
-                    setVehicle(veh || null);
-                },
-                getOptions: () => vehicles,
-                getElement: () => document.querySelector('[data-agent-field="vehicle"] [role="combobox"]') || document.querySelector('[data-agent-field="vehicle"]') || null,
-            },
-            {
-                key: "notes",
-                type: "text",
-                set: (v) => setNotes(v),
-                getElement: () => document.querySelector('[data-agent-field="notes"] input') || document.querySelector('[data-agent-field="notes"] textarea') || document.querySelector('[data-agent-field="notes"]') || null,
-            }
-        ],
-        clearAll: resetStateAndClose,
-    }, open);
+    useCreateTripAgent({
+        open,
+        routes,
+        drivers,
+        vehicles,
+        setResolvedTripType,
+        setSelectedRoute,
+        setDeliveryDate,
+        setSelectedDriverIds,
+        rolesByUserId,
+        setRolesByUserId,
+        setVehicle,
+        setNotes,
+        customersWithOrders,
+        enabledCustomers,
+        toggleCustomerEnabled,
+        setSequenceByCustomer,
+        setVisitNotesByCustomer,
+        resetStateAndClose,
+        normalizeString,
+        WASH_TRIP,
+        ORDER_TRIP,
+    });
 
     /* ---------- UI ---------- */
 
@@ -1087,7 +1034,7 @@ export default function CreateTripFromRouteDialog({
                                                 pr: 0.5,
                                             }}
                                         >
-                                            {customersWithOrders.map((cust) => {
+                                            {customersWithOrders.map((cust, idx) => {
                                                 const customerId = Number(cust.id);
                                                 const isEnabled =
                                                     enabledCustomers.has(customerId);
@@ -1110,6 +1057,7 @@ export default function CreateTripFromRouteDialog({
                                                         key={customerId}
                                                         disableGutters
                                                         square={false}
+                                                        data-agent-row-customer={idx}
                                                         sx={{
                                                             border: "1px solid",
                                                             borderColor: "divider",
@@ -1159,6 +1107,9 @@ export default function CreateTripFromRouteDialog({
                                                                                 customerId
                                                                             )
                                                                         }
+                                                                        data-agent-field="selected"
+                                                                        name="selected"
+                                                                        id={`selected-${customerId}`}
                                                                     />
                                                                 </Tooltip>
 
@@ -1224,6 +1175,9 @@ export default function CreateTripFromRouteDialog({
                                                                         disabled={
                                                                             !isEnabled
                                                                         }
+                                                                        data-agent-field="sequence"
+                                                                        name="sequence"
+                                                                        id={`sequence-${customerId}`}
                                                                     />
                                                                 </Box>
 
@@ -1254,6 +1208,9 @@ export default function CreateTripFromRouteDialog({
                                                                     disabled={
                                                                         !isEnabled
                                                                     }
+                                                                    data-agent-field="visitNotes"
+                                                                    name="visitNotes"
+                                                                    id={`visitNotes-${customerId}`}
                                                                 />
                                                             </Box>
                                                         </AccordionSummary>
@@ -1528,14 +1485,14 @@ export default function CreateTripFromRouteDialog({
                                                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                                                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center", width: "100%", opacity: isEnabled ? 1 : 0.6 }}>
                                                             <Tooltip title={isEnabled ? "Exclude this vendor" : "Include this vendor"}>
-                                                                <Checkbox size="small" checked={isEnabled} onChange={() => toggleVendorEnabled(vendorId)} />
+                                                                <Checkbox size="small" checked={isEnabled} onChange={() => toggleVendorEnabled(vendorId)} data-agent-field="selected" />
                                                             </Tooltip>
                                                             <Typography sx={{ fontWeight: 700, width: 220, whiteSpace: "normal", wordBreak: "break-word" }}>{vend.name}</Typography>
                                                             <Chip size="small" label={`${visibleWR.length} requests`} color="secondary" variant="outlined" />
                                                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                                                <TextField value={sequenceByVendor[vendorId] ?? ""} onChange={(e) => setSequenceByVendor(prev => ({ ...prev, [vendorId]: Number(e.target.value) }))} size="small" sx={{ width: 80 }} label="Seq" type="number" inputProps={{ min: 0 }} disabled={!isEnabled} />
+                                                                <TextField value={sequenceByVendor[vendorId] ?? ""} onChange={(e) => setSequenceByVendor(prev => ({ ...prev, [vendorId]: Number(e.target.value) }))} size="small" sx={{ width: 80 }} label="Seq" type="number" inputProps={{ min: 0 }} disabled={!isEnabled} data-agent-field="sequence" />
                                                             </Box>
-                                                            <TextField value={visitNotesByVendor[vendorId] || ""} onChange={(e) => setVisitNotesByVendor(prev => ({ ...prev, [vendorId]: e.target.value }))} size="small" placeholder="Visit notes" sx={{ ml: 1, width: 260 }} disabled={!isEnabled} />
+                                                            <TextField value={visitNotesByVendor[vendorId] || ""} onChange={(e) => setVisitNotesByVendor(prev => ({ ...prev, [vendorId]: e.target.value }))} size="small" placeholder="Visit notes" sx={{ ml: 1, width: 260 }} disabled={!isEnabled} data-agent-field="visitNotes" />
                                                         </Box>
                                                     </AccordionSummary>
                                                     <AccordionDetails sx={{ bgcolor: "background.default", pt: 1 }}>

@@ -1,0 +1,178 @@
+{
+  "id": "createWashFulfillment",
+  "name": "Create Wash Fulfillment",
+  "route": "/wash-requests",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/wash-requests"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "click_element",
+      "args": {
+        "selector": "[data-agent-action='tab-wash-fulfillment']",
+        "fallbackText": "Wash Fulfillment"
+      },
+      "waitFor": "element_clicked",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-wash-fulfillment']",
+        "fallbackText": "+ Create Fulfillment"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": {
+    "en": "[excited] Let's set up a Wash Fulfillment! [friendly] This is where we record the items returned from the washing facility. We'll specify the request type, pool, vendor, date, and request number, then record the washed, damaged, and soiled quantities on the right side box. Let's begin!",
+    "hi": "[excited] चलिए एक Wash Fulfillment बनाते हैं! [friendly] यहाँ हम laundry facility से वापस आने वाले items को record करते हैं। हम request type, pool, vendor, date, और request number चुनेंगे, और फिर right side box में washed, damaged, और soiled quantities लिखेंगे। चलिए शुरू करते हैं!"
+  },
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "washRequestType",
+      "label": "Request Type",
+      "type": "select",
+      "required": true,
+      "options": [
+        "WASH",
+        "RE_WASH"
+      ],
+      "demoValue": "WASH",
+      "explanation": {
+        "en": "[casual] First, select the Request Type. Choose 'Wash' for standard washed items, or 'Re-Wash' if this fulfillment is for items that went back for a second cleaning cycle.",
+        "hi": "[casual] सबसे पहले, Request Type चुनें। standard washed items के लिए 'Wash' चुनें, या 'Re-Wash' अगर यह fulfillment उन items के लिए है जो दोबारा साफ़ करने के लिए भेजे गए थे।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "pool",
+      "label": "Pool",
+      "type": "select",
+      "required": true,
+      "demoValue": "TCH Pool",
+      "explanation": {
+        "en": "[casual] Next, select the Inventory Pool. This specifies which pool of inventory these items belong to, helping us track where the linen is coming from.",
+        "hi": "[casual] इसके बाद, Inventory Pool चुनें। यह बताता है कि ये items inventory के किस pool से हैं, जिससे हमें tracking में मदद मिलती है।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "vendor",
+      "label": "Vendor",
+      "type": "select",
+      "required": true,
+      "demoValue": "Laundry Solutions",
+      "explanation": {
+        "en": "[friendly] Now, choose the Vendor. This is the laundry facility that is returning these processed items.",
+        "hi": "[friendly] अब, Vendor चुनें। यह वो laundry facility है जो इन processed items को वापस कर रही है।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "fulfilledDateTime",
+      "label": "Fulfillment Date & Time",
+      "type": "date",
+      "required": true,
+      "demoValue": "2026-06-11T17:03",
+      "explanation": {
+        "en": "[casual] Set the Fulfillment Date and Time. This defaults to the current date and time to accurately log when this fulfillment was recorded in the system.",
+        "hi": "[casual] Fulfillment Date और Time set करें। यह automatically current date and time पर set हो जाता है ताकि accurate logging रहे।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "requestNumber",
+      "label": "Request Number",
+      "type": "text",
+      "required": true,
+      "demoValue": "WFR-2026-0001",
+      "explanation": {
+        "en": "[casual] Enter the Request Number. It usually starts with the prefix for the current year. Just type the rest of the digits.",
+        "hi": "[casual] Request Number दर्ज करें। यह आमतौर पर current year के prefix से शुरू होता है। बस आगे के digits type करें।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "notes",
+      "label": "Notes",
+      "type": "text",
+      "demoValue": "Delivered successfully",
+      "explanation": {
+        "en": "[casual] Add any optional notes or special instructions here.",
+        "hi": "[casual] यहाँ कोई भी optional notes या special instructions लिख सकते हैं।"
+      }
+    },
+    {
+      "nodeType": "repeating",
+      "id": "fulfillmentItem",
+      "name": "Fulfillment Item",
+      "repeatable": true,
+      "autoPopulated": true,
+      "demoItemCount": 2,
+      "explanation": {
+        "en": "[excited] Now let's record the returned quantities in the right side box! [friendly] This table lists the products in the selected inventory pool. For each product, we can enter the washed, damaged, and soiled quantities returned by the vendor.",
+        "hi": "[excited] अब right side box में returned quantities को दर्ज करते हैं! [friendly] यह table selected inventory pool के products को दिखाती है। हर product के लिए, हम vendor द्वारा वापस किए गए washed, damaged, और soiled quantities दर्ज कर सकते हैं।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] You can specify quantities for all products listed. Let's fill out the details for another product.",
+        "hi": "[friendly] आप listed सभी products के लिए quantities दे सकते हैं। चलिए एक दूसरे product के लिए details भरते हैं।"
+      },
+      "children": [
+        {
+          "nodeType": "field",
+          "key": "washedQuantity",
+          "label": "Washed Quantity",
+          "type": "text",
+          "demoValue": "12",
+          "explanation": {
+            "en": "[casual] This is the 'Washed' quantity. It represents the fresh, clean items received back. Just type the number of pieces here.",
+            "hi": "[casual] यह 'Washed' quantity है। यह वापस मिले fresh और clean items को दिखाता है। बस यहाँ pieces का number type करें।"
+          }
+        },
+        {
+          "nodeType": "field",
+          "key": "damagedQuantity",
+          "label": "Damaged Quantity",
+          "type": "text",
+          "demoValue": "2",
+          "explanation": {
+            "en": "[thoughtful] And here is the 'Damaged' quantity. Enter the number of items that returned damaged or unusable.",
+            "hi": "[thoughtful] और यह 'Damaged' quantity है। उन items का number यहाँ लिखें जो damaged या unusable वापस आए हैं।"
+          }
+        },
+        {
+          "nodeType": "field",
+          "key": "soiledQuantity",
+          "label": "Soiled Quantity",
+          "type": "text",
+          "demoValue": "1",
+          "explanation": {
+            "en": "[casual] Finally, enter the 'Soiled' quantity if any items returned still dirty or soiled.",
+            "hi": "[casual] अंत में, 'Soiled' quantity लिखें अगर कुछ items अभी भी गंदे या soiled वापस आए हैं।"
+          }
+        }
+      ]
+    }
+  ],
+  "wrapUp": {
+    "en": "[warm and satisfied] Fantastic! That's how we create a Wash Fulfillment. We specified our details on the left, and entered our returned quantities on the right box. You are ready to create your real fulfillments now!",
+    "hi": "[warm and satisfied] बेहतरीन! इस तरह हम एक Wash Fulfillment बनाते हैं। हमने left side पर details भरीं, और right box में returned quantities दर्ज कीं। अब आप अपनी real fulfillments बनाने के लिए तैयार हैं!"
+  },
+  "aliases": [
+    "create wash fulfillment",
+    "new wash fulfillment",
+    "add wash fulfillment",
+    "wash fulfillment",
+    "create fulfillment",
+    "new fulfillment",
+    "add fulfillment"
+  ],
+  "description": "Walkthrough for creating a new wash fulfillment request"
+}

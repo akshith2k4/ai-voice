@@ -4,6 +4,7 @@ import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import CloseIcon from "@mui/icons-material/Close";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { useAgent } from "./AgentBridge";
 import { useAudioRecorder } from "./useAudioRecorder";
 import { audioQueue } from "./AudioQueue";
@@ -22,6 +23,17 @@ export default function AgentOverlay() {
   const { sendAudioChunk, sendAudioEnd, sendMessage, addMessage, clearMessages, connectionStatus, isAgentSpeaking, isProcessing, isPaused, isWalkthroughActive } = useAgent();
 
   const [expanded, setExpanded] = useState(false);
+  const [welcomePlayed, setWelcomePlayed] = useState(false);
+
+  const handleExpand = useCallback(() => {
+    setExpanded(true);
+    if (!welcomePlayed) {
+      const msgId = crypto.randomUUID();
+      addMessage("agent", "Hi, I am Narad, and I am here to help you. How can I help you?");
+      audioQueue.enqueueUrl("/tara/narad_welcome.mp3", msgId);
+      setWelcomePlayed(true);
+    }
+  }, [welcomePlayed, addMessage]);
 
   const isConnected = connectionStatus === STATUS.CONNECTED;
   const canRecord = isConnected && !isProcessing;
@@ -121,14 +133,7 @@ export default function AgentOverlay() {
     prevActiveRef.current = isWalkthroughActive;
   }, [isWalkthroughActive]);
 
-  const handleTextSubmit = useCallback((e) => {
-    e.preventDefault();
-    const text = e.target.elements.message?.value?.trim();
-    if (!text) return;
-    sendMessage({ type: "voice", text });
-    addMessage("user", text);
-    e.target.reset();
-  }, [sendMessage, addMessage]);
+
 
   const statusColor = STATUS_COLOR[connectionStatus] || STATUS_COLOR[STATUS.DISCONNECTED];
   const isSpeaking = isAgentSpeaking && !isRecording;
@@ -138,14 +143,14 @@ export default function AgentOverlay() {
   // ── Collapsed: orb only ──────────────────────────────────────────────────
   if (!expanded) {
     return (
-      <Box onClick={() => setExpanded(true)} sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, cursor: "pointer", display: "flex", alignItems: "center", gap: 1 }}>
+      <Box onClick={handleExpand} sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, cursor: "pointer", display: "flex", alignItems: "center", gap: 1 }}>
         <Box className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""} sx={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: statusColor }} />
         <Box sx={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {isSpeaking && isWalkthroughActive && (
+          {isSpeaking && (
             <Box className="siri-glow-aura" sx={{ position: "absolute", top: -3, left: -3, width: 62, height: 62, borderRadius: "50%", background: "linear-gradient(45deg, #a855f7, #3b82f6, #06b6d4, #ec4899)", backgroundSize: "400% 400%", zIndex: 1 }} />
           )}
-          <Paper elevation={4} className={isSpeaking && isWalkthroughActive ? "siri-orb-glow" : ""} sx={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isConnected ? "#0f172a" : "#374151", color: "#fff", position: "relative", zIndex: 2, transition: "all 0.2s ease", "&:hover": { transform: "scale(1.05)" } }}>
-            <MicIcon sx={{ fontSize: 28 }} />
+          <Paper elevation={4} className={isSpeaking ? "siri-orb-glow" : ""} sx={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isConnected ? "#0f172a" : "#374151", color: "#fff", position: "relative", zIndex: 2, transition: "all 0.2s ease", "&:hover": { transform: "scale(1.05)" } }}>
+            <AutoAwesomeIcon sx={{ fontSize: 26, color: "#10b981" }} />
           </Paper>
         </Box>
       </Box>
@@ -173,19 +178,7 @@ export default function AgentOverlay() {
       {/* Chat history */}
       <AgentChat sx={{ flex: 1, maxHeight: 220, minHeight: 80 }} />
 
-      {/* Text input */}
-      <Box component="form" onSubmit={handleTextSubmit} sx={{ display: "flex", gap: 1, p: 1.5, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "rgba(255,255,255,0.03)" }}>
-        <input
-          name="message"
-          type="text"
-          placeholder={isConnected ? "Type a command..." : "Disconnected"}
-          disabled={!isConnected}
-          style={{ flex: 1, padding: "8px 12px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 20, fontSize: 14, outline: "none", fontFamily: "inherit", backgroundColor: "rgba(255,255,255,0.05)", color: "white" }}
-        />
-        <button type="submit" disabled={!isConnected} style={{ padding: "4px 12px", backgroundColor: "#1976d2", color: "white", border: "none", borderRadius: 20, cursor: "pointer", fontSize: 12, fontFamily: "inherit", opacity: isConnected ? 1 : 0.5 }}>
-          Send
-        </button>
-      </Box>
+
 
       {/* Mic */}
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 2, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "rgba(0,0,0,0.2)" }}>

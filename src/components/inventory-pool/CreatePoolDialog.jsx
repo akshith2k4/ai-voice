@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAgentForm } from '../../agent/useAgentForm';
+import { useCreatePoolAgent } from '../../useagent/useCreatePoolAgent';
 import {
     Dialog,
     DialogTitle,
@@ -55,43 +55,14 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
         setError('');
     };
 
-    useAgentForm("createInventoryPool", {
-        fields: [
-            {
-                key: "name",
-                type: "text",
-                set: (v) => setName(v),
-            },
-            {
-                key: "description",
-                type: "text",
-                set: (v) => setDescription(v),
-            },
-            {
-                key: "products",
-                type: "autocomplete",
-                set: (prod) => {
-                    if (!prod) return;
-                    setSelectedProducts((prev) => {
-                        const list = Array.isArray(prod) ? prod : [prod];
-                        const merged = [...prev];
-                        list.forEach(p => {
-                            if (!merged.some(m => m.id === p.id)) {
-                                merged.push(p);
-                            }
-                        });
-                        return merged;
-                    });
-                },
-                getOptions: () => products,
-                getElement: () => {
-                    const autocompletes = Array.from(document.querySelectorAll('.MuiAutocomplete-root'));
-                    return autocompletes.find(a => a.querySelector('label')?.textContent?.includes('Products')) || null;
-                }
-            }
-        ],
-        clearAll: reset,
-    }, open);
+    useCreatePoolAgent({
+        open,
+        setName,
+        setDescription,
+        setSelectedProducts,
+        products,
+        reset,
+    });
 
     const handleClose = () => {
         reset();

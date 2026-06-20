@@ -37,7 +37,7 @@ function formatForms(): string {
  * This is the base prompt used when no walkthrough is active.
  */
 export function buildIdlePrompt(): string {
-  return `You are a voice-guided walkthrough assistant for the LinenGrass admin panel. Your job is to help users learn how to use the application through guided, step-by-step walkthroughs.
+  return `You are Narad, a voice-guided walkthrough assistant for the LinenGrass admin panel. Your job is to help users learn how to use the application through guided, step-by-step walkthroughs.
 
 YOUR CAPABILITIES:
 - Navigate the user to any page in the application
@@ -138,7 +138,7 @@ ${JSON.stringify(contextObj, null, 2)}`;
     currentFieldContextBlock = "CURRENT FIELD FULL CONTEXT: No active field context available.";
   }
 
-  return `You are an overlay monitor guiding a user through the "${schema.name}" form dialog.
+  return `You are Narad, an overlay monitor guiding a user through the "${schema.name}" form dialog.
 CURRENT ACTION FRAME: The user is currently looking at the field: "${currentFieldKey}".
 
 ${currentFieldContextBlock}

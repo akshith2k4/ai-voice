@@ -28,7 +28,7 @@ import {
 import WifiIcon from "@mui/icons-material/Wifi";
 import WifiOffIcon from "@mui/icons-material/WifiOff";
 // Removed add/remove icons for RE_WASH static list
-
+import { useCreateWashRequestAgent } from "../../../useagent/useCreateWashRequestAgent";
 import { laundryVendorService } from "../../../services/laundryVendorService";
 import { inventoryService } from "../../../services/inventoryService";
 import { soiledService } from "../../../services/soiledService";
@@ -753,6 +753,7 @@ export default function WRUnifiedDialog({
           fullWidth
           size="small"
           label="Request Type"
+          name="washRequestType"
           value={formData.washRequestType}
           onChange={handleRequestTypeChange}
           required
@@ -767,6 +768,7 @@ export default function WRUnifiedDialog({
           fullWidth
           size="small"
           label="Warehouse"
+          name="warehouse"
           value={dcid ?? ""}
           disabled
         >
@@ -782,6 +784,7 @@ export default function WRUnifiedDialog({
           fullWidth
           size="small"
           label="Vendor"
+          name="vendor"
           value={formData.vendorId}
           onChange={handleChange("vendorId")}
           disabled={loading.vendors}
@@ -801,6 +804,7 @@ export default function WRUnifiedDialog({
           fullWidth
           size="small"
           label="Inventory Pool"
+          name="pool"
           value={formData.poolId}
           onChange={handleChange("poolId")}
           disabled={loading.pools}
@@ -820,6 +824,7 @@ export default function WRUnifiedDialog({
           size="small"
           type="date"
           label="Trips Date"
+          name="deliveryDate"
           InputLabelProps={{ shrink: true }}
           value={formData.deliveryDate}
           onChange={handleChange("deliveryDate")}
@@ -831,6 +836,7 @@ export default function WRUnifiedDialog({
           size="small"
           type="datetime-local"
           label="Wash Request Date & Time"
+          name="washRequestRecordedDateTime"
           InputLabelProps={{ shrink: true }}
           value={formData.washRequestRecordedDateTime}
           onChange={handleChange("washRequestRecordedDateTime")}
@@ -840,6 +846,7 @@ export default function WRUnifiedDialog({
         <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
           <Checkbox
             size="small"
+            name="manual"
             checked={formData.manual}
             onChange={(e) => setFormData(prev => ({ ...prev, manual: e.target.checked }))}
           />
@@ -852,6 +859,7 @@ export default function WRUnifiedDialog({
           fullWidth
           size="small"
           label="Notes"
+          name="notes"
           value={formData.notes}
           onChange={handleChange("notes")}
           placeholder="Any instructions (optional)"
@@ -1020,6 +1028,7 @@ export default function WRUnifiedDialog({
             {washRows.map((r, idx) => (
               <Box
                 key={r.productId}
+                data-agent-row-wash={idx}
                 sx={{
                   display: "grid",
                   gridTemplateColumns: {
@@ -1063,7 +1072,7 @@ export default function WRUnifiedDialog({
                   {r.available}
                 </Typography>
 
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }} data-agent-field="requested">
                   <QuantityScanInput
                     value={r.requested ?? ""}
                     onChange={(val) =>
@@ -1095,7 +1104,7 @@ export default function WRUnifiedDialog({
                   />
                 </Box>
 
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }} data-agent-field="heavySoiled">
                   <QuantityScanInput
                     value={r.heavySoiled ?? ""}
                     onChange={(val) =>
@@ -1248,6 +1257,7 @@ export default function WRUnifiedDialog({
             {rewashRows.map((r, idx) => (
               <Box
                 key={r.productId}
+                data-agent-row-rewash={idx}
                 sx={{
                   display: "grid",
                   gridTemplateColumns: { xs: "1fr 140px", md: "1fr 160px" },
@@ -1268,34 +1278,36 @@ export default function WRUnifiedDialog({
                   </Typography>
                 </Box>
 
-                <QuantityScanInput
-                  value={r.requested ?? 0}
-                  onChange={(val) =>
-                    _updateRewashRow(idx, { requested: val })
-                  }
-                  showMax={false}
-                  quantityType="OVERALL"
-                  scanType="WASH_REQUEST_CREATION"
-                  referenceId={formData.poolId}
-                  productId={r.productId}
-                  inventoryItemIds={(r.soiledItems || []).map(si => si.referenceId).filter(Boolean)}
-                  isScanning={
-                    scanStatus === "ACTIVE" &&
-                    activeScan?.referenceId === formData.poolId &&
-                    (activeScan?.productId === r.productId ||
-                      activeScan?.productId == null)
-                  }
-                  onScanStart={(ctx) => {
-                    setActiveScan(ctx);
-                    setShowRewashScannerHeader(true);
-                    setScanStatus("ACTIVE");
-                  }}
-                  onScanStop={() => {
-                    setActiveScan(null);
-                    setScanStatus("INACTIVE");
-                  }}
-                  onScanMessage={handleRfidRewashSessionEvent}
-                />
+                <Box data-agent-field="requested" sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+                  <QuantityScanInput
+                    value={r.requested ?? 0}
+                    onChange={(val) =>
+                      _updateRewashRow(idx, { requested: val })
+                    }
+                    showMax={false}
+                    quantityType="OVERALL"
+                    scanType="WASH_REQUEST_CREATION"
+                    referenceId={formData.poolId}
+                    productId={r.productId}
+                    inventoryItemIds={(r.soiledItems || []).map(si => si.referenceId).filter(Boolean)}
+                    isScanning={
+                      scanStatus === "ACTIVE" &&
+                      activeScan?.referenceId === formData.poolId &&
+                      (activeScan?.productId === r.productId ||
+                        activeScan?.productId == null)
+                    }
+                    onScanStart={(ctx) => {
+                      setActiveScan(ctx);
+                      setShowRewashScannerHeader(true);
+                      setScanStatus("ACTIVE");
+                    }}
+                    onScanStop={() => {
+                      setActiveScan(null);
+                      setScanStatus("INACTIVE");
+                    }}
+                    onScanMessage={handleRfidRewashSessionEvent}
+                  />
+                </Box>
 
                 <Box />
               </Box>
@@ -1385,6 +1397,23 @@ export default function WRUnifiedDialog({
       </Tooltip>
     </DialogActions>
   );
+
+  useCreateWashRequestAgent({
+    open,
+    setFormData,
+    setInfo,
+    setError,
+    setRewashRows,
+    setWashRows,
+    buildRewashRowsFromProducts,
+    vendors,
+    pools,
+    wrDateTouched,
+    setWrDateTouched,
+    normalizeQtyInput,
+    _updateRewashRow,
+    resetAll,
+  });
 
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="lg">

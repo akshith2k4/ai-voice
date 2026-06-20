@@ -47,7 +47,7 @@ export default function AgentChat({ sx }) {
       {agentMessages.map((msg) => (
         <Box key={msg.id} sx={{ mb: 1.5, display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
           <Typography variant="caption" sx={{ color: "#475569", fontSize: 10, mb: 0.3, px: 1 }}>
-            {msg.role === "user" ? "You" : "Agent"}
+            {msg.role === "user" ? "You" : "Narad"}
           </Typography>
           <Box
             sx={{

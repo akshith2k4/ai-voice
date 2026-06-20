@@ -27,6 +27,7 @@ import ScannerHeader from "../../Scanner/ScannerHeader";
 import QuantityScanInput from "../../Scanner/QuantityScanInput";
 import { scannerController } from "../../Scanner/ScannerController";
 import KnockOffResultDialog from "./KnockOffResultDialog";
+import { useCreateWashFulfillmentAgent } from "../../../useagent/useCreateWashFulfillmentAgent";
 
 // Valid item condition types for fulfillment
 const ITEM_CONDITION_TYPES = [
@@ -873,6 +874,23 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
 
 
 
+  useCreateWashFulfillmentAgent({
+    open,
+    setWashType,
+    setPoolId,
+    setVendorId,
+    setFulfilledDateTime,
+    setRequestNumber,
+    setNotes,
+    effectiveRows,
+    updateWashedQty,
+    updateDamagedQty,
+    updateSoiledQty,
+    pools,
+    vendors,
+    resetFulfillmentDialogState,
+  });
+
   return (
     <Dialog open={open} onClose={handleDialogClose} fullWidth maxWidth="lg">
       <DialogTitle sx={{ pb: 0.5 }}>Create Wash Fulfillment</DialogTitle>
@@ -920,6 +938,8 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
               <TextField
                 select
                 label="Request Type"
+                name="washRequestType"
+                id="washRequestType"
                 value={washType}
                 onChange={(e) => setWashType(e.target.value)}
                 fullWidth
@@ -931,6 +951,8 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
               <TextField
                 select
                 label="Pool"
+                name="pool"
+                id="pool"
                 value={poolId}
                 onChange={(e) => setPoolId(e.target.value)}
                 fullWidth
@@ -959,6 +981,8 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
               <TextField
                 select
                 label="Vendor"
+                name="vendor"
+                id="vendor"
                 value={vendorId}
                 onChange={(e) => setVendorId(e.target.value)}
                 fullWidth
@@ -987,6 +1011,8 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
 
               <TextField
                 label="Fulfillment Date & Time"
+                name="fulfilledDateTime"
+                id="fulfilledDateTime"
                 type="datetime-local"
                 InputLabelProps={{ shrink: true }}
                 value={fulfilledDateTime}
@@ -998,6 +1024,8 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
 
               <TextField
                 label="Request Number"
+                name="requestNumber"
+                id="requestNumber"
                 value={requestNumber}
                 onChange={(e) => setRequestNumber(e.target.value)}
                 required
@@ -1008,6 +1036,8 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
 
               <TextField
                 label="Notes"
+                name="notes"
+                id="notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 fullWidth
@@ -1310,6 +1340,7 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
                             return (
                               <Box
                                 key={r.productId}
+                                data-agent-row-fulfillment={idx}
                                 sx={{
                                   display: "grid",
                                   gridTemplateColumns: {
@@ -1358,102 +1389,108 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
                                     {r.productName}
                                   </Typography>
                                 </Box>
-                                <QuantityScanInput
-                                  value={r.washedQuantity ?? 0}
-                                  showMax={false}
-                                  quantityType="WASHED"
-                                  referenceId={sec.referenceId}
-                                  productId={r.productId}
-                                  isScanning={
-                                    scanStatus === "ACTIVE" &&
-                                    activeScan?.quantityType === "WASHED" &&
-                                    activeScan?.referenceId === sec.referenceId &&
-                                    (
-                                      activeScan?.productId === r.productId ||
-                                      activeScan?.productId == null
-                                    )
-                                  }
-                                  onChange={(val) =>
-                                    updateWashedQty(sec.referenceId, r.productId, val)
-                                  }
-                                  onScanStart={(ctx) => {
-                                    setActiveScan(ctx);
-                                    setScanStatus("ACTIVE");
-                                  }}
-                                  onScanStop={() => {
-                                    setActiveScan(null);
-                                    setScanStatus("IDLE");
-                                  }}
-                                  onScanMessage={handleScanMessage}
-                                  inventoryItemIds={(r.fulfillmentItems || [])
-                                    .filter((i) => i.itemConditionType === "FRESH")
-                                    .map((i) => i.soiledItemId)}
-                                />
+                                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }} data-agent-field="washed">
+                                  <QuantityScanInput
+                                    value={r.washedQuantity ?? 0}
+                                    showMax={false}
+                                    quantityType="WASHED"
+                                    referenceId={sec.referenceId}
+                                    productId={r.productId}
+                                    isScanning={
+                                      scanStatus === "ACTIVE" &&
+                                      activeScan?.quantityType === "WASHED" &&
+                                      activeScan?.referenceId === sec.referenceId &&
+                                      (
+                                        activeScan?.productId === r.productId ||
+                                        activeScan?.productId == null
+                                      )
+                                    }
+                                    onChange={(val) =>
+                                      updateWashedQty(sec.referenceId, r.productId, val)
+                                    }
+                                    onScanStart={(ctx) => {
+                                      setActiveScan(ctx);
+                                      setScanStatus("ACTIVE");
+                                    }}
+                                    onScanStop={() => {
+                                      setActiveScan(null);
+                                      setScanStatus("IDLE");
+                                    }}
+                                    onScanMessage={handleScanMessage}
+                                    inventoryItemIds={(r.fulfillmentItems || [])
+                                      .filter((i) => i.itemConditionType === "FRESH")
+                                      .map((i) => i.soiledItemId)}
+                                  />
+                                </Box>
 
 
-                                <QuantityScanInput
-                                  value={r.damagedQuantity ?? 0}
-                                  showMax={false}
-                                  quantityType="DAMAGED"
-                                  referenceId={sec.referenceId}
-                                  productId={r.productId}
-                                  isScanning={
-                                    scanStatus === "ACTIVE" &&
-                                    activeScan?.quantityType === "DAMAGED" &&
-                                    activeScan?.referenceId === sec.referenceId &&
-                                    (
-                                      activeScan?.productId === r.productId ||
-                                      activeScan?.productId == null
-                                    )
-                                  }
-                                  onChange={(val) =>
-                                    updateDamagedQty(sec.referenceId, r.productId, val)
-                                  }
-                                  onScanStart={(ctx) => {
-                                    setActiveScan(ctx);
-                                    setScanStatus("ACTIVE");
-                                  }}
-                                  onScanStop={() => {
-                                    setActiveScan(null);
-                                    setScanStatus("IDLE");
-                                  }}
-                                  onScanMessage={handleScanMessage}
-                                  inventoryItemIds={(r.fulfillmentItems || [])
-                                    .filter((i) => i.itemConditionType === "DAMAGED")
-                                    .map((i) => i.soiledItemId)}
-                                />
+                                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }} data-agent-field="damaged">
+                                  <QuantityScanInput
+                                    value={r.damagedQuantity ?? 0}
+                                    showMax={false}
+                                    quantityType="DAMAGED"
+                                    referenceId={sec.referenceId}
+                                    productId={r.productId}
+                                    isScanning={
+                                      scanStatus === "ACTIVE" &&
+                                      activeScan?.quantityType === "DAMAGED" &&
+                                      activeScan?.referenceId === sec.referenceId &&
+                                      (
+                                        activeScan?.productId === r.productId ||
+                                        activeScan?.productId == null
+                                      )
+                                    }
+                                    onChange={(val) =>
+                                      updateDamagedQty(sec.referenceId, r.productId, val)
+                                    }
+                                    onScanStart={(ctx) => {
+                                      setActiveScan(ctx);
+                                      setScanStatus("ACTIVE");
+                                    }}
+                                    onScanStop={() => {
+                                      setActiveScan(null);
+                                      setScanStatus("IDLE");
+                                    }}
+                                    onScanMessage={handleScanMessage}
+                                    inventoryItemIds={(r.fulfillmentItems || [])
+                                      .filter((i) => i.itemConditionType === "DAMAGED")
+                                      .map((i) => i.soiledItemId)}
+                                  />
+                                </Box>
 
-                                <QuantityScanInput
-                                  value={r.soiledQuantity ?? 0}
-                                  showMax={false}
-                                  quantityType="SOILED"
-                                  referenceId={sec.referenceId}
-                                  productId={r.productId}
-                                  isScanning={
-                                    scanStatus === "ACTIVE" &&
-                                    activeScan?.quantityType === "SOILED" &&
-                                    activeScan?.referenceId === sec.referenceId &&
-                                    (
-                                      activeScan?.productId === r.productId ||
-                                      activeScan?.productId == null
-                                    )
-                                  }
-                                  onChange={(val) =>
-                                    updateSoiledQty(sec.referenceId, r.productId, val)
-                                  }
-                                  onScanStart={(ctx) => {
-                                    setActiveScan(ctx);
-                                    setScanStatus("ACTIVE");
-                                  }}
-                                  onScanStop={() => {
-                                    setActiveScan(null);
-                                    setScanStatus("IDLE");
-                                  }}
-                                  onScanMessage={handleScanMessage}
-                                  inventoryItemIds={(r.fulfillmentItems || [])
-                                    .filter((i) => i.itemConditionType === "SOILED")
-                                    .map((i) => i.soiledItemId)}
-                                />
+                                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }} data-agent-field="soiled">
+                                  <QuantityScanInput
+                                    value={r.soiledQuantity ?? 0}
+                                    showMax={false}
+                                    quantityType="SOILED"
+                                    referenceId={sec.referenceId}
+                                    productId={r.productId}
+                                    isScanning={
+                                      scanStatus === "ACTIVE" &&
+                                      activeScan?.quantityType === "SOILED" &&
+                                      activeScan?.referenceId === sec.referenceId &&
+                                      (
+                                        activeScan?.productId === r.productId ||
+                                        activeScan?.productId == null
+                                      )
+                                    }
+                                    onChange={(val) =>
+                                      updateSoiledQty(sec.referenceId, r.productId, val)
+                                    }
+                                    onScanStart={(ctx) => {
+                                      setActiveScan(ctx);
+                                      setScanStatus("ACTIVE");
+                                    }}
+                                    onScanStop={() => {
+                                      setActiveScan(null);
+                                      setScanStatus("IDLE");
+                                    }}
+                                    onScanMessage={handleScanMessage}
+                                    inventoryItemIds={(r.fulfillmentItems || [])
+                                      .filter((i) => i.itemConditionType === "SOILED")
+                                      .map((i) => i.soiledItemId)}
+                                  />
+                                </Box>
                               </Box>
                             );
                           })}

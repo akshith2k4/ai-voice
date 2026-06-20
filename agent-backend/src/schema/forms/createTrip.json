@@ -94,6 +94,57 @@
         "en": "[casual] Any special instructions for the driver? Jot them down here.",
         "hi": "[casual] driver के लिए कोई special instructions हैं? यहाँ लिख दें।"
       }
+    },
+    {
+      "nodeType": "repeating",
+      "id": "visitItem",
+      "name": "Customer Visit",
+      "repeatable": true,
+      "autoPopulated": true,
+      "demoItemCount": 1,
+      "explanation": {
+        "en": "[friendly] Now let's look at the customer list on the right side box. [excited] Here are the customers scheduled for delivery during the trip. We can click on each customer to include them.",
+        "hi": "[friendly] अब right side box में customers की list को देखते हैं। [excited] यहाँ वो customers हैं जिन्हें trip के दौरान delivery दी जानी है। हम हर customer को include करने के लिए उस पर click कर सकते हैं।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] Let's configure the details for the next customer in our route.",
+        "hi": "[friendly] चलिए हमारे route के अगले customer के लिए details configure करते हैं।"
+      },
+      "children": [
+        {
+          "nodeType": "field",
+          "key": "selected",
+          "label": "Include Customer",
+          "type": "checkbox",
+          "demoValue": true,
+          "explanation": {
+            "en": "[casual] Click the checkbox next to the customer name to include them in the delivery run.",
+            "hi": "[casual] customer को delivery run में शामिल करने के लिए उसके नाम के पास वाले checkbox पर click करें।"
+          }
+        },
+        {
+          "nodeType": "field",
+          "key": "sequence",
+          "label": "Sequence",
+          "type": "text",
+          "demoValue": "1",
+          "explanation": {
+            "en": "[friendly] Now click on the seq input. Here, you specify the delivery sequence number, which determines the exact order and level in which we need to deliver to this customer.",
+            "hi": "[friendly] अब seq input पर click करें। यहाँ, आप delivery sequence number डालते हैं, जो बताता है कि हमें किस exact order और priority level पर इस customer को deliver करना है।"
+          }
+        },
+        {
+          "nodeType": "field",
+          "key": "visitNotes",
+          "label": "Visit Notes",
+          "type": "text",
+          "demoValue": "Call customer before delivery.",
+          "explanation": {
+            "en": "[casual] And lastly, you can add any optional visit notes or instructions for the driver for this customer.",
+            "hi": "[casual] और आखिरी में, आप इस customer के लिए driver के लिए कोई भी optional visit notes या instructions लिख सकते हैं।"
+          }
+        }
+      ]
     }
   ],
   "wrapUp": {

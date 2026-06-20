@@ -1,0 +1,223 @@
+{
+  "id": "createWashRequest",
+  "name": "Create Wash Request",
+  "route": "/wash-requests",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/wash-requests"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-wash-request']",
+        "fallbackText": "+ Create Wash Request"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": {
+    "en": "[excited] Let's set up a Wash Request! [friendly] This is where we tell the system how much soiled linen is going to the laundry. We'll pick the request type, vendor, inventory pool, dates, and then enter the exact item quantities on the right side box. Let's get started!",
+    "hi": "[excited] चलिए एक Wash Request बनाते हैं! [friendly] यहाँ हम system को बताते हैं कि laundry के लिए कितना गंदा linen भेजा जा रहा है। हम request type, vendor, inventory pool, dates चुनेंगे, और फिर right side box में items की exact quantities लिखेंगे। चलिए शुरू करते हैं!"
+  },
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "washRequestType",
+      "label": "Request Type",
+      "type": "select",
+      "required": true,
+      "options": [
+        "WASH",
+        "RE_WASH"
+      ],
+      "demoValue": "WASH",
+      "explanation": {
+        "en": "[casual] First, select the Request Type. Use 'Wash' for standard soiled items, or 'Re-Wash' if they need to be cleaned again because of remaining stains.",
+        "hi": "[casual] सबसे पहले, Request Type चुनें। standard गंदे items के लिए 'Wash' चुनें, या 'Re-Wash' अगर उन्हें दाग रहने के कारण दोबारा साफ़ करने की ज़रूरत है।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "vendor",
+      "label": "Vendor",
+      "type": "select",
+      "required": true,
+      "demoValue": "Laundry Solutions",
+      "explanation": {
+        "en": "[friendly] Next, choose the Vendor. This is the laundry facility that will be processing and washing these items.",
+        "hi": "[friendly] इसके बाद, Vendor चुनें। यह वो laundry facility है जो इन items को process और wash करेगी।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "pool",
+      "label": "Inventory Pool",
+      "type": "select",
+      "required": true,
+      "demoValue": "TLP Pool",
+      "explanation": {
+        "en": "[casual] Now, select the Inventory Pool. This specifies which pool of inventory these items belong to, helping us track where the linen is coming from.",
+        "hi": "[casual] अब, Inventory Pool चुनें। यह बताता है कि ये items inventory के किस pool से हैं, जिससे हमें tracking में मदद मिलती है।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "deliveryDate",
+      "label": "Trips Date",
+      "type": "date",
+      "required": true,
+      "demoValue": "2025-11-12",
+      "explanation": {
+        "en": "[casual] Set the Trips Date. This is the date the transport team is scheduled to move this batch of linen to the washing facility.",
+        "hi": "[casual] Trips Date set करें। यह वो तारीख है जब transport team इस linen batch को washing facility में भेजने के लिए scheduled है।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "washRequestRecordedDateTime",
+      "label": "Wash Request Date & Time",
+      "type": "date",
+      "required": true,
+      "demoValue": "2026-11-07T11:33",
+      "explanation": {
+        "en": "[casual] Verify the Wash Request Date and Time. This defaults to the current date and time to accurately log when this request was recorded in the system.",
+        "hi": "[casual] Wash Request की Date और Time verify करें। यह automatically current date and time पर set हो जाता है ताकि logging accurate रहे।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "manual",
+      "label": "Manual / Direct Transfer (Bypass Trip Creation)",
+      "type": "checkbox",
+      "demoValue": true,
+      "explanation": {
+        "en": "[casual] You can check 'Manual / Direct Transfer' if you want to bypass the automated trip creation and record the transfer directly in the system.",
+        "hi": "[casual] आप 'Manual / Direct Transfer' check कर सकते हैं अगर आप automated trip creation को bypass करके transfer को सीधे system में record करना चाहते हैं।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "notes",
+      "label": "Notes",
+      "type": "text",
+      "demoValue": "Standard washing instructions",
+      "explanation": {
+        "en": "[casual] Add any optional notes or special instructions for the laundry team here.",
+        "hi": "[casual] यहाँ laundry team के लिए कोई भी optional notes या special instructions लिख सकते हैं।"
+      }
+    },
+    {
+      "nodeType": "repeating",
+      "id": "washItem",
+      "name": "Wash Item",
+      "repeatable": true,
+      "autoPopulated": true,
+      "demoItemCount": 2,
+      "visibleWhen": {
+        "field": "washRequestType",
+        "value": "WASH"
+      },
+      "explanation": {
+        "en": "[excited] Now let's look at the Soiled Quantities on the right side box! [friendly] This table lists the products in the selected inventory pool. For each product, we need to enter how many soiled pieces we are sending to the washing facility.",
+        "hi": "[excited] अब right side box में Soiled Quantities को देखते हैं! [friendly] यह table selected inventory pool के products को दिखाती है। हर product के लिए, हमें लिखना है कि हम washing के लिए कितने गंदे pieces भेज रहे हैं।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] You can specify quantities for all products listed. Let's fill out the details for another product.",
+        "hi": "[friendly] आप listed सभी products के लिए quantities दे सकते हैं। चलिए एक दूसरे product के लिए details भरते हैं।"
+      },
+      "children": [
+        {
+          "nodeType": "field",
+          "key": "requested",
+          "label": "Requested Quantity",
+          "type": "text",
+          "demoValue": "15",
+          "explanation": {
+            "en": "[casual] This is the 'Requested' quantity. It represents the standard soiled pieces that we are sending for washing. Just type the number of pieces here.",
+            "hi": "[casual] यह 'Requested' quantity है। यह standard गंदे pieces को दिखाता है जिन्हें हम washing के लिए भेज रहे हैं। बस यहाँ pieces का number type करें।"
+          },
+          "commonQuestions": [
+            {
+              "question": "What is requested quantity in wash requests?",
+              "answer": "Requested quantity is the number of standard soiled linen items that you are requesting the laundry vendor to wash and clean."
+            }
+          ]
+        },
+        {
+          "nodeType": "field",
+          "key": "heavySoiled",
+          "label": "Heavy Soiled Quantity",
+          "type": "text",
+          "demoValue": "5",
+          "explanation": {
+            "en": "[thoughtful] And here is the 'Heavy Soiled' quantity. Enter the number of items that have deep stains, oil spots, or heavy grease. They need special washing treatments to get fully cleaned.",
+            "hi": "[thoughtful] और यह 'Heavy Soiled' quantity है। उन items का number यहाँ लिखें जिन पर गहरे दाग, तेल के निशान या ज्यादा ग्रीस है। इन्हें पूरी तरह साफ़ करने के लिए special washing treatments की ज़रूरत होती है।"
+          },
+          "commonQuestions": [
+            {
+              "question": "Why is Heavy Soiled tracked separately?",
+              "answer": "Heavy soiled items require special stain-removal chemicals and longer wash cycles. Tracking them separately ensures the vendor treats them appropriately and bills correctly."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "nodeType": "repeating",
+      "id": "rewashItem",
+      "name": "Rewash Item",
+      "repeatable": true,
+      "autoPopulated": true,
+      "demoItemCount": 2,
+      "visibleWhen": {
+        "field": "washRequestType",
+        "value": "RE_WASH"
+      },
+      "explanation": {
+        "en": "[casual] For a Re-Wash request, the right panel displays 'Rewash Items'. Since these items were already washed once but are still dirty or stained, we specify the rewash quantity for each product.",
+        "hi": "[casual] Re-Wash request के लिए, right panel 'Rewash Items' दिखाता है। चूंकि ये items पहले ही एक बार धोए जा चुके हैं लेकिन फिर भी गंदे या दागदार हैं, हम हर product के लिए rewash quantity देते हैं।"
+      },
+      "explanationForMultiple": {
+        "en": "[friendly] You can specify rewash quantities for each product. Let me show you on the next item.",
+        "hi": "[friendly] आप हर product के लिए rewash quantities दे सकते हैं। चलिए मैं आपको अगले item पर दिखाता हूँ।"
+      },
+      "children": [
+        {
+          "nodeType": "field",
+          "key": "requested",
+          "label": "Quantity",
+          "type": "text",
+          "demoValue": "10",
+          "explanation": {
+            "en": "[casual] Enter the quantity of items that failed quality inspection and must be sent back for re-washing.",
+            "hi": "[casual] उन items की quantity यहाँ लिखें जो quality inspection में fail हो गए और उन्हें दोबारा धोने के लिए वापस भेजा जाना चाहिए।"
+          },
+          "commonQuestions": [
+            {
+              "question": "What is rewash quantity?",
+              "answer": "Rewash quantity is the number of linen items that were washed but still have stains and need to undergo a second wash cycle to be usable."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "wrapUp": {
+    "en": "[warm and satisfied] Fantastic! That's how we create a Wash Request. We specified our filter details on the left, and entered our soiled quantities on the right box. You are ready to create your real wash requests now!",
+    "hi": "[warm and satisfied] बेहतरीन! इस तरह हम एक Wash Request बनाते हैं। हमने left side पर details भरीं, और right box में soiled quantities दर्ज कीं। अब आप अपनी real wash requests बनाने के लिए तैयार हैं!"
+  },
+  "aliases": [
+    "create wash request",
+    "new wash request",
+    "add wash request",
+    "wash request",
+    "create rewash request",
+    "new rewash request"
+  ],
+  "description": "Walkthrough for creating a new wash or rewash request"
+}

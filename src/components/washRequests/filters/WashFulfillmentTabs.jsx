@@ -166,7 +166,7 @@ function WashFulfillmentTabs({
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Button
                         variant="contained"
-                        onClick={onCreateFulfillmentOpen}
+                        data-agent-action="create-wash-fulfillment" onClick={onCreateFulfillmentOpen}
                         sx={{ height: 40, minWidth: 200, whiteSpace: "nowrap" }}
                     >
                         + Create Fulfillment

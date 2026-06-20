@@ -90,29 +90,9 @@ const server = Bun.serve<ClientData>({
   },
 
   websocket: {
-    // Called when a new WebSocket connection is opened
     open(ws) {
       const { sessionId } = ws.data;
       connectionManager.add(sessionId, ws);
-
-      // Send welcome message with session ID
-      const welcomeMessage: OutgoingMessage = {
-        type: "tool",
-        tool: "respond",
-        args: {
-          message: "Connected to agent backend.",
-          tts: false,
-        },
-      };
-
-      try {
-        ws.send(JSON.stringify(welcomeMessage));
-      } catch (error) {
-        console.error(
-          `[Server] Failed to send welcome to ${sessionId}:`,
-          error
-        );
-      }
     },
 
     // Called when a message is received from a client

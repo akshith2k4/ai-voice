@@ -178,6 +178,7 @@ function WashRequestTabs({
                         {/* Right group: Create Wash Request */}
                         <Box sx={{ display: "flex", alignItems: "center" }}>
                             <Button
+                                data-agent-action="create-wash-request"
                                 variant="contained"
                                 onClick={onCreateOpen}
                                 sx={{ height: 40, minWidth: 200, whiteSpace: "nowrap" }}
@@ -192,7 +193,7 @@ function WashRequestTabs({
                     <Box display="flex" justifyContent="flex-end">
                         <Button
                             variant="contained"
-                            onClick={onCreateFulfillmentOpen}
+                            data-agent-action="create-wash-fulfillment" onClick={onCreateFulfillmentOpen}
                             sx={{ height: 44 }}
                         >
                             + Create Fulfillment
