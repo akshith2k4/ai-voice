@@ -22,6 +22,7 @@ const WALKTHROUGH_TOOLS = new Set([
   TOOL_TYPES.SELECT_ITEM,
   TOOL_TYPES.CLICK_ELEMENT,
   TOOL_TYPES.GET_OPTIONS_COUNT,
+  TOOL_TYPES.WALKTHROUGH_CANCELLED,
   "detour_start",
   "detour_end",
   "walkthrough_finished",

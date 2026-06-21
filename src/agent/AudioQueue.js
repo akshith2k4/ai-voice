@@ -23,6 +23,7 @@ export class AudioQueue {
     // Single callback — only WalkthroughEngine subscribes
     this.onMessageEnded = null;  // (messageId) => void
     this.onCleared = null;       // () => void
+    this.onPlaybackComplete = null;
   }
 
   // ── Playback state subscription ───────────────────────────────────────────
@@ -106,6 +107,7 @@ export class AudioQueue {
   // ── Stop everything ───────────────────────────────────────────────────────
 
   clear() {
+    const hadActive = this._activeMessages.size > 0;
     this._pendingBuffers.clear();
     this._activeMessages.clear();
     this._audioElements.forEach(audio => { try { audio.pause(); } catch (e) {} });
@@ -120,7 +122,9 @@ export class AudioQueue {
     this.nextPlaybackTime = 0;
     this.playbackQueue = Promise.resolve(); // Reset the playback queue chain
     this._playbackListeners.forEach(cb => cb(false));
-    this.onCleared?.();
+    if (hadActive && this.onCleared) {
+      this.onCleared();
+    }
   }
 
   // ── Internal ──────────────────────────────────────────────────────────────
@@ -166,6 +170,7 @@ export class AudioQueue {
     this._audioSources.delete(messageId);
 
     this.onMessageEnded?.(messageId);
+    this.onPlaybackComplete?.(messageId);
 
     if (wasPlaying && this._playing.size === 0) {
       this.isPlaying = false;

@@ -23,6 +23,7 @@ class WalkthroughEngine {
     this._audioCompletionHandlers = new Map();
     // Set of messageIds that finished playing before their handler was registered
     this._completedAudioMessages = new Set();
+    this._generationId = 0;
   }
 
   init({ setIsPaused, setIsWalkthroughActive, addMessage, clearMessages, stopAudio }) {
@@ -64,6 +65,8 @@ class WalkthroughEngine {
       });
       this._audioCompletionHandlers.clear();
       this._completedAudioMessages.clear(); // Reset on barge-in
+      // TELL THE BACKEND audio was interrupted
+      sendStatus("tts_playback_interrupted");
     };
 
     const unsub = audioQueue.onPlaybackChange(onPlaybackChange);
@@ -84,14 +87,32 @@ class WalkthroughEngine {
   }
 
   // Register a one-shot callback to fire when a specific audio message finishes
-  onAudioComplete(messageId) {
+  onAudioComplete(messageId, timeoutMs = 60000) {
+    const expectedGen = this._generationId;
     return new Promise((resolve, reject) => {
+      // Already completed? Resolve immediately
       if (this._completedAudioMessages.has(messageId)) {
         this._completedAudioMessages.delete(messageId);
-        resolve();
-      } else {
-        this._audioCompletionHandlers.set(messageId, { resolve, reject });
+        resolve(expectedGen === this._generationId);
+        return;
       }
+
+      const timer = setTimeout(() => {
+        this._audioCompletionHandlers.delete(messageId);
+        console.warn(`[WalkthroughEngine] Audio completion timeout for ${messageId}`);
+        resolve(false); // false = timed out, audio never completed
+      }, timeoutMs);
+
+      this._audioCompletionHandlers.set(messageId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve(expectedGen === this._generationId);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
     });
   }
 
@@ -103,18 +124,19 @@ class WalkthroughEngine {
       this.isPaused = false; this._setIsPaused?.(false); this._drain(); return;
     }
     if (tool === TOOL_TYPES.CANCEL_WALKTHROUGH) {
-      this.queue = [];
-      this.executing = false;
-      this.isPaused = false;
-      this.isDetourActive = false;
-      this.activeFormId = null;
-      this._audioCompletionHandlers.clear();
+      this.reset();
       this._setIsPaused?.(false);
       this._setIsWalkthroughActive?.(false);
       this._stopAudio?.();
       this._clearMessages?.();
-      SpotlightManager.clearSpotlight();
       executeTool(TOOL_TYPES.CLOSE_DIALOG, {}, this._context()).catch(() => {});
+      return;
+    }
+    if (tool === "walkthrough_cancelled" || tool === TOOL_TYPES.WALKTHROUGH_CANCELLED) {
+      this.reset();
+      this._setIsWalkthroughActive?.(false);
+      this._setIsPaused?.(false);
+      this._stopAudio?.();
       return;
     }
     if (tool === "detour_start") { this.isDetourActive = true; return; }
@@ -156,6 +178,22 @@ class WalkthroughEngine {
         if (this.queue.length > 0) this._drain();
       });
   }
+
+  reset() {
+    this.queue = [];
+    this.executing = false;
+    this._generationId++;
+    this.isPaused = false;
+    this.activeFormId = null;
+    this.isDetourActive = false;
+    for (const [id, handler] of this._audioCompletionHandlers) {
+      handler.resolve(false);
+    }
+    this._audioCompletionHandlers.clear();
+    this._completedAudioMessages.clear();
+    SpotlightManager.clearSpotlight();
+  }
 }
 
 export const walkthroughEngine = new WalkthroughEngine();
+export default WalkthroughEngine;

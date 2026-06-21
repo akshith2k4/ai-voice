@@ -16,7 +16,19 @@ import { processText } from "../core/flowController.js";
 import { synthesizeStream } from "../services/ttsService.js";
 
 // Shared EventMonitor — used by all VoiceResponders in this process
-const statusAwaiter = new EventMonitor();
+export const statusAwaiter = new EventMonitor();
+
+const idleSessions = new Map<string, any>();
+const activeResponders = new Map<string, VoiceResponder>();
+
+export function getOrCreateIdleSession(sessionId: string): any {
+  let s = idleSessions.get(sessionId);
+  if (!s) {
+    s = { eventWaiters: [] };
+    idleSessions.set(sessionId, s);
+  }
+  return s;
+}
 
 export async function handleIncoming(message: IncomingMessage, context: HandlerContext): Promise<void> {
   const { sessionId } = context;
@@ -126,7 +138,15 @@ async function processUserText(text: string, languageCode: string | undefined, c
 }
 
 function makeResponder(context: HandlerContext, lang = "en"): VoiceResponder {
-  return new VoiceResponder(context.send, context.sessionId, lang, statusAwaiter);
+  const responder = new VoiceResponder(context.send, context.sessionId, lang, statusAwaiter);
+  activeResponders.set(context.sessionId, responder);
+  const session = walkthroughExecutor.getSession(context.sessionId);
+  if (session) {
+    responder.boundSession = session;
+  } else {
+    responder.boundSession = getOrCreateIdleSession(context.sessionId);
+  }
+  return responder;
 }
 
 function playFiller(text: string, lang: string, sessionId: string, send: HandlerContext["send"]): void {
@@ -140,11 +160,18 @@ function playFiller(text: string, lang: string, sessionId: string, send: Handler
 }
 
 export function interruptTTS(sessionId: string): void {
+  markAgentSpeechEnd(sessionId);
+
   const session = walkthroughExecutor.getSession(sessionId);
 
   // Interrupt the responder if one is bound to the session
   if (session?.responder) {
     session.responder.interrupt();
+  } else {
+    const activeResp = activeResponders.get(sessionId);
+    if (activeResp) {
+      activeResp.interrupt();
+    }
   }
 
   // Pause the walkthrough if it's actively running
@@ -166,6 +193,9 @@ export async function cleanupSession(sessionId: string): Promise<void> {
   }
 
   emptyRetries.delete(sessionId);
+  activeResponders.delete(sessionId);
+  idleSessions.delete(sessionId);
+  agentSpeechStart.delete(sessionId);
 
   try {
     const { cleanupSession: cleanSTT } = await import("../services/sttService.js");
@@ -175,8 +205,33 @@ export async function cleanupSession(sessionId: string): Promise<void> {
   }
 }
 
+// Track when the agent starts speaking per session
+const agentSpeechStart = new Map<string, number>();
+
+// Grace period: ignore barge-in signals for this many ms after agent starts speaking
+const BARGE_IN_GRACE_PERIOD_MS = 1500;
+
+export function markAgentSpeechStart(sessionId: string): void {
+  agentSpeechStart.set(sessionId, Date.now());
+}
+
+export function markAgentSpeechEnd(sessionId: string): void {
+  agentSpeechStart.delete(sessionId);
+}
+
 // Barge-in: frontend detects speech → interrupt everything
 onSpeechDetected((sessionId) => {
+  const speechStart = agentSpeechStart.get(sessionId);
+  if (speechStart) {
+    const elapsed = Date.now() - speechStart;
+    if (elapsed < BARGE_IN_GRACE_PERIOD_MS) {
+      console.log(
+        `[VoiceAdapter] Ignoring barge-in for ${sessionId} — ` +
+        `agent started speaking ${elapsed}ms ago (grace: ${BARGE_IN_GRACE_PERIOD_MS}ms)`
+      );
+      return;
+    }
+  }
   console.log(`[VoiceAdapter] Speech detected for ${sessionId} — interrupting TTS`);
   interruptTTS(sessionId);
 });

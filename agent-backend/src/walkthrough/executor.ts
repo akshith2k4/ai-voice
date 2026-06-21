@@ -263,6 +263,12 @@ export class WalkthroughExecutor {
   cancel(sessionId: string): void {
     const session = this.sessionManager.get(sessionId);
     if (session) {
+      // ADD THIS — notify frontend before deleting
+      this.toolMessenger.send(sessionId, {
+        type: "tool",
+        tool: "walkthrough_cancelled",
+        args: { reason: "cancelled_by_system" }
+      });
       session.cancelled = true;
       this.clearStepTimeout(sessionId);
       this.eventMonitor.rejectPending(session, new CancellationError());
@@ -290,6 +296,9 @@ export class WalkthroughExecutor {
   detour(fieldKey: string, sessionId: string, responder?: IResponder, skipSpeech?: boolean): void {
     const session = this.sessionManager.get(sessionId);
     if (session) {
+      // ADD THIS — clear the pending timeout before entering detour
+      this.clearStepTimeout(sessionId);
+
       const { matchedField } = findFieldInNodes(session.schema.nodes, fieldKey);
       session.stateMachine.transition("DETOUR");
       this.tool(session, "detour_start", { fieldKey });
@@ -466,13 +475,56 @@ export class WalkthroughExecutor {
       session.isRegistered = true;
       const sm1 = session.stateMachine.currentState;
       if (sm1 !== "PAUSED" && sm1 !== "DETOUR_QA" && session.waitingFor === event) {
+        session.skipCount = 0;
         this.clearStepTimeout(sessionId);
         session.waitingFor = null;
         this.sendNext(session);
       }
+    } else if (event === "form_registration_timeout") {
+      console.warn(`[Executor] Form registration timed out for ${sessionId}. Proceeding with DOM-only strategy.`);
+      session.isRegistered = false; // Explicitly mark as DOM-only
+      const sm1 = session.stateMachine.currentState;
+      if (sm1 !== "PAUSED" && sm1 !== "DETOUR_QA") {
+        this.clearStepTimeout(sessionId);
+        session.waitingFor = null;
+        this.sendNext(session);
+      }
+    } else if (event === "field_not_found") {
+      console.warn(`[Executor] Field not found on frontend: ${data?.fieldKey}. Skipping step.`);
+      session.skipCount = (session.skipCount || 0) + 1;
+      if (session.skipCount >= 3) {
+        console.warn(`[Executor] 3 consecutive skips — cancelling walkthrough`);
+        this.cancel(session.sessionId);
+      } else {
+        const sm1 = session.stateMachine.currentState;
+        if (sm1 !== "PAUSED" && sm1 !== "DETOUR_QA") {
+          this.clearStepTimeout(sessionId);
+          session.waitingFor = null;
+          this.sendNext(session);
+        }
+      }
     } else if (event === "error") {
       console.warn("[Executor] Frontend error:", data);
       this.cancel(sessionId);
+    } else if (event === "tts_playback_interrupted") {
+      // Only pause if we're actively waiting for audio completion.
+      // If we've already moved on (e.g., LLM processed a "continue"),
+      // ignore this stale signal.
+      if (session.waitingFor === "walkthrough_speak_done" || session.waitingFor === "field_done") {
+        this.clearStepTimeout(sessionId);
+        this.pause(sessionId);
+      }
+    } else if (event === "field_audio_timeout" || event === "speak_audio_timeout") {
+      console.warn(`[Executor] Audio timeout for event: ${event} (field: ${data?.fieldKey})`);
+      session.skipCount = (session.skipCount || 0) + 1;
+      this.clearStepTimeout(sessionId);
+      if (session.skipCount >= 3) {
+        console.warn(`[Executor] 3 consecutive timeouts — cancelling walkthrough`);
+        this.cancel(sessionId);
+      } else {
+        session.waitingFor = null;
+        this.sendNext(session);
+      }
     } else {
       this.eventMonitor.notify(session, event, data);
       const sm = session.stateMachine.currentState;
@@ -481,6 +533,7 @@ export class WalkthroughExecutor {
         matched = true;
       }
       if (sm !== "PAUSED" && sm !== "DETOUR_QA" && matched) {
+        session.skipCount = 0;
         this.clearStepTimeout(sessionId);
         session.waitingFor = null;
         this.sendNext(session);
@@ -494,14 +547,27 @@ export class WalkthroughExecutor {
     const existing = this.stepTimers.get(session.sessionId);
     if (existing) clearTimeout(existing);
 
-    // Use a longer timeout (30s) for speech/playback events which can take time,
-    // and a shorter timeout (10s) for standard UI/navigation events.
     const timeoutMs = (expectedEvent === "walkthrough_speak_done" || expectedEvent === "field_done") ? 30000 : 10000;
 
     const timer = setTimeout(() => {
-      console.warn(`[Executor] Timeout waiting for "${expectedEvent}" on session ${session.sessionId}`);
       this.stepTimers.delete(session.sessionId);
-      this.cancel(session.sessionId);
+      
+      if (expectedEvent === "walkthrough_speak_done" || expectedEvent === "field_done") {
+        console.warn(`[Executor] Timeout waiting for "${expectedEvent}" — skipping step`);
+        // SKIP instead of cancel
+        session.waitingFor = null;
+        this.sendNext(session);
+        
+        // Track consecutive skips and only cancel after 3
+        session.skipCount = (session.skipCount || 0) + 1;
+        if (session.skipCount >= 3) {
+          console.warn(`[Executor] 3 consecutive timeouts — cancelling walkthrough`);
+          this.cancel(session.sessionId);
+        }
+      } else {
+        console.warn(`[Executor] Timeout waiting for setup step "${expectedEvent}" — cancelling walkthrough`);
+        this.cancel(session.sessionId);
+      }
     }, timeoutMs);
     this.stepTimers.set(session.sessionId, timer);
   }

@@ -29,11 +29,30 @@ export class VoiceResponder implements IResponder {
     if (!this.streamInstance) {
       this.streamMessageId = crypto.randomUUID();
       const mid = this.streamMessageId;
+      
+      // MARK: Agent started speaking
+      import("../voiceAdapter.js")
+        .then(({ markAgentSpeechStart }) => markAgentSpeechStart(this.sessionId))
+        .catch(() => {});
+
       this.streamInstance = openStream(
         this.sessionId, this.lang,
-        (base64, done) => responseSender.sendTtsAudio(this.send, base64, mid, done),
+        (base64, done) => {
+          responseSender.sendTtsAudio(this.send, base64, mid, done);
+          if (done) {
+            // MARK: Agent finished speaking
+            import("../voiceAdapter.js")
+              .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+              .catch(() => {});
+          }
+        },
         (text) => responseSender.sendRespond(this.send, text, true, mid, undefined),
-        () => responseSender.sendStopAudio(this.send)
+        () => {
+          responseSender.sendStopAudio(this.send);
+          import("../voiceAdapter.js")
+            .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+            .catch(() => {});
+        }
       );
     }
     this.streamInstance.push(chunk);
@@ -63,6 +82,11 @@ export class VoiceResponder implements IResponder {
     const narrationState = { interrupted: false };
     this.activeNarration = narrationState;
 
+    // MARK: Agent started speaking
+    import("../voiceAdapter.js")
+      .then(({ markAgentSpeechStart }) => markAgentSpeechStart(this.sessionId))
+      .catch(() => {});
+
     const hash = getHash(text, this.lang);
     const s3Key = `walkthrough-audio/${hash}.mp3`;
 
@@ -89,6 +113,11 @@ export class VoiceResponder implements IResponder {
         } else if (isDone) {
           this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
         }
+        if (isDone) {
+          import("../voiceAdapter.js")
+            .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+            .catch(() => {});
+        }
         if (isDone && chunks.length > 0) {
           const buf = Buffer.concat(chunks);
           import("../../services/s3Service.js")
@@ -98,6 +127,9 @@ export class VoiceResponder implements IResponder {
       }, this.sessionId);
     } catch (e) {
       console.error(`[VoiceResponder] TTS synthesis failed:`, e);
+      import("../voiceAdapter.js")
+        .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+        .catch(() => {});
       if (!narrationState.interrupted) {
         this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
       }
@@ -117,7 +149,12 @@ export class VoiceResponder implements IResponder {
   // Returns true if interrupted (barge-in), false on completion or timeout.
   async waitForPlayback(messageId: string, text: string, minTimeoutMs = 5000): Promise<boolean> {
     if (!this.boundSession) return false;
-    const timeout = Math.max(minTimeoutMs, (text.split(/\s+/).length / 2.5) * 2000);
+    
+    // Cap the maximum timeout at 15 seconds regardless of text length
+    // Average speaking rate is ~150 words/min = 2.5 words/sec
+    const estimatedDuration = (text.split(/\s+/).length / 2.5) * 1000;
+    const timeout = Math.min(Math.max(minTimeoutMs, estimatedDuration + 2000), 15000);
+    
     try {
       await this.eventMonitor.waitForEvent(
         this.boundSession, "tts_playback_complete", timeout,

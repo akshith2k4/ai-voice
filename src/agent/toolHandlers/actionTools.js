@@ -45,9 +45,9 @@ registerTool(TOOL_TYPES.OPEN_DIALOG, async (args, { send, formId }) => {
       if (agentFormRegistry.has(formId)) {
         console.log(`[WalkthroughHandler] Form registered: ${formId}`);
       } else {
-        console.warn(`[WalkthroughHandler] Form not registered after 3s: ${formId} — using DOM fallback`);
-        // Send form_registered anyway to unblock the backend, since the dialog IS open
-        sendStatus(STATUS_EVENTS.FORM_REGISTERED, { formId });
+        console.warn(`[WalkthroughHandler] Form registration TIMEOUT for ${formId}. Falling back to DOM-only.`);
+        sendStatus(STATUS_EVENTS.FORM_REGISTRATION_TIMEOUT, { formId });
+        return; // Do NOT send DIALOG_OPENED yet — let backend decide how to proceed
       }
     }
 

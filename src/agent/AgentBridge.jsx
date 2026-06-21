@@ -3,6 +3,7 @@ import { audioQueue } from "./AudioQueue";
 import { routeIncomingMessage } from "./messageRouter";
 import { connect, disconnect, onStatusChange, onMessage, sendMessage as wsSendMessage } from "./wsConnection";
 import { STATUS } from "./protocol";
+import { walkthroughEngine } from "./WalkthroughEngine";
 
 export { AgentErrorBoundary } from "./AgentErrorBoundary";
 
@@ -42,8 +43,10 @@ export function AgentProvider({ children }) {
 
   // Reset walkthrough state on disconnect
   useEffect(() => {
-    if (connectionStatus !== STATUS.CONNECTED) {
+    if (connectionStatus === STATUS.DISCONNECTED) {
+      walkthroughEngine.reset();
       setIsWalkthroughActive(false);
+      setIsPaused(false);
     }
   }, [connectionStatus]);
 
@@ -53,8 +56,24 @@ export function AgentProvider({ children }) {
       audioStateRef.current.setIsAgentSpeaking(speaking);
       if (!speaking) audioStateRef.current.setIsProcessing(false);
     });
-    return () => { unsub(); audioQueue.clear(); };
-  }, []);
+    
+    // Wire playback completion callback to notify the backend
+    audioQueue.onPlaybackComplete = (messageId) => {
+      if (connectionStatus === STATUS.CONNECTED) {
+        wsSendMessage({
+          type: "event",
+          name: "tts_playback_complete",
+          messageId: messageId
+        });
+      }
+    };
+    
+    return () => { 
+      unsub(); 
+      audioQueue.clear(); 
+      audioQueue.onPlaybackComplete = null;
+    };
+  }, [connectionStatus]);
 
   // ---- Message handling ----
   const addMessage = useCallback((role, text, latency) => {

@@ -182,10 +182,13 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
     const container = getActiveContainer();
     element = filler.findField(fieldKey, label, repeatingId, itemIndex, container);
   }
-  if (element) {
-    await CursorManager.animateToAndClick(element);
-    SpotlightManager.setSpotlight(element);
+  if (!element) {
+    console.warn(`[fieldTools] Field not found (registry or DOM): ${fieldKey}`);
+    sendStatus(STATUS_EVENTS.FIELD_NOT_FOUND, { fieldKey, repeatingId, itemIndex });
+    return; // Don't hang
   }
+  await CursorManager.animateToAndClick(element);
+  SpotlightManager.setSpotlight(element);
 
   // Fill if value was provided
   if (fillValue != null && fillType) {
@@ -197,7 +200,11 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
         
         if (speechMessageId) {
           try {
-            await walkthroughEngine.onAudioComplete(String(speechMessageId));
+            const audioCompleted = await walkthroughEngine.onAudioComplete(String(speechMessageId));
+            if (!audioCompleted) {
+              sendStatus("field_audio_timeout", { fieldKey, repeatingId, itemIndex });
+              return;
+            }
             sendStatus("field_done", { fieldKey });
           } catch (e) {
             console.log(`[field_step] Audio interrupted/cleared for ${fieldKey}`);
@@ -240,7 +247,11 @@ registerTool(TOOL_TYPES.FIELD_STEP, async (args, { send, formId }) => {
 
   if (speechMessageId) {
     try {
-      await walkthroughEngine.onAudioComplete(String(speechMessageId));
+      const audioCompleted = await walkthroughEngine.onAudioComplete(String(speechMessageId));
+      if (!audioCompleted) {
+        sendStatus("field_audio_timeout", { fieldKey, repeatingId, itemIndex });
+        return;
+      }
       sendStatus("field_done", { fieldKey });
     } catch (e) {
       console.log(`[field_step] Audio interrupted/cleared for ${fieldKey}`);
@@ -257,7 +268,11 @@ registerTool(TOOL_TYPES.SPEAK, async (args) => {
   const { messageId } = args;
   if (messageId) {
     try {
-      await walkthroughEngine.onAudioComplete(String(messageId));
+      const audioCompleted = await walkthroughEngine.onAudioComplete(String(messageId));
+      if (!audioCompleted) {
+        sendStatus("speak_audio_timeout", { messageId });
+        return;
+      }
       sendStatus("walkthrough_speak_done");
     } catch (e) {
       console.log(`[speak] Audio interrupted/cleared:`, e.message);

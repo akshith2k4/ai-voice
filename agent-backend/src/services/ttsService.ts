@@ -129,7 +129,10 @@ class SessionStream {
     this.buffer = "";
     this.clearFlushTimer();
     this.onStop();
-    activeStreams.delete(this.sessionId);
+    // Ensure cleanup even if finish() is never called
+    if (activeStreams.get(this.sessionId) === this) {
+      activeStreams.delete(this.sessionId);
+    }
   }
 
   // Drains buffer into complete sentences and appends them to sentenceQueue.

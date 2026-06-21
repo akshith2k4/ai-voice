@@ -17,45 +17,73 @@ function arrayBufferToBase64(buffer) {
   return window.btoa(binary);
 }
 
-export function useAudioRecorder({ onChunk, onEnd, enabled }) {
+let sharedAudioContext = null;
+let workletReady = null;
+
+function getAudioContext() {
+  if (!sharedAudioContext) {
+    sharedAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    workletReady = sharedAudioContext.audioWorklet.addModule("/audio-processor.js");
+  }
+  if (sharedAudioContext.state === "suspended") {
+    sharedAudioContext.resume().catch(() => {});
+  }
+  return { ctx: sharedAudioContext, workletReady };
+}
+
+export function useAudioRecorder({ onChunk, onEnd, enabled, isAgentSpeaking }) {
   const [isRecording, setIsRecording] = useState(false);
   const [micPermission, setMicPermission] = useState("prompt");
 
   const streamRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const processorRef = useRef(null);
   const sourceRef = useRef(null);
+  const workletNodeRef = useRef(null);
   const activeRef = useRef(false);
+
+  const agentIsSpeakingRef = useRef(isAgentSpeaking);
+  useEffect(() => {
+    agentIsSpeakingRef.current = isAgentSpeaking;
+  }, [isAgentSpeaking]);
 
   const start = useCallback(async () => {
     if (activeRef.current || !enabled) return;
     try {
-      if (!streamRef.current) {
-        streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMicPermission("granted");
-      }
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      audioContextRef.current = audioContext;
-      const source = audioContext.createMediaStreamSource(streamRef.current);
+      const { ctx, workletReady } = getAudioContext();
+      await workletReady;
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        }
+      });
+      streamRef.current = stream;
+      setMicPermission("granted");
+
+      const source = ctx.createMediaStreamSource(stream);
       sourceRef.current = source;
 
-      await audioContext.audioWorklet.addModule("/audio-processor.js");
-      const workletNode = new AudioWorkletNode(audioContext, "audio-recorder-processor");
-      processorRef.current = workletNode;
+      const workletNode = new AudioWorkletNode(ctx, "audio-recorder-processor");
+      workletNodeRef.current = workletNode;
 
       workletNode.port.onmessage = (e) => {
         if (!activeRef.current) return;
+        if (agentIsSpeakingRef.current) return;
         const chunk = arrayBufferToBase64(float32To16BitPCM(e.data));
-        if (chunk) onChunk(chunk);
+        if (chunk && onChunk) onChunk(chunk);
       };
 
       source.connect(workletNode);
-      workletNode.connect(audioContext.destination);
+      workletNode.connect(ctx.destination);
       activeRef.current = true;
       setIsRecording(true);
     } catch (err) {
       if (err.name === "NotAllowedError") setMicPermission("denied");
       console.error("[useAudioRecorder] start failed:", err);
+      setIsRecording(false);
+      activeRef.current = false;
     }
   }, [enabled, onChunk]);
 
@@ -63,19 +91,26 @@ export function useAudioRecorder({ onChunk, onEnd, enabled }) {
     if (!activeRef.current) return;
     activeRef.current = false;
     setIsRecording(false);
+
     try {
-      if (processorRef.current) {
-        if (processorRef.current.port) {
-          processorRef.current.port.onmessage = null;
-        } else {
-          processorRef.current.onaudioprocess = null;
-        }
-        processorRef.current.disconnect();
+      if (workletNodeRef.current) {
+        workletNodeRef.current.disconnect();
+        workletNodeRef.current.port.onmessage = null;
+        workletNodeRef.current = null;
       }
-      sourceRef.current?.disconnect();
-      if (audioContextRef.current?.state !== "closed") audioContextRef.current?.close();
-    } catch (e) {}
-    onEnd();
+      if (sourceRef.current) {
+        sourceRef.current.disconnect();
+        sourceRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    } catch (e) {
+      console.error("[useAudioRecorder] stop failed:", e);
+    }
+
+    if (onEnd) onEnd();
   }, [onEnd]);
 
   useEffect(() => {
@@ -84,9 +119,15 @@ export function useAudioRecorder({ onChunk, onEnd, enabled }) {
     }
   }, [enabled, stop]);
 
+  // Cleanup on unmount
   useEffect(() => {
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
-  }, []);
+    return () => {
+      if (activeRef.current) {
+        stop();
+      }
+    };
+  }, [stop]);
 
   return { isRecording, micPermission, start, stop };
 }
+

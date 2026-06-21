@@ -11,7 +11,7 @@ export class CancellationError extends Error {
 // so the LLM response path can await TTS completion and detect barge-in.
 export class EventMonitor {
   waitForEvent(
-    session: WalkthroughSession,
+    session: any,
     expectedEvent: string,
     timeout: number,
     matcher?: (data: any) => boolean
@@ -50,19 +50,19 @@ export class EventMonitor {
   }
 
   // Notify any pending TTS waiters that an event arrived.
-  notify(session: WalkthroughSession, event: string, data?: any): void {
+  notify(session: any, event: string, data?: any): void {
     if (!session.eventWaiters) return;
     const matching = session.eventWaiters.filter(
-      (w) => w.expectedEvent === event && (!w.matcher || w.matcher(data))
+      (w: any) => w.expectedEvent === event && (!w.matcher || w.matcher(data))
     );
-    session.eventWaiters = session.eventWaiters.filter((w) => !matching.includes(w));
+    session.eventWaiters = session.eventWaiters.filter((w: any) => !matching.includes(w));
     for (const waiter of matching) {
       clearTimeout(waiter.timer);
       waiter.resolve(data);
     }
   }
 
-  rejectPending(session: WalkthroughSession, reason: any): void {
+  rejectPending(session: any, reason: any): void {
     if (!session.eventWaiters) return;
     const list = [...session.eventWaiters];
     session.eventWaiters = [];

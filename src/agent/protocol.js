@@ -42,6 +42,8 @@ export const STATUS_EVENTS = {
   ITEM_SELECTED: "item_selected",
   ELEMENT_CLICKED: "element_clicked",
   FORM_REGISTERED: "form_registered",
+  FORM_REGISTRATION_TIMEOUT: "form_registration_timeout",
+  FIELD_NOT_FOUND: "field_not_found",
   ERROR: "error",
 };
 
@@ -66,4 +68,5 @@ export const TOOL_TYPES = {
   GET_OPTIONS_COUNT: "get_options_count",
   FIELD_STEP: "field_step",
   SPEAK: "speak",
+  WALKTHROUGH_CANCELLED: "walkthrough_cancelled",
 };

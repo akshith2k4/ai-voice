@@ -3,6 +3,8 @@ import { STATUS_EVENTS, TIMING } from "./protocol";
 let ws = null;
 let messageQueue = [];
 let savedUrl = null;
+const audioBuffer = [];
+const MAX_AUDIO_BUFFER_AGE_MS = 2000;
 let intentionalClose = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
@@ -58,6 +60,7 @@ function _connect() {
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
   messageQueue = [];
+  audioBuffer.length = 0;
   emitStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
   try {
@@ -77,6 +80,19 @@ function _connect() {
   ws.onopen = () => {
     reconnectAttempts = 0;
     emitStatus("connected");
+
+    if (audioBuffer.length > 0) {
+      console.log(`[wsConnection] Flushing ${audioBuffer.length} buffered audio chunks`);
+      for (const { payload } of audioBuffer) {
+        try {
+          ws.send(payload);
+        } catch (err) {
+          console.error("[wsConnection] Failed to send flushed audio chunk:", err);
+        }
+      }
+      audioBuffer.length = 0;
+    }
+
     flushQueue();
   };
 
@@ -129,17 +145,25 @@ function flushQueue() {
 
 export function sendMessage(message) {
   const payload = JSON.stringify(message);
+
+  if (message.type === "audio_chunk") {
+    audioBuffer.push({ payload, timestamp: Date.now() });
+    const cutoff = Date.now() - MAX_AUDIO_BUFFER_AGE_MS;
+    while (audioBuffer.length > 0 && audioBuffer[0].timestamp < cutoff) {
+      audioBuffer.shift();
+    }
+  }
+
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(payload);
     return;
   }
+
   if (message.type !== "audio_chunk") {
     if (messageQueue.length >= TIMING.MSG_QUEUE_MAX) {
       messageQueue.shift(); // drop oldest to make room
     }
     messageQueue.push(payload);
-  } else {
-    console.warn("[wsConnection] Dropped audio chunk due to disconnect");
   }
 }
 

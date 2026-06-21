@@ -9,11 +9,25 @@ export function routeMessage(message: IncomingMessage, context: HandlerContext):
     case "audio_end":
       handleIncoming(message, context);
       break;
-    case "event":
-      if (!walkthroughExecutor.getSession(context.sessionId)) break;
-      walkthroughExecutor.handleEvent(context.sessionId, message.name, message);
+    case "event": {
+      const session = walkthroughExecutor.getSession(context.sessionId);
+      if (session) {
+        walkthroughExecutor.handleEvent(context.sessionId, message.name, message);
+      } else {
+        // Notify the idle session statusAwaiter
+        const { statusAwaiter, getOrCreateIdleSession } = require("./adapters/voiceAdapter.js");
+        const idleSession = getOrCreateIdleSession(context.sessionId);
+        statusAwaiter.notify(idleSession, message.name, message);
+      }
+
+      if (message.name === "tts_playback_complete" || message.name === "tts_playback_interrupted") {
+        const { markAgentSpeechEnd } = require("./adapters/voiceAdapter.js");
+        markAgentSpeechEnd(context.sessionId);
+      }
+
       context.send({ type: "event_ack", name: message.name });
       break;
+    }
     default:
       console.warn(`[Router] Unknown type: "${(message as any).type}" from ${context.sessionId}`);
       context.send({

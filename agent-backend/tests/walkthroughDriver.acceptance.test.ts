@@ -128,6 +128,14 @@ const ORDER_SCHEMA = {
       demoValue: "delivery",
       explanation: "Choose the order type.",
     },
+    {
+      nodeType: "field" as const,
+      key: "notes",
+      label: "Notes",
+      type: "text" as const,
+      demoValue: "Mock notes",
+      explanation: "Enter any notes.",
+    },
   ],
   wrapUp: "That completes the order form walkthrough!",
 };
@@ -638,6 +646,88 @@ describe("WalkthroughDriver — acceptance tests", () => {
         expect(replayedFieldStep).toBeDefined();
         expect(replayedFieldStep.args.fieldKey).toBe("customer");
         expect(replayedFieldStep.args.speechMessageId).not.toBe(originalSpeechMsgId);
+      });
+    });
+
+    // =============================================
+    // CONTRACT 9: P4 — Form registration and field resilience
+    // =============================================
+    describe("P4 — form registration and field resilience", () => {
+      test("form_registration_timeout sets isRegistered to false and proceeds", async () => {
+        const sid = "timeout-reg-session";
+        walkthroughDriver.start("createOrder", sid);
+        await delay(200);
+
+        walkthroughDriver.handleEvent(sid, "navigation_complete");
+        await delay(600);
+
+        walkthroughDriver.handleEvent(sid, "form_registration_timeout");
+        await delay(200);
+
+        const session = walkthroughDriver.getSession(sid);
+        expect(session).toBeDefined();
+        expect(session.isRegistered).toBe(false);
+
+        // Should have sent the overview speak/respond tools
+        const msgs = sentMessages(sid);
+        const overviewSpeak = msgs.find(
+          (m: any) => m.type === "tool" && m.tool === "speak" && m.args?.text?.includes("order creation form")
+        );
+        expect(overviewSpeak).toBeDefined();
+      });
+
+      test("field_not_found skips the field and advances", async () => {
+        const sid = "field-not-found-session";
+        await driveToOverview(sid);
+        await delay(2000); // Wait for first field step (customer)
+
+        const originalMsgs = sentMessages(sid);
+        const customerStep = originalMsgs.find(
+          (m: any) => m.type === "tool" && m.tool === "field_step" && m.args.fieldKey === "customer"
+        );
+        expect(customerStep).toBeDefined();
+
+        // Send field_not_found for customer
+        walkthroughDriver.handleEvent(sid, "field_not_found", { fieldKey: "customer" });
+        await delay(200);
+
+        // Should have advanced to orderType
+        const newMsgs = sentMessages(sid);
+        const orderTypeStep = newMsgs.find(
+          (m: any) => m.type === "tool" && m.tool === "field_step" && m.args.fieldKey === "orderType"
+        );
+        expect(orderTypeStep).toBeDefined();
+
+        const session = walkthroughDriver.getSession(sid);
+        expect(session.skipCount).toBe(1);
+      });
+
+      test("3 consecutive field_not_found or audio timeouts cancels the walkthrough", async () => {
+        const sid = "three-skips-session";
+        await driveToOverview(sid);
+        await delay(2000); // Wait for first field step (customer)
+
+        // 1. Skip customer
+        walkthroughDriver.handleEvent(sid, "field_not_found", { fieldKey: "customer" });
+        await delay(200);
+
+        // 2. Skip orderType
+        walkthroughDriver.handleEvent(sid, "field_not_found", { fieldKey: "orderType" });
+        await delay(200);
+
+        // 3. Skip notes
+        walkthroughDriver.handleEvent(sid, "field_not_found", { fieldKey: "notes" });
+        await delay(200);
+
+        // Verify session was cancelled
+        const session = walkthroughDriver.getSession(sid);
+        expect(session).toBeUndefined();
+
+        const msgs = sentMessages(sid);
+        const cancelledMsg = msgs.find(
+          (m: any) => m.type === "tool" && m.tool === "walkthrough_cancelled"
+        );
+        expect(cancelledMsg).toBeDefined();
       });
     });
   });

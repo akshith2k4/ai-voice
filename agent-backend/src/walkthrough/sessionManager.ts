@@ -43,6 +43,7 @@ export interface WalkthroughSession {
   lastCommand: WalkthroughCommand | null;
   currentNav: { fieldKey: string; label: string; repeatingId?: string; itemIndex?: number } | null;
   responder?: IResponder;
+  skipCount: number;
 }
 
 export class SessionManager {
@@ -73,6 +74,7 @@ export class SessionManager {
       waitingFor: null,
       lastCommand: null,
       currentNav: null,
+      skipCount: 0,
     };
     this.sessions.set(sessionId, session);
     return session;
