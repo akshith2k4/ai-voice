@@ -3,6 +3,10 @@ import { ElevenLabsSTT } from "./providers/elevenLabsSTT.js";
 import { OpenAISTT } from "./providers/openAiSTT.js";
 import { ISTTService, SttResult } from "./interfaces.js";
 import { config } from "../config.js";
+import { getTurnId } from "./latencyTracker.js";
+import { fireAndForget } from "./observability.js";
+import { db, turns } from "./db.js";
+import { eq } from "drizzle-orm";
 
 const speechCallbacks: ((sessionId: string) => void)[] = [];
 
@@ -118,13 +122,15 @@ export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
   console.log(`[STT] Finalizing ${sessionId} — ${combined.length} bytes PCM`);
 
   const wavBuffer = pcmToWav(combined, 16000);
-  return getSTTService().transcribe(wavBuffer);
+  const result = await getSTTService().transcribe(wavBuffer);
+  return { ...result, wavBuffer };
 }
 
 export async function transcribeAudio(base64Audio: string): Promise<SttResult> {
   const pcm = Buffer.from(base64Audio, "base64");
   const wavBuffer = pcmToWav(pcm, 16000);
-  return getSTTService().transcribe(wavBuffer);
+  const result = await getSTTService().transcribe(wavBuffer);
+  return { ...result, wavBuffer };
 }
 
 export function cleanupSession(sessionId: string): void {

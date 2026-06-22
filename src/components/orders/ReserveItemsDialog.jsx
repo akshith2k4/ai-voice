@@ -17,6 +17,8 @@ import {
 } from "@mui/material";
 import TableCell from "../common/TableCell";
 import { inventoryService } from "../../services/inventoryService";
+import { packingJobService } from "../../services/packingJobService";
+import { orderService } from "../../services/orderService";
 import CustomSnackbar from "../layout/CustomSnackbar";
 import ScannerHeader from "../Scanner/ScannerHeader";
 import ColumnScanHeaderAction from "../Scanner/ColumnScanHeaderAction";
@@ -29,6 +31,7 @@ const ReserveItemsDialog = ({
   deliveryItems,
   customerId,
   orderId,
+  orderFulfillmentId,
 }) => {
   const [populatedQuantities, setPopulatedQuantities] = useState({});
   const [inventoryIdsMap, setInventoryIdsMap] = useState({});
@@ -44,6 +47,10 @@ const ReserveItemsDialog = ({
   const [activeScan, setActiveScan] = useState(null);
   const [showScannerHeader, setShowScannerHeader] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  const [activeAssignment, setActiveAssignment] = useState(null);
+  const [loadingAssignment, setLoadingAssignment] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const resetReserveDialogState = () => {
     setPopulatedQuantities({});
@@ -71,6 +78,35 @@ const ReserveItemsDialog = ({
   };
 
   useEffect(() => {
+    const fetchActiveAssignment = async () => {
+      if (open && orderFulfillmentId) {
+        setLoadingAssignment(true);
+        setErrorMessage("");
+        try {
+          const assignment = await packingJobService.getActiveAssignmentForSource("ORDER_FULFILLMENT", orderFulfillmentId);
+          setActiveAssignment(assignment);
+        } catch (err) {
+          console.error("Failed to fetch active assignment for order fulfillment:", err);
+          const errMsg = err.response?.data?.message || "Failed to fetch active assignment.";
+          setErrorMessage(errMsg);
+          setActiveAssignment(null);
+          setSnackbar({
+            open: true,
+            message: errMsg,
+            severity: "error",
+          });
+        } finally {
+          setLoadingAssignment(false);
+        }
+      } else {
+        setActiveAssignment(null);
+        setErrorMessage("");
+      }
+    };
+    fetchActiveAssignment();
+  }, [open, orderFulfillmentId]);
+
+  useEffect(() => {
     if (open) {
       resetReserveDialogState();
     }
@@ -92,12 +128,30 @@ const ReserveItemsDialog = ({
       return;
     }
 
+    if (loadingAssignment) {
+      setSnackbar({
+        open: true,
+        message: "Loading assignment details, please wait...",
+        severity: "info",
+      });
+      return;
+    }
+
+    if (!activeAssignment) {
+      setSnackbar({
+        open: true,
+        message: errorMessage || "Assignment not found. Create assignment for this packing job.",
+        severity: "error",
+      });
+      return;
+    }
+
     setIsSaving(true);
 
-    const requestData = {
-      orderId,
+    const requestPayload = {
+      packingAssignmentId: activeAssignment.id,
       packedAt: new Date().toISOString(),
-      items: deliveryItems
+      packingSessionItems: deliveryItems
         .filter((item) => {
           const scannedQuantity = populatedQuantities[item.productId];
           return scannedQuantity && normalizeQuantity(scannedQuantity) > 0;
@@ -107,15 +161,14 @@ const ReserveItemsDialog = ({
 
           return {
             productId: item.productId,
-            quantity: normalizeQuantity(scannedQuantity),
+            packedQuantity: normalizeQuantity(scannedQuantity),
             inventoryItemIds: inventoryIdsMap[item.productId] || [],
           };
         }),
     };
 
     try {
-      const response =
-       await inventoryService.saveOrderPacking(requestData);
+      const response = await packingJobService.createSession(activeAssignment.packingJobId, requestPayload);
       console.log("Packing successful:", response);
       setSnackbar({
         open: true,
@@ -125,9 +178,10 @@ const ReserveItemsDialog = ({
       await handleClose();
     } catch (error) {
       console.error("Error saving packing:", error);
+      const errMsg = error.response?.data?.message || "Failed to save packing.";
       setSnackbar({
         open: true,
-        message: "Failed to save packing.",
+        message: errMsg,
         severity: "error",
       });
     } finally {

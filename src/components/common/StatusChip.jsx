@@ -12,16 +12,22 @@ export default function StatusChip({ status, ...props }) {
 
     const colorKey = getStatusChipColor(status);
     const isError = colorKey === "error";
+    const isPartiallyPacked = String(status).toUpperCase() === "PARTIALLY_PACKED";
 
     return (
         <Chip
             label={status}
-            color={isError ? undefined : colorKey}
+            color={isError || isPartiallyPacked ? undefined : colorKey}
             size="small"
             sx={{
                 ...(isError && {
                     backgroundColor: "#fd5c63",
                     color: "#fff",
+                }),
+                ...(isPartiallyPacked && {
+                    backgroundColor: "rgba(156, 39, 176, 0.08)",
+                    color: "#9c27b0",
+                    border: "1px solid rgba(156, 39, 176, 0.18)",
                 }),
                 ...props.sx,
             }}

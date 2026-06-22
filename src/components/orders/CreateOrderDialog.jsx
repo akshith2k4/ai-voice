@@ -31,6 +31,7 @@ import {
   isValid as isValidDate,
 } from "date-fns";
 import CustomSnackbar from "../layout/CustomSnackbar";
+import { LEASING_ORDER_CATEGORY } from "../../constants/orderConstants";
 
 /**
  * Safely convert a Date (or falsy/invalid value) to ISO date string "YYYY-MM-DD".
@@ -67,6 +68,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
     deliveryItems: [],
     items: [],
     isAdjustment: false,
+    orderCategory: LEASING_ORDER_CATEGORY.REGULAR,
   });
 
   const [customerOptions, setCustomerOptions] = useState([]);
@@ -220,6 +222,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
         setFormData((prev) => ({
           ...prev,
           deliveryType: order.leasingOrderDetails?.leasingOrderType || "",
+          orderCategory: order.leasingOrderDetails?.leasingOrderCategory || LEASING_ORDER_CATEGORY.REGULAR,
           pickupDate: order.leasingOrderDetails?.pickupDate
             ? new Date(order.leasingOrderDetails.pickupDate)
             : null,
@@ -291,6 +294,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
         deliveryItems: [],
         items: [],
         isAdjustment: false,
+        orderCategory: "REGULAR",
       });
       setSelectedCustomer(null);
       setCopyDeliveryToPickup(false);
@@ -436,7 +440,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
         branchId,
         orderDate: safeDateToFullISO(formData.orderDate),
         notes: formData.notes || "",
-        isAdjustment: formData.isAdjustment || false,
+        isAdjustment: formData.orderCategory === LEASING_ORDER_CATEGORY.ADJUSTMENT || (formData.isAdjustment || false),
       };
 
       if (formData.orderType === "LEASING") {
@@ -463,6 +467,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
           deliveryDate: safeDateToFullISO(formData.deliveryDate),
           pickupItems: finalPickupItems,
           deliveryItems: finalDeliveryItems,
+          leasingOrderCategory: formData.orderCategory || LEASING_ORDER_CATEGORY.REGULAR,
         };
       }
 
@@ -621,6 +626,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
       deliveryItems: [],
       items: [],
       isAdjustment: false,
+      orderCategory: LEASING_ORDER_CATEGORY.REGULAR,
     });
     setSelectedCustomer(null);
     setCopyDeliveryToPickup(false);
@@ -658,7 +664,6 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
             <Box flex={1}>
               <TextField
                 fullWidth
-                name="orderReferenceId"
                 label="Order Reference ID"
                 value={formData.orderReferenceId}
                 onChange={(e) =>
@@ -686,7 +691,6 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    name="customerId"
                     label="Customer"
                     variant="outlined"
                     margin="dense"
@@ -703,7 +707,6 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
             <Box flex={1}>
               <TextField
                 fullWidth
-                name="orderDate"
                 label="Order Date"
                 type="date"
                 value={safeDateToISO(formData.orderDate)}
@@ -722,7 +725,6 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
               <FormControl fullWidth margin="dense">
                 <InputLabel>Order Type</InputLabel>
                 <Select
-                  name="orderType"
                   value={formData.orderType}
                   onChange={(e) =>
                     handleInputChange("orderType", e.target.value)
@@ -735,24 +737,25 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
               </FormControl>
             </Box>
 
-            {/* Adjustment Order Toggle */}
-            <Box display="flex" alignItems="center" mb={1} mt={1}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={formData.isAdjustment || false}
-                    onChange={(e) =>
-                      handleInputChange("isAdjustment", e.target.checked)
-                    }
-                    color="warning"
-                  />
-                }
-                label={
-                  <Typography variant="body2" fontWeight={500}>
-                    Adjustment Order
-                  </Typography>
-                }
-              />
+            {/* Order Category */}
+            <Box flex={1}>
+              <FormControl fullWidth margin="dense">
+                <InputLabel>Order Category</InputLabel>
+                <Select
+                  value={formData.orderCategory || LEASING_ORDER_CATEGORY.REGULAR}
+                  onChange={(e) =>
+                    handleInputChange("orderCategory", e.target.value)
+                  }
+                  fullWidth
+                >
+                  <MenuItem value={LEASING_ORDER_CATEGORY.REGULAR}>Regular</MenuItem>
+                  <MenuItem value={LEASING_ORDER_CATEGORY.AD_HOC}>Ad-hoc</MenuItem>
+                  <MenuItem value={LEASING_ORDER_CATEGORY.REPLENISHMENT}>Replenishment</MenuItem>
+                  <MenuItem value={LEASING_ORDER_CATEGORY.ALLOCATION}>Allocation</MenuItem>
+                  <MenuItem value={LEASING_ORDER_CATEGORY.RETURN}>Return</MenuItem>
+                  <MenuItem value={LEASING_ORDER_CATEGORY.ADJUSTMENT}>Adjustment</MenuItem>
+                </Select>
+              </FormControl>
             </Box>
           </Box>
         </Box>
@@ -765,8 +768,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 <FormControl fullWidth margin="dense">
                   <InputLabel>Delivery Type</InputLabel>
                   <Select
-                    name="deliveryType"
-                  value={formData.deliveryType}
+                    value={formData.deliveryType}
                     onChange={(e) =>
                       handleInputChange("deliveryType", e.target.value)
                     }
@@ -783,7 +785,6 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 <Box flex={1}>
                   <TextField
                     fullWidth
-                    name="pickupDate"
                     label="Pickup Date"
                     type="date"
                     value={safeDateToISO(formData.pickupDate)}
@@ -803,7 +804,6 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 <Box flex={1}>
                   <TextField
                     fullWidth
-                    name="deliveryDate"
                     label="Delivery Date"
                     type="date"
                     value={safeDateToISO(formData.deliveryDate)}

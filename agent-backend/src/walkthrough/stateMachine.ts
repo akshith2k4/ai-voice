@@ -14,11 +14,11 @@ export class WalkthroughStateMachine {
       case "PAUSE":
         if (this.state === "ACTIVE") this.state = "PAUSED"; break;
       case "RESUME":
-        this.state = "ACTIVE"; break;
+        if (this.state === "PAUSED") this.state = "ACTIVE"; break;
       case "DETOUR":
         this.state = "DETOUR_QA"; break;
       case "DETOUR_COMPLETE":
-        this.state = "ACTIVE"; break;
+        if (this.state === "DETOUR_QA") this.state = "ACTIVE"; break;
       case "RESET":
         this.state = "IDLE"; break;
     }

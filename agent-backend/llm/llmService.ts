@@ -1,4 +1,5 @@
 import { buildIdlePrompt, buildWalkthroughPrompt } from "./prompts.js";
+import { traceable } from "langsmith/traceable";
 import { walkthroughExecutor } from "../src/walkthrough/executor.js";
 import { LLMProvider } from "../src/services/providersConfig.js";
 import { type SchemaNode, type FieldNode, findFieldInNodes } from "../src/schema/loader.js";
@@ -25,10 +26,11 @@ export function getLLMService(): ILLMService {
 
 // Selects the right system prompt based on walkthrough state, then streams
 // the LLM response, yielding text and tool-call chunks as they arrive.
-export async function* streamLLM(
+export const streamLLM = traceable(async function* (
   userText: string,
   sessionId: string,
-  languageCode?: string
+  languageCode?: string,
+  signal?: AbortSignal
 ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
   let systemPrompt = buildIdlePrompt();
 
@@ -48,10 +50,12 @@ export async function* streamLLM(
   let rawContent = "";
 
   try {
-    const generator = getLLMService().generateStream(systemPrompt, userText, languageHint);
+    const generator = getLLMService().generateStream(systemPrompt, userText, languageHint, signal);
 
     while (true) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       const { done, value } = await generator.next();
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
       if (done) {
         const result = value as LLMResult;
@@ -79,4 +83,4 @@ export async function* streamLLM(
     console.error("[LLMService] Stream failed:", error);
     return { toolCalls: [], rawContent: "I'm having trouble understanding. Could you try again?" };
   }
-}
+}, { name: "streamLLM" });

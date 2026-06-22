@@ -156,24 +156,26 @@ function BillingCycle() {
   };
 
   const columns = [
-    { field: "cycleId", headerName: "Cycle ID", width: 60 },
+    { field: "cycleId", headerName: "Cycle ID", type: "id" },
     { 
       field: "billToName", 
       headerName: "Name", 
-      width: 80,
+      type: "longText",
       render: (val) => <strong>{val}</strong> 
     },
     {
       field: "startDate",
       headerName: "Start Date",
-      width: 20,
+      type: "shortText",
       render: (val) => (val ? formatCustomDate(val) : "—"),
+      tooltipVal: (val) => (val ? formatCustomDate(val) : "—"),
     },
     {
       field: "endDate",
       headerName: "End Date",
-      width: 20,
+      type: "shortText",
       render: (val) => (val ? formatCustomDate(val) : "—"),
+      tooltipVal: (val) => (val ? formatCustomDate(val) : "—"),
     },
     // {
     //   field: "billingType",
@@ -185,26 +187,27 @@ function BillingCycle() {
     {
       field: "status",
       headerName: "Status",
-      width: 20,
+      type: "shortText",
       render: (val) => <StatusChip status={val} />,
     },
     {
       field: "totalBillableAmount",
       headerName: "Total Amount",
-      width: 20,
+      type: "shortText",
       render: (val) =>
-        val !== null && val !== undefined ? `₹ ${val}` : "—",
+        val !== null && val !== undefined ? `₹ ${Number(val).toLocaleString("en-IN")}` : "—",
+      tooltipVal: (val) =>
+        val !== null && val !== undefined ? `₹ ${Number(val).toLocaleString("en-IN")}` : "—",
     },
     {
       field: "invoiceStatus",
       headerName: "Invoice Status",
-      width: 20,
+      type: "shortText",
       render: (val) => <StatusChip status={val || "N/A"} />,
     },
     {
-      field: "id",
       headerName: "Actions",
-      width: 20,
+      type: "shortText",
       align: "center",
       render: (_, row) => (
         <Stack direction="row" spacing={0.5} justifyContent="center">

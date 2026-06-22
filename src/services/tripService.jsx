@@ -196,6 +196,32 @@ export const tripService = {
     }
   },
 
+  updateDeliveryChallanNumber: async (visitId, request) => {
+    try {
+      const response = await api.put(
+        `/trips/visits/${visitId}/delivery-challans/update-number`,
+        request
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error updating delivery challan number:', error.response?.data || error);
+      throw new Error(`Failed to update delivery challan number: ${error.response?.data?.message || error.message}`);
+    }
+  },
+
+  removeDeliveryChallanFromVisit: async (visitId, challanNumber) => {
+    try {
+      const response = await api.delete(
+        `/trips/visits/${visitId}/delivery-challans`,
+        { params: { challanNumber } }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error removing delivery challan:', error.response?.data || error);
+      throw new Error(`Failed to remove delivery challan: ${error.response?.data?.message || error.message}`);
+    }
+  },
+
   createTripFromRoute: async (createRequest) => {
     try {
       const response = await api.post('/trips/create-from-route', createRequest, {

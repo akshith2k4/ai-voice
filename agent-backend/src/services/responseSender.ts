@@ -1,4 +1,8 @@
 import type { HandlerContext, OutgoingMessage } from "../types.js";
+import { getTurnId, getSessionId, setTurnId, getUserName } from "./latencyTracker.js";
+import { fireAndForget } from "./observability.js";
+import { db, turns, ensureSessionExists } from "./db.js";
+import { eq } from "drizzle-orm";
 
 export function sendRespond(
   send: HandlerContext["send"],
@@ -19,6 +23,34 @@ export function sendRespond(
     tool: "respond",
     args: { message: cleanMessage, tts, messageId: id, latency },
   });
+
+  if (tts) {
+    let turnId = getTurnId();
+    if (!turnId) {
+      turnId = crypto.randomUUID();
+      setTurnId(turnId);
+      const sessionId = getSessionId();
+      if (sessionId) {
+        fireAndForget(
+          (async () => {
+            await ensureSessionExists(sessionId, undefined, getUserName() || undefined);
+            await db.insert(turns).values({
+              id: turnId,
+              sessionId,
+              agentTranscript: cleanMessage,
+            });
+          })()
+        );
+      }
+    } else {
+      fireAndForget(
+        db.update(turns)
+          .set({ agentTranscript: cleanMessage })
+          .where(eq(turns.id, turnId))
+      );
+    }
+  }
+
   return id;
 }
 

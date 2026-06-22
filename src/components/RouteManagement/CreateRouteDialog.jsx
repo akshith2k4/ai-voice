@@ -21,6 +21,7 @@ import { Route as RouteIcon } from '@mui/icons-material';
 import { routeService } from '../../services/routeService';
 import { inventoryService } from '../../services/inventoryService.jsx';
 import { useDcid } from '../../context/DcidContext.jsx';
+import GreenButton from '../common/GreenButton';
 
 function CreateRouteDialog({ open, onClose, onCreated }) {
   const [name, setName] = useState('');
@@ -196,12 +197,9 @@ function CreateRouteDialog({ open, onClose, onCreated }) {
         <Button onClick={handleClose} color="inherit" disabled={loading}>
           Cancel
         </Button>
-        <Button
+        <GreenButton
           onClick={handleCreate}
-          variant="contained"
-          color="success"
           disabled={name.trim().length < 3 || loading}
-          sx={{ textTransform: 'none' }}
         >
           {loading ? (
             <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
@@ -211,7 +209,7 @@ function CreateRouteDialog({ open, onClose, onCreated }) {
           ) : (
             'Create'
           )}
-        </Button>
+        </GreenButton>
       </DialogActions>
     </Dialog>
   );

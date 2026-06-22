@@ -52,10 +52,16 @@ export default function DataTable({
   const visibleColumns = showFullColumns
     ? columns
     : columns.filter((col) => col.isPrimary !== false);
+  const getColumnWidth = (col) => col.width || widthMap[col.type] || 120;
   return (
     <>
       <TableContainer component={Paper} sx={{ my: 2, ...containerSx }}>
-        <Table size={size}>
+        <Table size={size} sx={{ tableLayout: "fixed", width: "100%" }}>
+          <colgroup>
+            {visibleColumns.map((col) => (
+              <col key={col.field} style={{ width: `${getColumnWidth(col)}px` }} />
+            ))}
+          </colgroup>
           <TableHead>
             <TableRow>
               {visibleColumns.map((col, index) => {
@@ -67,7 +73,8 @@ export default function DataTable({
                     sx={{
                       position: 'relative',
                       fontWeight: 600,
-                      minWidth: col.width || widthMap[col.type] || 120,
+                      width: `${getColumnWidth(col)}px`,
+                      maxWidth: `${getColumnWidth(col)}px`,
                       ...(col.headerSx || {}),
                     }}
                   >

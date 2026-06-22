@@ -1,7 +1,16 @@
 import { connectionManager } from "./src/connectionManager.js";
-import { cleanupSession } from "./src/adapters/voiceAdapter.js";
+import { db, sessions } from "./src/services/db.js";
+import { fireAndForget } from "./src/services/observability.js";
+import { eq } from "drizzle-orm";
+import { startTracking } from "./src/services/latencyTracker.js";
 import { routeMessage, parseMessage } from "./src/messageRouter.js";
 import type { ClientData, OutgoingMessage } from "./src/types.js";
+import { preloadStaticAudio } from "./src/services/preloader.js";
+
+// Track pending session-close timers so reconnects can cancel them
+const pendingSessionClose = new Map<string, ReturnType<typeof setTimeout>>();
+
+
 
 // ============================================
 // Agent Backend — Bun WebSocket Server
@@ -13,6 +22,7 @@ import { initializeFillers } from "./src/services/fillerService.js";
 loadAllSchemas(resolve(import.meta.dir, "src/schema/forms"));
 console.log("Available forms:", getAvailableForms());
 await initializeFillers();
+preloadStaticAudio().catch(err => console.error("[Preloader] Pre-upload failed:", err));
 const PORT = parseInt(process.env.PORT || "3001");
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
 
@@ -40,11 +50,15 @@ const server = Bun.serve<ClientData>({
         return new Response("Forbidden", { status: 403 });
       }
 
-      // Generate session ID and upgrade
-      const sessionId = crypto.randomUUID();
+      // Use client-supplied sessionId if present (enables reconnect continuity),
+      // otherwise generate a fresh one.
+      const url = new URL(req.url, `http://localhost`);
+      const sessionId = url.searchParams.get("sessionId") || crypto.randomUUID();
+      const userName = url.searchParams.get("username") || undefined;
       const success = server.upgrade(req, {
         data: {
           sessionId,
+          userName,
           connectedAt: Date.now(),
           lastActivityAt: Date.now(),
         },
@@ -92,15 +106,24 @@ const server = Bun.serve<ClientData>({
   websocket: {
     open(ws) {
       const { sessionId } = ws.data;
+      // Cancel any pending close for this sessionId (reconnect scenario)
+      const pending = pendingSessionClose.get(sessionId);
+      if (pending) {
+        clearTimeout(pending);
+        pendingSessionClose.delete(sessionId);
+        console.log(`[Server] Reconnect detected for ${sessionId}, cancelled pending close`);
+      }
       connectionManager.add(sessionId, ws);
     },
 
     // Called when a message is received from a client
     message(ws, message) {
-      const { sessionId } = ws.data;
+      const { sessionId, userName } = ws.data;
 
       // Update activity timestamp
       connectionManager.touch(sessionId);
+
+
 
       // Parse the message
       const parsed = parseMessage(message);
@@ -124,13 +147,16 @@ const server = Bun.serve<ClientData>({
       // Create handler context
       const context = {
         sessionId,
+        userName,
         send: (msg: OutgoingMessage) => {
           connectionManager.send(sessionId, msg);
         },
       };
 
       // Route to the appropriate handler
-      routeMessage(parsed, context);
+      startTracking(sessionId, userName, () => {
+        routeMessage(parsed, context);
+      });
     },
 
     // Called when a WebSocket connection is closed
@@ -139,16 +165,71 @@ const server = Bun.serve<ClientData>({
       console.log(
         `[Server] Connection closed: ${sessionId} (code: ${code}, reason: ${reason || "none"})`
       );
-      cleanupSession(sessionId);
       connectionManager.remove(sessionId);
+
+      // Defer DB update — cancelled if the same sessionId reconnects within 3 seconds
+      const timer = setTimeout(() => {
+        pendingSessionClose.delete(sessionId);
+        fireAndForget(
+          db.update(sessions)
+            .set({ status: "completed", endedAt: new Date() })
+            .where(eq(sessions.id, sessionId))
+        );
+      }, 3000);
+      pendingSessionClose.set(sessionId, timer);
     },
 
-    // Send ping every 30 seconds to keep connections alive
-    idleTimeout: 300, // 5 minutes — longer to account for STT/LLM/TTS latency
+    // Close connection if inactive for 16 minutes to prevent timeouts during long walkthroughs (Bug #11/12, max allowed by Bun is 960s)
+    idleTimeout: 960,
   },
 });
+
+// Clean up stale active sessions on startup
+fireAndForget(
+  db.update(sessions)
+    .set({ status: "completed", endedAt: new Date() })
+    .where(eq(sessions.status, "active"))
+);
 
 console.log(`\n🚀 Agent backend running on ws://localhost:${PORT}`);
 console.log(`   Health check: http://localhost:${PORT}/health`);
 console.log(`   Allowed origin: ${CORS_ORIGIN}`);
 console.log(`   Press Ctrl+C to stop\n`);
+
+const shutdown = async () => {
+  console.log("\n[Server] Shutting down gracefully...");
+  
+  const activeSessionIds = connectionManager.getSessionIds();
+  
+  for (const sessionId of activeSessionIds) {
+    try {
+      const conn = connectionManager.get(sessionId);
+      if (conn && conn.ws) {
+        conn.ws.send(JSON.stringify({
+          type: "error",
+          message: "Server is restarting. Please reconnect.",
+          code: "SERVER_SHUTDOWN"
+        }));
+        conn.ws.close();
+      }
+    } catch (e) {
+      console.error(`[Server] Error notifying client ${sessionId} during shutdown:`, e);
+    }
+  }
+
+  if (activeSessionIds.length > 0) {
+    try {
+      await db.update(sessions)
+        .set({ status: "completed", endedAt: new Date() })
+        .where(eq(sessions.status, "active"));
+      console.log(`[Server] Marked active sessions as completed in DB.`);
+    } catch (e) {
+      console.error("[Server] Error updating sessions in DB during shutdown:", e);
+    }
+  }
+
+  process.exit(0);
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

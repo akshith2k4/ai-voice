@@ -2,7 +2,8 @@ import crypto from "crypto";
 import { connectionManager } from "../../connectionManager.js";
 import { openStream, interruptActiveTTS, synthesizeStream } from "../../services/ttsService.js";
 import * as responseSender from "../../services/responseSender.js";
-import { recordTts, logLatency } from "../../services/latencyTracker.js";
+import { recordTts, logLatency, getTurnId, startTracking } from "../../services/latencyTracker.js";
+import { fireAndForget } from "../../services/observability.js";
 import { CancellationError, type EventMonitor } from "../../walkthrough/eventMonitor.js";
 import type { WalkthroughSession } from "../../walkthrough/sessionManager.js";
 import type { IResponder } from "./IResponder.js";
@@ -12,6 +13,7 @@ export class VoiceResponder implements IResponder {
   private streamInstance: ReturnType<typeof openStream> | null = null;
   private streamMessageId: string | null = null;
   private activeNarration: { interrupted: boolean } | null = null;
+  private streamedText = "";
 
   // Set by executor when walkthrough starts — enables speakAndWait + interrupt of narration
   public boundSession?: WalkthroughSession;
@@ -27,6 +29,7 @@ export class VoiceResponder implements IResponder {
 
   onTextChunk(chunk: string): void {
     if (!this.streamInstance) {
+      this.streamedText = "";
       this.streamMessageId = crypto.randomUUID();
       const mid = this.streamMessageId;
       
@@ -55,14 +58,22 @@ export class VoiceResponder implements IResponder {
         }
       );
     }
+    this.streamedText += chunk;
     this.streamInstance.push(chunk);
   }
 
   onComplete(text: string, messageId: string, latency?: any): void {
     if (this.streamInstance) {
-      this.streamInstance.finish();
+      if (this.streamedText && text && !text.startsWith(this.streamedText)) {
+        // Fallback occurred (LLM failed partway and stream content differs from fallback text)
+        this.interrupt();
+        this.speak(text, messageId);
+      } else {
+        this.streamInstance.finish();
+      }
     } else if (text) {
       responseSender.sendRespond(this.send, text, true, messageId, latency);
+      this.speak(text, messageId);
     }
   }
 
@@ -77,65 +88,96 @@ export class VoiceResponder implements IResponder {
     if (!text) return messageId ?? crypto.randomUUID();
 
     const id = messageId ?? crypto.randomUUID();
-    responseSender.sendRespond(this.send, text, true, id);
 
-    const narrationState = { interrupted: false };
-    this.activeNarration = narrationState;
+    // Wrap the entire narration in startTracking() so this runs in an
+    // AsyncLocalStorage context — enabling responseSender to create a DB turn
+    // row and logLatency() to write timings back to that row.
+    return startTracking(this.sessionId, async () => {
+      responseSender.sendRespond(this.send, text, true, id);
 
-    // MARK: Agent started speaking
-    import("../voiceAdapter.js")
-      .then(({ markAgentSpeechStart }) => markAgentSpeechStart(this.sessionId))
-      .catch(() => {});
+      const narrationState = { interrupted: false };
+      this.activeNarration = narrationState;
 
-    const hash = getHash(text, this.lang);
-    const s3Key = `walkthrough-audio/${hash}.mp3`;
+      // MARK: Agent started speaking
+      import("../voiceAdapter.js")
+        .then(({ markAgentSpeechStart }) => markAgentSpeechStart(this.sessionId))
+        .catch(() => {});
 
-    try {
-      const { checkS3ObjectExists } = await import("../../services/s3Service.js");
-      if (await checkS3ObjectExists(s3Key)) {
-        const { getPresignedUrl } = await import("../../services/s3Service.js");
-        const url = await getPresignedUrl(s3Key);
-        if (!narrationState.interrupted) {
-          this.send({ type: "tts_audio", url, messageId: id, done: true });
+      const hash = getHash(text, this.lang);
+      const s3Key = `walkthrough-audio/${hash}.mp3`;
+
+      try {
+        const { checkS3ObjectExists } = await import("../../services/s3Service.js");
+        const s3CheckStart = Date.now();
+        if (await checkS3ObjectExists(s3Key)) {
+          const { getPresignedUrl } = await import("../../services/s3Service.js");
+          const url = await getPresignedUrl(s3Key);
+          recordTts(Date.now() - s3CheckStart);
+          logLatency("speak-cached");
+          if (!narrationState.interrupted) {
+            this.send({ type: "tts_audio", url, messageId: id, done: true });
+          }
+          return id;
         }
-        return id;
+      } catch (e) {
+        console.warn(`[VoiceResponder] S3 check failed:`, e);
       }
-    } catch (e) {
-      console.warn(`[VoiceResponder] S3 check failed:`, e);
-    }
 
-    try {
-      const chunks: Buffer[] = [];
-      await synthesizeStream(text, this.lang, (base64Chunk, isDone) => {
-        if (base64Chunk) chunks.push(Buffer.from(base64Chunk, "base64"));
+      try {
+        const chunks: Buffer[] = [];
+        const ttsStart = Date.now();
+        let firstChunk = true;
+        await synthesizeStream(text, this.lang, (base64Chunk, isDone) => {
+          if (firstChunk && base64Chunk) {
+            firstChunk = false;
+            recordTts(Date.now() - ttsStart);
+            logLatency("speak");
+          }
+          if (base64Chunk) chunks.push(Buffer.from(base64Chunk, "base64"));
+          if (!narrationState.interrupted) {
+            this.send({ type: "tts_audio", audio: base64Chunk, messageId: id, done: isDone });
+          } else if (isDone) {
+            this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
+          }
+          if (isDone) {
+            import("../voiceAdapter.js")
+              .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+              .catch(() => {});
+          }
+          if (isDone && chunks.length > 0) {
+            const buf = Buffer.concat(chunks);
+            import("../../services/s3Service.js")
+              .then(({ uploadToS3 }) => {
+                return uploadToS3(s3Key, buf, "audio/mpeg").then(() => {
+                  const turnId = getTurnId();
+                  if (turnId) {
+                    fireAndForget(
+                      (async () => {
+                        const { db, turns } = await import("../../services/db.js");
+                        const { eq } = await import("drizzle-orm");
+                        await db.update(turns)
+                          .set({ agentAudioUrl: s3Key })
+                          .where(eq(turns.id, turnId));
+                      })()
+                    );
+                  }
+                });
+              })
+              .catch(e => console.warn(`[VoiceResponder] S3 upload failed:`, e));
+          }
+        }, this.sessionId);
+      } catch (e) {
+        console.error(`[VoiceResponder] TTS synthesis failed:`, e);
+        import("../voiceAdapter.js")
+          .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+          .catch(() => {});
         if (!narrationState.interrupted) {
-          this.send({ type: "tts_audio", audio: base64Chunk, messageId: id, done: isDone });
-        } else if (isDone) {
           this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
         }
-        if (isDone) {
-          import("../voiceAdapter.js")
-            .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
-            .catch(() => {});
-        }
-        if (isDone && chunks.length > 0) {
-          const buf = Buffer.concat(chunks);
-          import("../../services/s3Service.js")
-            .then(({ uploadToS3 }) => uploadToS3(s3Key, buf, "audio/mpeg"))
-            .catch(e => console.warn(`[VoiceResponder] S3 upload failed:`, e));
-        }
-      }, this.sessionId);
-    } catch (e) {
-      console.error(`[VoiceResponder] TTS synthesis failed:`, e);
-      import("../voiceAdapter.js")
-        .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
-        .catch(() => {});
-      if (!narrationState.interrupted) {
-        this.send({ type: "tts_audio", audio: "", messageId: id, done: true });
       }
-    }
 
-    return id;
+      return id;
+    });
   }
 
   // speak + wait for tts_playback_complete. Returns messageId.
@@ -162,7 +204,7 @@ export class VoiceResponder implements IResponder {
       );
       return false;
     } catch (err) {
-      return err instanceof CancellationError;
+      return true;
     }
   }
 

@@ -70,6 +70,7 @@ const PRODUCT_STATUS_OPTIONS = [
                 height: 10,
                 borderRadius: "50%",
                 backgroundColor: row.isActive ? "success.main" : "error.main",
+                flexShrink: 0,
               }}
             />
           </Tooltip>

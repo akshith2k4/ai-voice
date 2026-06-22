@@ -18,6 +18,7 @@ export interface SttResult {
   text: string;
   languageCode: string;
   confidence: number;
+  wavBuffer?: Buffer;
 }
 
 export interface ISTTService {

@@ -2,7 +2,7 @@ import { ISTTService, SttResult } from "../interfaces.js";
 import { config } from "../../config.js";
 
 export class ElevenLabsSTT implements ISTTService {
-  async transcribe(wavBuffer: Buffer): Promise<SttResult> {
+  async transcribe(wavBuffer: Buffer, attempt = 1): Promise<SttResult> {
     const apiKey = config.elevenlabs.apiKey;
     if (!apiKey) throw new Error("ELEVENLABS_API_KEY not configured");
 
@@ -10,20 +10,36 @@ export class ElevenLabsSTT implements ISTTService {
     form.append("model_id", config.elevenlabs.sttModel);
     form.append("file", new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" }), "audio.wav");
 
-    const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
-      method: "POST",
-      headers: { "xi-api-key": apiKey },
-      body: form,
-    });
+    try {
+      const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+        method: "POST",
+        headers: { "xi-api-key": apiKey },
+        body: form,
+        signal: AbortSignal.timeout(10000),
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`ElevenLabs STT failed ${res.status}: ${text}`);
+      if ((res.status === 429 || res.status >= 500) && attempt <= 2) {
+        console.warn(`[ElevenLabsSTT] Transient status ${res.status}. Retrying in 1000ms (attempt ${attempt}/2)...`);
+        await new Promise(r => setTimeout(r, 1000));
+        return this.transcribe(wavBuffer, attempt + 1);
+      }
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`ElevenLabs STT failed ${res.status}: ${text}`);
+      }
+
+      const data = await res.json() as { text?: string; language_code?: string };
+      const text = (data.text || "").trim();
+      console.log(`[ElevenLabsSTT] Transcribed: "${text}"`);
+      return { text, languageCode: data.language_code || "en", confidence: 1.0 };
+    } catch (err: any) {
+      if (attempt <= 2 && err.name !== "AbortError") {
+        console.warn(`[ElevenLabsSTT] Transient error: ${err.message || err}. Retrying in 1000ms (attempt ${attempt}/2)...`);
+        await new Promise(r => setTimeout(r, 1000));
+        return this.transcribe(wavBuffer, attempt + 1);
+      }
+      throw err;
     }
-
-    const data = await res.json() as { text?: string; language_code?: string };
-    const text = (data.text || "").trim();
-    console.log(`[ElevenLabsSTT] Transcribed: "${text}"`);
-    return { text, languageCode: data.language_code || "en", confidence: 1.0 };
   }
 }

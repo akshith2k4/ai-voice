@@ -73,6 +73,7 @@ export type OutgoingMessage =
 
 export interface ClientData {
   sessionId: string;
+  userName?: string;
   connectedAt: number;
   lastActivityAt: number;
 }
@@ -81,5 +82,6 @@ export interface ClientData {
 
 export interface HandlerContext {
   sessionId: string;
+  userName?: string;
   send: (message: OutgoingMessage) => void;
 }

@@ -47,5 +47,11 @@ export const config = {
       const val = Number(raw);
       return isNaN(val) || val < 0 || val > 1 ? 0.05 : val;
     })(),
+    bargeInGracePeriodMs: (() => {
+      const raw = process.env.BARGE_IN_GRACE_PERIOD_MS;
+      if (raw === undefined || raw === null) return 1500;
+      const val = parseInt(raw, 10);
+      return isNaN(val) || val < 0 ? 1500 : val;
+    })(),
   },
 } as const;

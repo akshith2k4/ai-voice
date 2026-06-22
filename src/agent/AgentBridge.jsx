@@ -1,9 +1,22 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { audioQueue } from "./AudioQueue";
 import { routeIncomingMessage } from "./messageRouter";
 import { connect, disconnect, onStatusChange, onMessage, sendMessage as wsSendMessage } from "./wsConnection";
 import { STATUS } from "./protocol";
 import { walkthroughEngine } from "./WalkthroughEngine";
+
+const getUsernameFromStorage = () => {
+  try {
+    const stored = localStorage.getItem("currentUser");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return parsed.name || "";
+    }
+  } catch {}
+  return "";
+};
+
 
 export { AgentErrorBoundary } from "./AgentErrorBoundary";
 
@@ -108,16 +121,37 @@ export function AgentProvider({ children }) {
     sendMessage({ type: "audio_end" });
   }, [sendMessage]);
 
+  const location = useLocation();
+  const [connectedUsername, setConnectedUsername] = useState(getUsernameFromStorage);
+
+  useEffect(() => {
+    const currentUsername = getUsernameFromStorage();
+    if (currentUsername !== connectedUsername) {
+      setConnectedUsername(currentUsername);
+    }
+  }, [location, connectedUsername]);
+
   // ---- WebSocket: subscribe and connect ----
   useEffect(() => {
-    const wsUrl = import.meta.env.VITE_AGENT_WS_URL || "ws://localhost:3001";
+    const wsBase = import.meta.env.VITE_AGENT_WS_URL || "ws://localhost:3001";
+
+    // Use a stable sessionId for this browser tab — reconnects reuse the same session.
+    // sessionStorage is cleared when the tab is closed, so a new tab = new session.
+    let sessionId = sessionStorage.getItem("agentSessionId");
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      sessionStorage.setItem("agentSessionId", sessionId);
+    }
+    const wsUrl = `${wsBase}?sessionId=${sessionId}${connectedUsername ? `&username=${encodeURIComponent(connectedUsername)}` : ""}`;
+
     const unsubStatus = onStatusChange(setConnectionStatus);
     const unsubMsg = onMessage((data) =>
       routeIncomingMessage(data, { addMessage, setIsProcessing, setPendingNavigation })
     );
     connect(wsUrl);
     return () => { disconnect(); unsubStatus(); unsubMsg(); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [connectedUsername]);
+
 
   const contextValue = {
     sendMessage,

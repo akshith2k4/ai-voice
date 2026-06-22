@@ -6,14 +6,18 @@
 import type { IncomingMessage, VoiceMessage, HandlerContext } from "../types.js";
 import * as sttService from "../services/sttService.js";
 import { onSpeechDetected } from "../services/sttService.js";
-import { isQuestion, selectFiller } from "../services/fillerService.js";
+import { isQuestion, selectFiller, cleanupSession as cleanupFillerSession } from "../services/fillerService.js";
 import * as responseSender from "../services/responseSender.js";
-import { startTracking, recordStt, getLatency } from "../services/latencyTracker.js";
+import { config } from "../config.js";
+import { startTracking, recordStt, getLatency, setTurnId } from "../services/latencyTracker.js";
 import { VoiceResponder } from "./responders/voiceResponder.js";
 import { EventMonitor } from "../walkthrough/eventMonitor.js";
 import { walkthroughExecutor } from "../walkthrough/executor.js";
 import { processText } from "../core/flowController.js";
 import { synthesizeStream } from "../services/ttsService.js";
+import { fireAndForget } from "../services/observability.js";
+import { db, turns, ensureSessionExists } from "../services/db.js";
+import { eq } from "drizzle-orm";
 
 // Shared EventMonitor — used by all VoiceResponders in this process
 export const statusAwaiter = new EventMonitor();
@@ -39,17 +43,15 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
     }
 
     if (message.type === "audio_end") {
-      await startTracking(async () => {
+      await startTracking(sessionId, context.userName, async () => {
         try {
           const stt = await sttService.handleAudioEnd(sessionId);
           await afterSTT(stt, context);
         } catch (error) {
           console.error("[VoiceAdapter] STT error:", error);
           const msg = "Sorry, I had trouble hearing you. Please try again.";
-          const messageId = responseSender.sendRespond(context.send, msg, true, undefined, getLatency());
-          synthesizeStream(msg, "en", (base64, done) => {
-            context.send({ type: "tts_audio", audio: base64, messageId, done });
-          }, sessionId).catch(err => console.error(err));
+          const responder = makeResponder(context);
+          responder.speak(msg).catch(err => console.error(err));
         }
       });
       return;
@@ -57,19 +59,19 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
 
     const msg = message as VoiceMessage;
 
-    if (msg.text?.startsWith("test:")) {
+    if (process.env.NODE_ENV !== "production" && msg.text?.startsWith("test:")) {
       const responder = makeResponder(context);
       walkthroughExecutor.start(msg.text.slice(5).trim(), sessionId, responder, false);
       return;
     }
 
     if (msg.text && !msg.audio) {
-      await startTracking(() => processUserText(msg.text!, "en", context));
+      await startTracking(sessionId, context.userName, () => processUserText(msg.text!, "en", context));
       return;
     }
 
     if (msg.audio) {
-      await startTracking(async () => {
+      await startTracking(sessionId, context.userName, async () => {
         const sttStart = Date.now();
         try {
           const stt = await sttService.transcribeAudio(msg.audio!);
@@ -78,10 +80,8 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
         } catch (error) {
           console.error("[VoiceAdapter] STT error:", error);
           const msgText = "Sorry, I had trouble hearing you. Please try again.";
-          const messageId = responseSender.sendRespond(context.send, msgText, true, undefined, getLatency());
-          synthesizeStream(msgText, "en", (base64, done) => {
-            context.send({ type: "tts_audio", audio: base64, messageId, done });
-          }, sessionId).catch(err => console.error(err));
+          const responder = makeResponder(context);
+          responder.speak(msgText).catch(err => console.error(err));
         }
       });
     }
@@ -99,10 +99,8 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
     if (count <= MAX_EMPTY_RETRIES) {
       emptyRetries.set(sessionId, count);
       const msg = "I didn't catch that, could you repeat?";
-      const messageId = responseSender.sendRespond(send, msg, true, undefined, getLatency());
-      synthesizeStream(msg, "en", (base64, done) => {
-        context.send({ type: "tts_audio", audio: base64, messageId, done });
-      }, sessionId).catch(err => console.error(err));
+      const responder = makeResponder(context);
+      responder.speak(msg).catch(err => console.error(err));
     } else {
       emptyRetries.delete(sessionId);
     }
@@ -110,6 +108,27 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
   }
 
   emptyRetries.delete(sessionId);
+  const turnId = crypto.randomUUID();
+  setTurnId(turnId);
+  fireAndForget(
+    (async () => {
+      await ensureSessionExists(sessionId, undefined, context.userName);
+      await db.insert(turns).values({
+        id: turnId,
+        sessionId,
+        userTranscript: stt.text,
+      });
+
+      if (stt.wavBuffer) {
+        const { uploadToS3 } = await import("../services/s3Service.js");
+        const s3Key = `user-audio/${sessionId}/${turnId}.wav`;
+        await uploadToS3(s3Key, stt.wavBuffer, "audio/wav");
+        await db.update(turns)
+          .set({ userAudioUrl: s3Key })
+          .where(eq(turns.id, turnId));
+      }
+    })()
+  );
   responseSender.sendRespond(send, `You said: "${stt.text}"`, false);
   await processUserText(stt.text, stt.languageCode, context);
 }
@@ -155,6 +174,7 @@ function playFiller(text: string, lang: string, sessionId: string, send: Handler
   if (!filler) return;
   const fillerMessageId = crypto.randomUUID();
   console.log(`[VoiceAdapter] Filler: "${filler.text}"`);
+  markAgentSpeechStart(sessionId);
   responseSender.sendRespond(send, filler.text, true, fillerMessageId);
   responseSender.sendTtsAudio(send, filler.base64, fillerMessageId, true);
 }
@@ -196,6 +216,7 @@ export async function cleanupSession(sessionId: string): Promise<void> {
   activeResponders.delete(sessionId);
   idleSessions.delete(sessionId);
   agentSpeechStart.delete(sessionId);
+  cleanupFillerSession(sessionId);
 
   try {
     const { cleanupSession: cleanSTT } = await import("../services/sttService.js");
@@ -209,10 +230,12 @@ export async function cleanupSession(sessionId: string): Promise<void> {
 const agentSpeechStart = new Map<string, number>();
 
 // Grace period: ignore barge-in signals for this many ms after agent starts speaking
-const BARGE_IN_GRACE_PERIOD_MS = 1500;
+const BARGE_IN_GRACE_PERIOD_MS = config.voice.bargeInGracePeriodMs;
 
 export function markAgentSpeechStart(sessionId: string): void {
   agentSpeechStart.set(sessionId, Date.now());
+  // Auto-clean after 5 minutes (safety net)
+  setTimeout(() => agentSpeechStart.delete(sessionId), 300000);
 }
 
 export function markAgentSpeechEnd(sessionId: string): void {

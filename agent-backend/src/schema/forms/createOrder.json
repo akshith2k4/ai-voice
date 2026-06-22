@@ -125,20 +125,28 @@
     },
     {
       "nodeType": "field",
-      "key": "isAdjustment",
-      "label": "Adjustment Order",
-      "type": "toggle",
-      "demoValue": false,
+      "key": "orderCategory",
+      "label": "Order Category",
+      "type": "select",
+      "options": [
+        "REGULAR",
+        "AD_HOC",
+        "REPLENISHMENT",
+        "ALLOCATION",
+        "RETURN",
+        "ADJUSTMENT"
+      ],
+      "demoValue": "REGULAR",
       "visibleWhen": null,
       "explanation": {
-        "en": "[casual] For a brand new order… just leave this off. You'd only switch it on if you're going back to fix or update something in an existing order.",
-        "hi": "[casual] बिल्कुल नए order के लिए… इसे off ही रहने दें। आप इसे तभी on करेंगे जब किसी existing order में कुछ fix या update करना हो।"
+        "en": "[excited] Next up is the Order Category! [friendly] You can select the category for this order. Regular is for standard deliveries... Ad-hoc is for one-off requests... Replenishment and Allocation help manage inventory levels... Return is for returning items... and Adjustment is when you need to correct an existing order.",
+        "hi": "[excited] अगला है Order Category! [friendly] आप इस order के लिए category चुन सकते हैं। Regular सामान्य deliveries के लिए है... Ad-hoc एक बार के requests के लिए है... Replenishment और Allocation inventory levels manage करने में मदद करते हैं... Return items वापस करने के लिए है... और Adjustment तब होता है जब आपको किसी existing order को ठीक करना हो।"
       },
-      "tips": "When in doubt, leave it off — it's rarely needed for day-to-day orders. [chuckles]",
+      "tips": "Choose the category that matches the operational purpose of this order.",
       "commonQuestions": [
         {
-          "question": "When should I use Adjustment Order?",
-          "answer": "Use it when you need to correct or modify an existing order, like adding items that were missed or adjusting quantities."
+          "question": "What are the different order categories?",
+          "answer": "Regular is for standard orders, Ad-hoc is for one-off requests, Replenishment/Allocation are for stock adjustments, Return is for items coming back, and Adjustment is for correcting existing orders."
         }
       ]
     },

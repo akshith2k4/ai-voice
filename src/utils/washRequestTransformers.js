@@ -1,3 +1,5 @@
+import { safeNumber } from "./quantityUtils";
+
 // Helper function to clone complete object 
 function clone(value) {
   if (typeof structuredClone === "function") return structuredClone(value);
@@ -173,11 +175,6 @@ function addProductSoiledItemsTotals(originalWashRequest) {
     return washRequest;
   }
 
-  const safeNumber = (value) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
-
   const totalsAccumulator = washRequest.productSoiledItems.reduce(
     (acc, item) => {
       const soiledSent =
@@ -227,11 +224,6 @@ function addWashDaysToWashRequest(originalWashRequest, originalFulfillmentSummar
     washRequest.washDays = [];
     return washRequest;
   }
-
-  const safeNumber = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
 
   const soiledTotalFromTotalsProp =
     safeNumber(washRequest?.productSoiledItemsTotal?.soiledQuantitySentTotal ?? null);

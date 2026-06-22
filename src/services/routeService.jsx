@@ -33,12 +33,25 @@ export const routeService = {
     return response.data;
   },
 
+  updatePointsSequence: async (routeId, routePoints) => {
+    const response = await api.put(
+      `/trips/routes/${routeId}/update-points-sequence`,
+      { routePoints },
+    );
+    return response.data;
+  },
+
   getAllCustomers: async () => {
     const response = await api.get('/customers', {
       meta: { includeDcid: true },
     });
     const data = response.data;
     return Array.isArray(data?.content) ? data.content : data;
+  },
+
+  deleteRoute: async (routeId) => {
+    const response = await api.delete(`/trips/routes/${routeId}`);
+    return response.data;
   },
 };
 

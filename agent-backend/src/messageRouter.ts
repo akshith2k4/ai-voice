@@ -1,5 +1,5 @@
-import type { IncomingMessage, HandlerContext } from "./types";
-import { handleIncoming } from "./adapters/voiceAdapter.js";
+import type { IncomingMessage, HandlerContext } from "./types.js";
+import { handleIncoming, statusAwaiter, getOrCreateIdleSession, markAgentSpeechEnd } from "./adapters/voiceAdapter.js";
 import { walkthroughExecutor } from "./walkthrough/executor.js";
 
 export function routeMessage(message: IncomingMessage, context: HandlerContext): void {
@@ -14,14 +14,11 @@ export function routeMessage(message: IncomingMessage, context: HandlerContext):
       if (session) {
         walkthroughExecutor.handleEvent(context.sessionId, message.name, message);
       } else {
-        // Notify the idle session statusAwaiter
-        const { statusAwaiter, getOrCreateIdleSession } = require("./adapters/voiceAdapter.js");
         const idleSession = getOrCreateIdleSession(context.sessionId);
         statusAwaiter.notify(idleSession, message.name, message);
       }
 
       if (message.name === "tts_playback_complete" || message.name === "tts_playback_interrupted") {
-        const { markAgentSpeechEnd } = require("./adapters/voiceAdapter.js");
         markAgentSpeechEnd(context.sessionId);
       }
 

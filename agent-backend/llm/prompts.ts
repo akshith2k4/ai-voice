@@ -85,16 +85,30 @@ export function buildWalkthroughPrompt(
 
   for (const f of flattenFields(schema.nodes)) {
     const rawExplanation = f.explanation;
-    const explanationStr = typeof rawExplanation === "object" && rawExplanation
+    let explanationStr = typeof rawExplanation === "object" && rawExplanation
       ? (rawExplanation[languageCode] || rawExplanation["en"] || "")
       : (rawExplanation || "");
+
+    if (explanationStr.length > 80) {
+      explanationStr = explanationStr.slice(0, 80) + "...";
+    }
+
+    let truncatedOptions = f.options;
+    if (truncatedOptions && truncatedOptions.length > 3) {
+      truncatedOptions = truncatedOptions.slice(0, 3);
+    }
+
+    let rawAliases = f.commonQuestions?.map((q: { question: string }) => q.question.toLowerCase()) || [];
+    if (rawAliases.length > 2) {
+      rawAliases = rawAliases.slice(0, 2);
+    }
 
     allFieldsSimplified.push({
       key: f.key,
       label: f.label,
-      explanation: explanationStr,
-      options: f.options ?? undefined,
-      aliases: f.commonQuestions?.map((q: { question: string }) => q.question.toLowerCase()) || [],
+      explanation: explanationStr || undefined,
+      options: truncatedOptions ?? undefined,
+      aliases: rawAliases,
     });
   }
 

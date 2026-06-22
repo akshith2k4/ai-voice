@@ -50,6 +50,7 @@ function InventoryReservation() {
     useState(false);
   const [openTransactionDrawer, setOpenTransactionDrawer] = useState(false);
   const [reservationStatus, setReservationStatus] = useState("all");
+  const [customerSearch, setCustomerSearch] = useState("");
 
   const reservationColumns = [
     { field: "id", headerName: "ID", type: "id" },
@@ -68,6 +69,7 @@ function InventoryReservation() {
                   height: 10,
                   borderRadius: "50%",
                   backgroundColor: isActive ? "success.main" : "error.main",
+                  flexShrink: 0,
                 }}
               />
             </Tooltip>
@@ -156,6 +158,7 @@ function InventoryReservation() {
                   height: 10,
                   borderRadius: "50%",
                   backgroundColor: isActive ? "success.main" : "error.main",
+                  flexShrink: 0,
                 }}
               />
             </Tooltip>
@@ -268,12 +271,11 @@ function InventoryReservation() {
   const status = e.target.value;
   setReservationStatus(status);
 };
-const filteredReservations =
-  reservationStatus === "all"
-    ? customerReservation
-    : customerReservation.filter(
-        (r) => r.status === reservationStatus
-      );
+const filteredReservations = customerReservation.filter((r) => {
+  const matchesStatus = reservationStatus === "all" || r.status === reservationStatus;
+  const matchesCustomer = !customerSearch || r.customerName?.toLowerCase().includes(customerSearch.toLowerCase());
+  return matchesStatus && matchesCustomer;
+});
 
   return (
     <Container maxWidth="lg" sx={{ mb: 2 }}>
@@ -290,13 +292,20 @@ const filteredReservations =
           sx={{ width: "100%" }}
         >
           {/* DropDown for selection of inventory pool */}
-          <Grid size={{ xs: 12, sm: 3 }}>
+          <Box display="flex" alignItems="center" gap={2}>
+            <TextField
+              size="small"
+              label="Search Customer"
+              value={customerSearch}
+              onChange={(e) => setCustomerSearch(e.target.value)}
+              sx={{ width: "14rem" }}
+              placeholder="Search by name..."
+            />
             {loading ? (
               "Loading..."
             ) : (
               <TextField
                 select
-                fullWidth
                 size="small"
                 label="Inventory Pool"
                 value={pool.id}
@@ -313,20 +322,20 @@ const filteredReservations =
               </TextField>
             )}
             <TextField
-  select
-  size="small"
-  label="Reservation Status"
-  value={reservationStatus}
-  onChange={handleStatusChange}
-  sx={{ width: "12rem", ml: 2 }}
->
-  {RESERVATION_STATUS_OPTIONS.map((opt) => (
-    <MenuItem key={opt.value} value={opt.value}>
-      {opt.label}
-    </MenuItem>
-  ))}
-</TextField>
-          </Grid>
+              select
+              size="small"
+              label="Reservation Status"
+              value={reservationStatus}
+              onChange={handleStatusChange}
+              sx={{ width: "12rem" }}
+            >
+              {RESERVATION_STATUS_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
           <Box sx={{ textAlign: "right" }}>
             <Button
               variant="contained"

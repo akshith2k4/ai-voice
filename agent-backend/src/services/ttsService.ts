@@ -30,10 +30,19 @@ export async function synthesizeStream(
   sessionId = "default"
 ): Promise<void> {
   const provider = getTTSProvider();
+  let chunkCalled = false;
+  const wrappedOnChunk = (base64Chunk: string, isDone: boolean) => {
+    chunkCalled = true;
+    onChunk(base64Chunk, isDone);
+  };
   try {
-    await getTTSService().synthesizeStream(text, languageCode, onChunk, sessionId);
+    await getTTSService().synthesizeStream(text, languageCode, wrappedOnChunk, sessionId);
   } catch (err) {
     console.error(`[TTS] Primary provider (${provider}) failed:`, err);
+    if (chunkCalled) {
+      console.warn(`[TTS] Primary provider failed after sending chunk. Aborting fallback.`);
+      throw err;
+    }
     const fallbackProvider = provider === TTSProvider.OPEN_AI ? TTSProvider.ELEVEN_LABS : TTSProvider.OPEN_AI;
     console.log(`[TTS] Attempting fallback to: ${fallbackProvider}`);
     try {
@@ -76,7 +85,6 @@ const activeStreams = new Map<string, SessionStream>();
 
 class SessionStream {
   private buffer = "";
-  private scanPosition = 0;
   private sentenceQueue: Array<{ text: string; isLast: boolean; addedAt: number }> = [];
   private processing = false;
   private allPushed = false;
@@ -137,26 +145,26 @@ class SessionStream {
 
   // Drains buffer into complete sentences and appends them to sentenceQueue.
   private extractSentences(): void {
+    let searchStart = 0;
     while (true) {
-      const remaining = this.buffer.substring(this.scanPosition);
+      const remaining = this.buffer.substring(searchStart);
       const match = remaining.match(/[.!?]\s+/);
       if (!match || match.index === undefined) {
-        this.scanPosition = Math.max(0, this.buffer.length - 2);
         break;
       }
 
-      const matchIdx = this.scanPosition + match.index;
+      const matchIdx = searchStart + match.index;
       const sentence = this.buffer.substring(0, matchIdx + 1).trim();
 
       const lastWord = sentence.split(/\s+/).pop()?.toLowerCase() ?? "";
       if (ABBREVIATIONS.has(lastWord)) {
-        this.scanPosition = matchIdx + match[0].length;
+        searchStart = matchIdx + match[0].length;
         continue;
       }
 
       this.sentenceQueue.push({ text: sentence, isLast: false, addedAt: Date.now() });
       this.buffer = this.buffer.substring(matchIdx + match[0].length);
-      this.scanPosition = 0;
+      searchStart = 0;
     }
   }
 

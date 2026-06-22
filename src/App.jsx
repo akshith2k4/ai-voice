@@ -24,11 +24,13 @@ const Login = React.lazy(() => import('./components/auth/Login'));
 const HotelList = React.lazy(() => import('./components/hotels/HotelList'));
 const ProductList = React.lazy(() => import('./components/products/ProductList'));
 const OrderList = React.lazy(() => import('./components/orders/OrderList'));
+const PackingJobsPage = React.lazy(() => import('./components/packingJobs/PackingJobsPage'));
 const TripManagement = React.lazy(() => import('./components/trips/TripManagement'));
 const VendorList = React.lazy(() => import('./components/vendors/VendorList'));
 const ProcessingList = React.lazy(() => import('./components/processing/ProcessingList'));
 const InvoicesPage = React.lazy(() => import('./components/invoices/InvoicesPage'));
 const UserList = React.lazy(() => import('./components/users/UserList'));
+const CommunicationList = React.lazy(() => import('./components/communication/CommunicationList'));
 const CustomersPage = React.lazy(() => import('./components/customers/CustomersPage'));
 const InvoiceGenerator = React.lazy(() => import('./components/invoices/InvoiceGenerator'));
 const LaundryVendorsPage = React.lazy(() => import('./components/vendors/LaundryVendorsPage'));
@@ -106,11 +108,13 @@ function App() {
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/products" element={<ProductList />} />
                   <Route path="/orders" element={<OrderList />} />
+                  <Route path="/packing-jobs" element={<PackingJobsPage />} />
                   <Route path="/trips" element={<TripManagement />} />
                   <Route path="/vendors" element={<VendorList />} />
                   <Route path="/processing" element={<ProcessingList />} />
                   <Route path="/invoices" element={<InvoicesPage />} />
                   <Route path="/users" element={<UserList />} />
+                  <Route path="/communication" element={<CommunicationList />} />
                   <Route path="/vehicles" element={<VehicleManagement />} />
                   <Route path="/billing" element={<BillManagementPage />}>
                     <Route index element={<BillingCycle />} />

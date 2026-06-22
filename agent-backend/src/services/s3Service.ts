@@ -47,7 +47,7 @@ export async function checkS3ObjectExists(key: string): Promise<boolean> {
  * Generates a presigned GET URL for an S3 object.
  * Defaults to 10 minutes expiration.
  */
-export async function getPresignedUrl(key: string, expiresSeconds: number = 600): Promise<string> {
+export async function getPresignedUrl(key: string, expiresSeconds: number = 86400): Promise<string> {
   if (!bucketName) throw new Error("AWS_S3_BUCKET_NAME is not configured");
   const command = new GetObjectCommand({
     Bucket: bucketName,

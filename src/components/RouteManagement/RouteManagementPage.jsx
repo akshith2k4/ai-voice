@@ -1,21 +1,163 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   Container, 
-  Paper, 
-  Typography, 
-  Button, 
-  Grid,
+  CircularProgress,
   TextField,
   InputAdornment,
-  CircularProgress
+  Tooltip,
+  IconButton,
+  Stack,
+  Box,
+  Typography,
+  Popover,
+  List,
+  ListItem,
+  ListItemText,
+  Divider
 } from "@mui/material";
-import { Add as AddIcon, Search as SearchIcon } from '@mui/icons-material';
+import { 
+  Search as SearchIcon, 
+  AssignmentInd as AssignmentIndIcon 
+} from '@mui/icons-material';
+import FilterPanel from "../common/FilterPanel";
+import GreenButton from "../common/GreenButton";
+import DataTable from "../common/tables/DataTable";
 import CreateRouteDialog from "./CreateRouteDialog";
 import AssignPointsDialog from "./AssignCustomersDialog";
-import RouteList from "./RouteList";
 import RouteDrawer from "./RouteDrawer";
-import CustomSnackbar from '../layout/CustomSnackbar';
 import { routeService } from "../../services/routeService";
+
+/* ---------- Minimal & functional Assigned Customers cell ---------- */
+function AssignedPointsCell({ points = [] }) {
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [q, setQ] = useState('');
+
+  const top = points.slice(0, 2);
+  const hidden = Math.max(0, points.length - top.length);
+
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return points;
+    return points.filter(p => p.name?.toLowerCase().includes(t));
+  }, [points, q]);
+
+  return (
+    <>
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{
+          minHeight: 36,
+          maxWidth: 420,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {top.length > 0 ? (
+          <Typography
+            variant="body2"
+            sx={{
+              flexShrink: 1,
+              color: 'text.primary',
+              fontWeight: 500,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={top.map(p => p.name).join(', ')}
+          >
+            {top.map(p => p.name).join(', ')}
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No points assigned
+          </Typography>
+        )}
+
+        {hidden > 0 && (
+          <Box
+            onClick={(e) => {
+              e.stopPropagation();
+              setAnchorEl(e.currentTarget);
+            }}
+            role="button"
+            aria-label={`${hidden} more points`}
+            sx={(theme) => ({
+              px: 1,
+              py: 0.25,
+              borderRadius: 1,
+              fontSize: 12,
+              border: `1px solid ${theme.palette.divider}`,
+              color: theme.palette.text.secondary,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              '&:hover': {
+                backgroundColor: theme.palette.action.hover,
+                color: theme.palette.text.primary,
+              },
+            })}
+          >
+            +{hidden} more
+          </Box>
+        )}
+      </Stack>
+
+      <Popover
+        open={Boolean(anchorEl)}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        onClick={(e) => e.stopPropagation()}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { width: 340, p: 1.5, borderRadius: 2 } } }}
+      >
+        <Stack spacing={1.25}>
+          <TextField
+            size="small"
+            placeholder="Search points"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            autoFocus
+            variant="outlined"
+            sx={{ input: { fontSize: 14 } }}
+          />
+          <Divider />
+          <List dense sx={{ maxHeight: 300, overflowY: 'auto', p: 0 }}>
+            {filtered.map((p, idx) => (
+              <ListItem 
+                key={p.partyId || idx} 
+                disableGutters
+                sx={{
+                  px: 1,
+                  borderRadius: '6px',
+                  mb: 0.5,
+                  '&:hover': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.035)'
+                  }
+                }}
+              >
+                <ListItemText
+                  primary={
+                    <Typography variant="body2" color="text.primary" fontWeight={500} noWrap>
+                      {p.name}
+                    </Typography>
+                  }
+                  secondary={p.partyType === "CUSTOMER" ? "Customer" : "Laundry Vendor"}
+                  secondaryTypographyProps={{ fontSize: 11, color: 'text.secondary' }}
+                />
+              </ListItem>
+            ))}
+            {filtered.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>
+                No matches found
+              </Typography>
+            )}
+          </List>
+        </Stack>
+      </Popover>
+    </>
+  );
+}
 
 function RouteManagementPage() {
   const [routes, setRoutes] = useState([]);
@@ -24,8 +166,6 @@ function RouteManagementPage() {
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, _setSnackbarMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchRoutes = async () => {
@@ -44,7 +184,23 @@ function RouteManagementPage() {
     fetchRoutes();
   }, []);
 
-  // Filter routes by name, id, or assigned customer names (case-insensitive)
+  const handleRouteUpdate = async () => {
+    if (drawerOpen && selectedRoute) {
+      try {
+        const data = await routeService.getRoutes();
+        setRoutes(data);
+        const updated = data.find(r => r.id === selectedRoute.id);
+        if (updated) {
+          setSelectedRoute(updated);
+        }
+      } catch (error) {
+        console.error('Error updating selected route details:', error);
+      }
+    } else {
+      fetchRoutes();
+    }
+  };
+
   const filteredRoutes = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return routes;
@@ -60,6 +216,50 @@ function RouteManagementPage() {
     });
   }, [routes, searchQuery]);
 
+  const columns = [
+    {
+      field: 'id',
+      headerName: 'Route ID',
+      type: 'number',
+      width: 60
+    },
+    {
+      field: 'name',
+      headerName: 'Route Name',
+      type: 'text',
+      width: 260,
+      render: (name) => <strong>{name}</strong>
+    },
+    {
+      field: 'points',
+      headerName: 'Assigned Points',
+      type: 'longText',
+      width: 200,
+      render: (points) => <AssignedPointsCell points={points || []} />
+    },
+    {
+      field: 'actions',
+      headerName: 'Actions',
+      align: 'right',
+      width: 80,
+      render: (_, route) => (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Assign Points">
+            <IconButton
+              size="small"
+              onClick={() => {
+                setSelectedRoute(route);
+                setOpenAssignDialog(true);
+              }}
+            >
+              <AssignmentIndIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      )
+    }
+  ];
+
   if (loading) {
     return (
       <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -69,56 +269,33 @@ function RouteManagementPage() {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mb: 2 }}>
-      <Paper elevation={3} sx={{ p: 2, mb: 2 }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: "bold" }}>
-          Route Management
-        </Typography>
-        <Grid container spacing={2} alignItems="center" justifyContent="space-between">
-          <Grid>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Search by Route name, ID, or Customer..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              sx={{ backgroundColor: 'background.paper', borderRadius: 1, maxWidth: 320 }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" color="action" />
-                  </InputAdornment>
-                ),
-                sx: { height: '40px'},
-                // sx: { height: '40px', width: '360px'},
-              }}
-            />
-          </Grid>
-          <Grid>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setOpenCreateDialog(true)}
-              sx={{
-                height: '40px',
-                background: 'linear-gradient(45deg, #2e7d32 30%, #43a047 90%)',
-                boxShadow: '0 2px 4px rgba(46, 125, 50, 0.25)',
-                textTransform: 'none',
-              }}
-            >
-              Create Route
-            </Button>
-          </Grid>
-        </Grid>
-      </Paper>
+    <Container maxWidth="lg" sx={{ py: 2 }}>
+      <FilterPanel
+        title="Route Management"
+        actions={
+          <GreenButton onClick={() => setOpenCreateDialog(true)}>
+            Create Route
+          </GreenButton>
+        }
+      >
+        <Box sx={{ width: 280, minWidth: 220 }}>
+          <TextField
+            size="small"
+            label="Search Routes"
+            placeholder="Route name, ID, or customer"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            fullWidth
+            sx={{ "& .MuiInputBase-root": { borderRadius: 1 } }}
+          />
+        </Box>
+      </FilterPanel>
 
-      <RouteList
-        routes={filteredRoutes}
-        onAssign={(route) => {
-          setSelectedRoute(route);
-          setOpenAssignDialog(true);
-        }}
-        onViewDetails={(route) => {
+      <DataTable
+        columns={columns}
+        rows={filteredRoutes}
+        rowKey="id"
+        onRowClick={(route) => {
           setSelectedRoute(route);
           setDrawerOpen(true);
         }}
@@ -128,6 +305,12 @@ function RouteManagementPage() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         route={selectedRoute}
+        onUnassigned={handleRouteUpdate}
+        onAssignPoints={() => setOpenAssignDialog(true)}
+        onDeactivated={() => {
+          setDrawerOpen(false);
+          fetchRoutes();
+        }}
       />
 
       <CreateRouteDialog
@@ -141,12 +324,6 @@ function RouteManagementPage() {
         onClose={() => setOpenAssignDialog(false)}
         route={selectedRoute}
         onAssigned={fetchRoutes}
-      />
-
-      <CustomSnackbar
-        open={snackbarOpen}
-        message={snackbarMessage}
-        onClose={() => setSnackbarOpen(false)}
       />
     </Container>
   );

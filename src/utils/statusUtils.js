@@ -17,13 +17,24 @@ export function getStatusChipColor(status) {
     s === "APPROVED" ||
     s === "ACTIVE" ||
     s === "INVOICED" ||
-    s === "PAID"
+    s === "PAID" ||
+    s === "PACKED"
   ) {
     return "success";
   }
 
   // Error (Red)
-  if (s === "INACTIVE") {
+  if (
+    s === "INACTIVE" ||
+    s === "FAILED" ||
+    s === "ERROR" ||
+    s === "CANCELLED" ||
+    s === "REJECTED" ||
+    s === "DAMAGE" ||
+    s === "MISSING" ||
+    s === "OVERDUE" ||
+    s === "NOT_INVOICED"
+  ) {
     return "error";
   }
 
@@ -49,18 +60,14 @@ export function getStatusChipColor(status) {
     return "info";
   }
 
-  // Error (Red)
-  if (
-    s === "FAILED" ||
-    s === "ERROR" ||
-    s === "CANCELLED" ||
-    s === "REJECTED" ||
-    s === "DAMAGE" ||
-    s === "MISSING" ||
-    s === "OVERDUE" ||
-    s === "NOT_INVOICED"
-  ) {
-    return "error";
+  // Primary (Theme Primary Color)
+  if (s === "EXPIRED") {
+    return "primary";
+  }
+
+  // Secondary (Usually Pink/Purple)
+  if (s === "PARTIALLY_PACKED") {
+    return "secondary";
   }
 
   // Default (Grey)

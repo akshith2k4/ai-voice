@@ -28,6 +28,7 @@ import { washRequestService } from "../../services/washRequestService";
 import { washFulfillmentService } from "../../services/washFulfillmentService";
 import { subDays } from "date-fns";
 import PendingItemsDashboard from "./PendingItemsDashboard";
+import WashAnalysis from "./WashAnalysis";
 
 const DEFAULT_DATE_RANGE_DAYS = 3;
 
@@ -196,7 +197,8 @@ function WashRequestsPage() {
           }}
         >
           <Tab
-            data-agent-action="tab-wash-requests" label="Wash Requests"
+            data-agent-action="tab-wash-requests"
+            label="Wash Requests"
             sx={{
               fontWeight: 600,
               textTransform: "none",
@@ -213,7 +215,25 @@ function WashRequestsPage() {
             }}
           />
           <Tab
-            data-agent-action="tab-wash-fulfillment" label="Wash Fulfillment"
+            data-agent-action="tab-wash-fulfillment"
+            label="Wash Fulfillment"
+            sx={{
+              fontWeight: 600,
+              textTransform: "none",
+              fontSize: "1.25rem",
+              minHeight: "40px",
+              px: 2,
+              color: "#333",
+              "&.Mui-selected": {
+                color: "#2e7d32",
+                backgroundColor: "#f5f5f5",
+                borderTopLeftRadius: 6,
+                borderTopRightRadius: 6,
+              },
+            }}
+          />
+          <Tab
+            label="Wash Analysis"
             sx={{
               fontWeight: 600,
               textTransform: "none",
@@ -315,6 +335,8 @@ function WashRequestsPage() {
           />
         </>
       )}
+
+      {tabIndex === 2 && <WashAnalysis />}
 
       <CustomSnackbar
         open={snackbar.open}

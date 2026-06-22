@@ -1,6 +1,17 @@
 import { TableCell, TableRow, Tooltip } from "@mui/material";
 import React from "react";
 
+const widthMap = {
+  id: 60,
+  smallNumber: 60,
+  number: 80,
+  shortText: 100,
+  smallText: 120,
+  mediumText: 140,
+  text: 160,
+  longText: 220,
+};
+
 export const DataRow = React.memo(function DataRow({
   row,
   columns,
@@ -34,6 +45,8 @@ export const DataRow = React.memo(function DataRow({
           key={`${row[rowKey]}-${col.field}`}
           align={col.align || "left"}
           sx={(theme) => ({
+            width: `${col.width || widthMap[col.type] || 120}px !important`,
+            maxWidth: `${col.width || widthMap[col.type] || 120}px !important`,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -57,7 +70,13 @@ export const DataRow = React.memo(function DataRow({
             }
           }}
         >
-          <Tooltip title={row[col.field]}>
+          <Tooltip
+            title={
+              col.tooltipVal
+                ? col.tooltipVal(row[col.field], row)
+                : ""
+            }
+          >
             {col.render
               ? col.render(row[col.field], row)
               : row[col.field] ?? "--"}

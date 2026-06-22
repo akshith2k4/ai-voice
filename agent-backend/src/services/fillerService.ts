@@ -97,6 +97,10 @@ export function isQuestion(text: string): boolean {
 
 const lastPlayedFiller = new Map<string, string>(); // sessionId -> fillerText
 
+export function cleanupSession(sessionId: string): void {
+  lastPlayedFiller.delete(sessionId);
+}
+
 /**
  * Maps query topics/intents to the most appropriate filler, falling back to a random generic filler.
  * Tracks last played fillers to prevent consecutive repetitions for the same session.

@@ -57,49 +57,69 @@ export class ElevenLabsTTS implements ITTSService {
     if (state.busy) return;
     state.busy = true;
 
-    while (state.queue.length > 0) {
-      const job = state.queue.shift()!;
-      state.activeJob = job;
+    try {
+      while (state.queue.length > 0) {
+        const job = state.queue.shift();
+        if (!job) continue;
+        state.activeJob = job;
 
-      const promise = this.synthesizeStreamDirect(job.text, job.languageCode, job.onChunk, sessionId);
+        try {
+          const promise = this.synthesizeStreamDirect(job.text, job.languageCode, job.onChunk, sessionId);
 
-      await new Promise<void>((resolveJob) => {
-        let resolved = false;
+          await new Promise<void>((resolveJob, rejectJob) => {
+            let resolved = false;
 
-        const interval = setInterval(() => {
-          if (job.interrupted && !resolved) {
-            resolved = true;
-            clearInterval(interval);
-            resolveJob();
-          }
-        }, 50);
+            const interval = setInterval(() => {
+              if (job.interrupted && !resolved) {
+                resolved = true;
+                clearInterval(interval);
+                resolveJob();
+              }
+            }, 50);
 
-        promise.then(() => {
-          if (!resolved) {
-            resolved = true;
-            clearInterval(interval);
-            resolveJob();
-          }
-        }).catch((err) => {
-          if (!resolved) {
-            resolved = true;
-            clearInterval(interval);
-            job.reject(err);
-            resolveJob();
-          } else {
-            console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Background detached fetch finished with error after interruption:`, err.message || err);
-          }
-        });
-      });
+            promise.then(() => {
+              if (!resolved) {
+                resolved = true;
+                clearInterval(interval);
+                resolveJob();
+              }
+            }).catch((err) => {
+              if (!resolved) {
+                resolved = true;
+                clearInterval(interval);
+                job.reject(err);
+                rejectJob(err);
+              } else {
+                console.log(`[ElevenLabs TTS] [Session: ${sessionId}] Background detached fetch finished with error after interruption:`, err.message || err);
+                resolveJob();
+              }
+            });
+          }).catch(() => {
+            // Internal catch to prevent unhandled rejection
+          });
+        } catch (jobErr) {
+          job.reject(jobErr);
+        }
 
-      state.activeJob = null;
-      job.resolve();
-    }
+        state.activeJob = null;
+        job.resolve();
+      }
+    } catch (queueErr) {
+      console.error(`[ElevenLabs TTS] [Session: ${sessionId}] Error in processQueue:`, queueErr);
+      if (state.activeJob) {
+        state.activeJob.reject(queueErr);
+        state.activeJob = null;
+      }
+      while (state.queue.length > 0) {
+        const job = state.queue.shift();
+        if (job) job.reject(queueErr);
+      }
+    } finally {
+      state.busy = false;
 
-    state.busy = false;
-
-    if (state.queue.length === 0 && !state.activeJob && !state.abortController) {
-      this.sessionStates.delete(sessionId);
+      if (state.queue.length === 0 && !state.activeJob && !state.abortController) {
+        this.sessionStates.delete(sessionId);
+      }
     }
   }
 
@@ -132,29 +152,42 @@ export class ElevenLabsTTS implements ITTSService {
       voiceId = ELEVENLABS_VOICE_ID_EN;
     }
     const state = this.getSessionState(sessionId);
+    if (state.activeJob?.interrupted) {
+      throw new DOMException("Aborted before start", "AbortError");
+    }
     const controller = new AbortController();
     state.abortController = controller;
     const signal = controller.signal;
 
     try {
       const latencyParam = ELEVENLABS_TTS_MODEL === "eleven_v3" ? "" : "optimize_streaming_latency=3&";
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?${latencyParam}output_format=mp3_44100_128`, {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text,
-          model_id: ELEVENLABS_TTS_MODEL,
-          voice_settings: { stability: 0.5, use_speaker_boost: true, similarity_boost: 0.75, style: 0, speed: 1 },
-        }),
-        signal,
-      });
+      let res: Response;
+      try {
+        res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?${latencyParam}output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text,
+            model_id: ELEVENLABS_TTS_MODEL,
+            voice_settings: { stability: 0.5, use_speaker_boost: true, similarity_boost: 0.75, style: 0, speed: 1 },
+          }),
+          signal,
+        });
+      } catch (fetchErr: any) {
+        if (attempt <= 2 && !signal.aborted) {
+          console.warn(`[ElevenLabs TTS] [Session: ${sessionId}] Network error: ${fetchErr.message || fetchErr}. Retrying in 1000ms (attempt ${attempt}/2)...`);
+          await new Promise((r) => setTimeout(r, 1000));
+          return this.synthesizeStreamDirect(text, languageCode, onChunk, sessionId, attempt + 1);
+        }
+        throw fetchErr;
+      }
 
-      if (res.status === 429 && attempt <= 2) {
+      if ((res.status === 429 || res.status >= 500) && attempt <= 2) {
         console.warn(
-          `[ElevenLabs TTS] [Session: ${sessionId}] Rate limit (429) encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
+          `[ElevenLabs TTS] [Session: ${sessionId}] Transient status ${res.status} encountered. Retrying in 1000ms (attempt ${attempt}/2)...`
         );
         await new Promise((r) => setTimeout(r, 1000));
         if (signal.aborted) {
@@ -215,7 +248,10 @@ export class ElevenLabsTTS implements ITTSService {
     return new Promise<void>((resolve, reject) => {
       const state = this.getSessionState(sessionId);
       state.queue.push({ text, languageCode, onChunk, resolve, reject });
-      this.processQueue(sessionId);
+      this.processQueue(sessionId).catch((err) => {
+        console.error(`[ElevenLabs TTS] processQueue failed:`, err);
+        reject(err);
+      });
     });
   }
 

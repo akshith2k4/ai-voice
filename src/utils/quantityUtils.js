@@ -1,7 +1,8 @@
-export const normalizeQuantity = (value, defaultValue = 0) => {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return defaultValue;
-  }
+export const safeNumber = (value, defaultValue = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
+};
 
-  return value;
+export const normalizeQuantity = (value, defaultValue = 0) => {
+  return safeNumber(value, defaultValue);
 };

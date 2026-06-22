@@ -45,6 +45,7 @@ import {
   Close as CloseIcon,
   CloudUpload as CloudUploadIcon,
   Info as InfoIcon,
+  Edit as EditIcon,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { productService } from "../../services/productService";
@@ -177,6 +178,10 @@ function TripDetailsSidebar({
   const [uploadingRequestId, setUploadingRequestId] = useState(null);
   const [visitChallanNumbers, setVisitChallanNumbers] = useState({});
   const [visitChallanDialogVisit, setVisitChallanDialogVisit] = useState(null);
+  const [openUpdateChallanDialog, setOpenUpdateChallanDialog] = useState(false);
+  const [challanDialogVisit, setChallanDialogVisit] = useState(null);
+  const [newChallanNumberVal, setNewChallanNumberVal] = useState("");
+  const [isUpdatingChallan, setIsUpdatingChallan] = useState(false);
 
   const closeVisitChallanDialog = () => {
     setVisitChallanNumbers({});
@@ -556,6 +561,70 @@ function TripDetailsSidebar({
     Boolean(visitChallanDialogVisit) &&
     uploadingRequestId === visitChallanDialogVisit?.id;
 
+  const handleOpenUpdateChallan = (visit) => {
+    const existing = getVisitExistingChallan(visit);
+    if (!existing) return;
+    setChallanDialogVisit(visit);
+    setNewChallanNumberVal(existing.challanNumber || "");
+    setOpenUpdateChallanDialog(true);
+  };
+
+  const handleUpdateChallanSubmit = async () => {
+    if (!challanDialogVisit) return;
+    const existing = getVisitExistingChallan(challanDialogVisit);
+    if (!existing) return;
+
+    const oldChallan = existing.challanNumber;
+    const newChallan = newChallanNumberVal.trim();
+
+    if (!newChallan) {
+      showSnackbar("New challan number is required", "error");
+      return;
+    }
+
+    if (oldChallan === newChallan) {
+      showSnackbar("New challan number must be different from the old one", "error");
+      return;
+    }
+
+    try {
+      setIsUpdatingChallan(true);
+      await tripService.updateDeliveryChallanNumber(challanDialogVisit.id, {
+        oldChallanNumber: oldChallan,
+        newChallanNumber: newChallan
+      });
+      showSnackbar("Challan number updated successfully!", "success");
+      setOpenUpdateChallanDialog(false);
+      setChallanDialogVisit(null);
+      await fetchTripDetails();
+      if (typeof fetchTrips === "function") fetchTrips();
+    } catch (error) {
+      console.error("Failed to update challan number:", error);
+      showSnackbar(error.message || "Failed to update challan number.", "error");
+    } finally {
+      setIsUpdatingChallan(false);
+    }
+  };
+
+  const handleDeleteChallan = async (visit) => {
+    const existing = getVisitExistingChallan(visit);
+    if (!existing || !existing.challanNumber) return;
+
+    if (!window.confirm(`Are you sure you want to remove delivery challan "${existing.challanNumber}" from this visit?`)) {
+      return;
+    }
+
+    try {
+      await tripService.removeDeliveryChallanFromVisit(visit.id, existing.challanNumber);
+      showSnackbar("Challan removed successfully!", "success");
+      await fetchTripDetails();
+      if (typeof fetchTrips === "function") fetchTrips();
+    } catch (error) {
+      console.error("Failed to remove challan:", error);
+      showSnackbar(error.message || "Failed to remove challan.", "error");
+    }
+  };
+
   const tripChallanImageUrls = getTripChallanImageUrls(
     tripDetails?.visits,
     getVisitExistingChallan
@@ -901,9 +970,9 @@ function TripDetailsSidebar({
                         flexWrap: "wrap",
                       }}
                     >
-                      <Box>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                         {getVisitExistingChallan(visit) && (
-                          <Typography variant="body2">
+                          <Typography variant="body2" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             <strong>Challan:</strong>{" "}
                             {getVisitExistingChallan(visit)?.challanNumber || "N/A"}
                             {getVisitExistingChallan(visit)?.challanUrl ? (
@@ -917,12 +986,33 @@ function TripDetailsSidebar({
                                     color: "#1976d2",
                                     textDecoration: "none",
                                     fontWeight: 500,
+                                    marginRight: "8px",
                                   }}
                                 >
                                   View Document
                                 </a>
                               </>
                             ) : null}
+                            <Tooltip title="Edit Challan Number">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleOpenUpdateChallan(visit)}
+                                sx={{ p: 0.25 }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete Challan">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDeleteChallan(visit)}
+                                sx={{ p: 0.25 }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </Typography>
                         )}
                       </Box>
@@ -1928,6 +2018,50 @@ function TripDetailsSidebar({
           </Button>
           <Button onClick={handleAssignDriver} color="primary">
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Update Challan Number Dialog */}
+      <Dialog
+        open={openUpdateChallanDialog}
+        onClose={() => {
+          setOpenUpdateChallanDialog(false);
+          setChallanDialogVisit(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Update Challan Number</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Challan Number"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={newChallanNumberVal}
+            onChange={(e) => setNewChallanNumberVal(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setOpenUpdateChallanDialog(false);
+              setChallanDialogVisit(null);
+            }}
+            color="secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleUpdateChallanSubmit}
+            color="primary"
+            variant="contained"
+            disabled={isUpdatingChallan}
+          >
+            {isUpdatingChallan ? <CircularProgress size={20} /> : "Update"}
           </Button>
         </DialogActions>
       </Dialog>

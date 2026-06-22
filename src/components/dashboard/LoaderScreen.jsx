@@ -1,7 +1,7 @@
 import React, { Fragment } from "react";
 import { Box, GlobalStyles } from "@mui/material";
 
-export default function LoaderScreen() {
+export default function LoaderScreen({ minHeight = "calc(100vh - 64px)", boxSx = {} }) {
   return (
     <Fragment>
       <GlobalStyles
@@ -12,7 +12,7 @@ export default function LoaderScreen() {
           },
         }}
       />
-      <Box sx={{ minHeight: "calc(100vh - 64px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Box sx={{ minHeight, display: "flex", alignItems: "center", justifyContent: "center", ...boxSx }}>
         <Box
           component="img"
           src="/linen.png"

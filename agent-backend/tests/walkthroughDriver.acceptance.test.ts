@@ -33,6 +33,52 @@ const mockConnectionManager = {
 mock.module("../src/connectionManager.js", () => mockConnectionManager);
 mock.module("../connectionManager.js", () => mockConnectionManager);
 
+mock.module("../src/services/db.js", () => ({
+  db: {
+    select: mock(() => ({
+      from: mock(() => ({
+        where: mock(() => ({
+          limit: mock(() => Promise.resolve([])),
+        })),
+      })),
+    })),
+    insert: mock(() => ({
+      values: mock(() => ({
+        returning: mock(() => Promise.resolve([{ id: "mock-id" }])),
+      })),
+    })),
+    update: mock(() => ({
+      set: mock(() => ({
+        where: mock(() => Promise.resolve([])),
+      })),
+    })),
+  },
+  sessions: {
+    id: "id",
+    userName: "userName",
+    startedAt: "startedAt",
+    endedAt: "endedAt",
+    status: "status",
+    formId: "formId",
+  },
+  turns: {
+    id: "id",
+    sessionId: "sessionId",
+    userTranscript: "userTranscript",
+    llmRawContent: "llmRawContent",
+    llmToolCalls: "llmToolCalls",
+    agentTranscript: "agentTranscript",
+    userAudioUrl: "userAudioUrl",
+    agentAudioUrl: "agentAudioUrl",
+    latencyStt: "latencyStt",
+    latencyLlm: "latencyLlm",
+    latencyTts: "latencyTts",
+    latencyTotal: "latencyTotal",
+    createdAt: "createdAt",
+  },
+  ensureSessionExists: mock(async () => {}),
+}));
+
 const mockSynthesize = mock(async (text: string, lang: string) => {
   return "data:audio/mpeg;base64,aGVsbG8=";
 });

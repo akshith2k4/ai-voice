@@ -11,6 +11,7 @@ import type { OutgoingMessage } from "../types.js";
 import type { IResponder } from "../adapters/responders/IResponder.js";
 import { resolveDemoValue } from "../core/workflowResolver.js";
 import { FormSchema, SchemaNode, FieldNode, RepeatingNode, findFieldInNodes } from "../schema/loader.js";
+import { fireAndForget } from "../services/observability.js";
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ function isNodeVisible(node: SchemaNode, session: WalkthroughSession): boolean {
 // ── Generator functions ────────────────────────────────────────────────────────
 
 function* createTreeWalker(schema: FormSchema, session: WalkthroughSession): Generator<WalkthroughCommand, void, unknown> {
+  const keyCounts = new Map<string, number>();
   // Setup steps
   for (const step of schema.setupSteps) {
     yield {
@@ -50,7 +52,7 @@ function* createTreeWalker(schema: FormSchema, session: WalkthroughSession): Gen
   };
 
   // Main nodes
-  yield* traverseNodes(schema.nodes, session);
+  yield* traverseNodes(schema.nodes, session, keyCounts);
 
   const wrapUpText = typeof schema.wrapUp === "string"
     ? schema.wrapUp
@@ -72,17 +74,18 @@ function* createTreeWalker(schema: FormSchema, session: WalkthroughSession): Gen
 function* traverseNodes(
   nodes: SchemaNode[],
   session: WalkthroughSession,
+  keyCounts: Map<string, number>,
   repeatingCtx?: { id: string; itemIndex: number }
 ): Generator<WalkthroughCommand, void, unknown> {
   for (const node of nodes) {
     if (!isNodeVisible(node, session)) continue;
 
     if (node.nodeType === "field") {
-      yield* traverseField(node, session, repeatingCtx);
+      yield* traverseField(node, session, keyCounts, repeatingCtx);
     } else if (node.nodeType === "group") {
-      yield* traverseNodes(node.children, session, repeatingCtx);
+      yield* traverseNodes(node.children, session, keyCounts, repeatingCtx);
     } else if (node.nodeType === "repeating") {
-      yield* traverseRepeating(node, session);
+      yield* traverseRepeating(node, session, keyCounts);
     }
   }
 }
@@ -90,6 +93,7 @@ function* traverseNodes(
 function* traverseField(
   node: FieldNode,
   session: WalkthroughSession,
+  keyCounts: Map<string, number>,
   ctx?: { id: string; itemIndex: number }
 ): Generator<WalkthroughCommand, void, unknown> {
   const demoValue = resolveDemoValue(node, session.filledValues);
@@ -116,7 +120,11 @@ function* traverseField(
     stepArgs.itemIndex = ctx.itemIndex;
   }
 
-  const fillKey = ctx ? `${ctx.id}_${ctx.itemIndex}_${node.key}` : node.key;
+  const count = keyCounts.get(node.key) || 0;
+  keyCounts.set(node.key, count + 1);
+
+  const baseKey = ctx ? `${ctx.id}_${ctx.itemIndex}_${node.key}` : node.key;
+  const fillKey = count > 0 ? `${baseKey}_${count}` : baseKey;
 
   yield {
     tools: [{ tool: "field_step", args: stepArgs }],
@@ -129,6 +137,7 @@ function* traverseField(
 function* traverseRepeating(
   node: RepeatingNode,
   session: WalkthroughSession,
+  keyCounts: Map<string, number>
 ): Generator<WalkthroughCommand, void, unknown> {
   // copyFrom path: show checkbox to copy from another repeating group
   if (node.copyFrom) {
@@ -161,7 +170,7 @@ function* traverseRepeating(
       tools: [{ tool: "add_item", args: { repeatingId: node.id, triggerText: node.triggerText, speech } }],
       waitFor: "item_added",
     };
-    yield* traverseNodes(node.children, session, { id: node.id, itemIndex });
+    yield* traverseNodes(node.children, session, keyCounts, { id: node.id, itemIndex });
   }
 }
 
@@ -200,13 +209,14 @@ export class WalkthroughExecutor {
     }
 
     if (this.starting.has(sessionId) || this.sessionManager.has(sessionId)) {
-      this.toolMessenger.send(sessionId, {
-        type: "tool",
-        tool: "respond",
-        args: { message: "A walkthrough is already in progress. Say 'cancel' to stop it first.", tts: false }
-      });
       if (actualResponder) {
         await actualResponder.speak("A walkthrough is already in progress. Say 'cancel' to stop it first.");
+      } else {
+        this.toolMessenger.send(sessionId, {
+          type: "tool",
+          tool: "respond",
+          args: { message: "A walkthrough is already in progress. Say 'cancel' to stop it first.", tts: false }
+        });
       }
     } else {
       this.starting.add(sessionId);
@@ -246,11 +256,11 @@ export class WalkthroughExecutor {
           this.setStepTimeout(session, "walkthrough_speak_done");
           if (session.responder) {
             if (session.ttsEnabled) {
-              session.responder.speak(actualIntroMessage, msgId);
+              fireAndForget(session.responder.speak(actualIntroMessage, msgId));
             }
           } else if (session.ttsEnabled) {
-            import("../services/narrationSpeaker.js")
-              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, actualIntroMessage!, msgId))
+            import ("../services/narrationSpeaker.js")
+              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, actualIntroMessage!, msgId!))
               .catch(err => console.error(err));
           }
         } else {
@@ -293,7 +303,7 @@ export class WalkthroughExecutor {
     }
   }
 
-  detour(fieldKey: string, sessionId: string, responder?: IResponder, skipSpeech?: boolean): void {
+  async detour(fieldKey: string, sessionId: string, responder?: IResponder, skipSpeech?: boolean): Promise<void> {
     const session = this.sessionManager.get(sessionId);
     if (session) {
       // ADD THIS — clear the pending timeout before entering detour
@@ -309,12 +319,14 @@ export class WalkthroughExecutor {
       if (speechText) {
         if (responder) {
           if (session.ttsEnabled) {
-            responder.speak(speechText);
+            await responder.speak(speechText);
           }
         } else if (session.ttsEnabled) {
           const msgId = crypto.randomUUID();
-          import("../services/narrationSpeaker.js")
-            .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, speechText, msgId))
+          await import("../services/narrationSpeaker.js")
+            .then(async ({ speakNarration }) => {
+              await speakNarration(session.sessionId, session.languageCode, speechText, msgId);
+            })
             .catch(err => console.error(err));
         }
       }
@@ -375,11 +387,11 @@ export class WalkthroughExecutor {
         this.tool(session, tool, { ...args, tts: session.ttsEnabled, messageId: msgId });
         if (session.responder) {
           if (session.ttsEnabled) {
-            session.responder.speak(text, msgId);
+            fireAndForget(session.responder.speak(text, msgId));
           }
         } else if (session.ttsEnabled) {
           import("../services/narrationSpeaker.js")
-            .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, text, msgId))
+            .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, text, msgId!))
             .catch(err => console.error(err));
         }
       } else if (tool === "field_step") {
@@ -389,7 +401,7 @@ export class WalkthroughExecutor {
         if (speechMsgId) {
           if (session.responder) {
             if (session.ttsEnabled) {
-              session.responder.speak(String(args.speech), speechMsgId);
+              fireAndForget(session.responder.speak(String(args.speech), speechMsgId));
             }
           } else if (session.ttsEnabled) {
             import("../services/narrationSpeaker.js")
@@ -423,11 +435,11 @@ export class WalkthroughExecutor {
           this.tool(session, tool, { ...args, tts: session.ttsEnabled, messageId: msgId });
           if (session.responder) {
             if (session.ttsEnabled) {
-              session.responder.speak(text, msgId);
+              fireAndForget(session.responder.speak(text, msgId));
             }
           } else if (session.ttsEnabled) {
             import("../services/narrationSpeaker.js")
-              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, text, msgId))
+              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, text, msgId!))
               .catch(err => console.error(err));
           }
         } else if (tool === "field_step") {
@@ -438,7 +450,7 @@ export class WalkthroughExecutor {
           if (speechMsgId) {
             if (session.responder) {
               if (session.ttsEnabled) {
-                session.responder.speak(String(args.speech), speechMsgId);
+                fireAndForget(session.responder.speak(String(args.speech), speechMsgId));
               }
             } else if (session.ttsEnabled) {
               import("../services/narrationSpeaker.js")
@@ -470,6 +482,10 @@ export class WalkthroughExecutor {
       if (data && typeof data.fieldKey === "string") {
         console.log(`[Executor] Updating filledValues for ${data.fieldKey} to ${data.value}`);
         session.filledValues.set(data.fieldKey, data.value);
+        const sm1 = session.stateMachine.currentState;
+        if (sm1 === "ACTIVE" || sm1 === "PAUSED") {
+          this.reEvaluateVisibility(session);
+        }
       }
     } else if (event === "form_registered") {
       session.isRegistered = true;
@@ -541,8 +557,70 @@ export class WalkthroughExecutor {
     }
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  private reEvaluateVisibility(session: WalkthroughSession): void {
+    const tempWalker = createTreeWalker(session.schema, session);
+    const completedFields = new Set<string>();
 
+    for (const [key, val] of session.filledValues.entries()) {
+      if (val !== undefined && val !== null && val !== "") {
+        completedFields.add(key);
+      }
+    }
+
+    let targetCmd: any = null;
+    let nextVal = tempWalker.next();
+
+    while (!nextVal.done) {
+      const cmd = nextVal.value;
+
+      const isSetupOrOverview = cmd.tools.some(t =>
+        t.tool === "navigate" ||
+        t.tool === "open_dialog" ||
+        (t.tool === "speak" && !cmd.navContext)
+      );
+
+      if (isSetupOrOverview) {
+        nextVal = tempWalker.next();
+        continue;
+      }
+
+      if (cmd.fill && completedFields.has(cmd.fill.key)) {
+        nextVal = tempWalker.next();
+        continue;
+      }
+
+      targetCmd = cmd;
+      break;
+    }
+
+    if (targetCmd) {
+      const currentFieldKey = session.currentNav?.fieldKey;
+      const targetFieldKey = targetCmd.navContext?.fieldKey;
+
+      if (targetFieldKey && targetFieldKey !== currentFieldKey) {
+        console.log(`[Executor] Visibility change detected. Switching from ${currentFieldKey} to ${targetFieldKey}`);
+        this.clearStepTimeout(session.sessionId);
+
+        session.treeWalker = createTreeWalker(session.schema, session);
+        let advance = session.treeWalker.next();
+        while (!advance.done) {
+          const cmd = advance.value;
+          if (cmd.navContext?.fieldKey === targetFieldKey) {
+            break;
+          }
+          advance = session.treeWalker.next();
+        }
+
+        session.waitingFor = targetCmd.waitFor;
+        session.lastCommand = targetCmd;
+        if (targetCmd.navContext) session.currentNav = targetCmd.navContext;
+        this.replayCurrent(session);
+      }
+    }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  
   private setStepTimeout(session: WalkthroughSession, expectedEvent: string): void {
     const existing = this.stepTimers.get(session.sessionId);
     if (existing) clearTimeout(existing);

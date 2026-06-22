@@ -45,9 +45,9 @@ export function useCreateOrderAgent({
         set: (v) => handleInputChange("orderType", v),
       },
       {
-        key: "isAdjustment",
-        type: "toggle",
-        set: (v) => handleInputChange("isAdjustment", v === true || v === "true"),
+        key: "orderCategory",
+        type: "select",
+        set: (v) => handleInputChange("orderCategory", v),
       },
       {
         key: "deliveryType",

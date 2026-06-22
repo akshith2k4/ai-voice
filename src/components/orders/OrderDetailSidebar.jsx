@@ -16,21 +16,28 @@ import {
   Chip,
   Button,
   Tooltip,
+  LinearProgress,
+  CircularProgress,
 } from "@mui/material";
 import TableCell from "../common/TableCell";
 import {
   Close as CloseIcon,
   LocalShipping as DeliveryIcon,
   ShoppingBasket as PickupIcon,
+  Person as PersonIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 import ReserveItemsDialog from "./ReserveItemsDialog";
 import RejectItemsDialog from "./RejectItemsDialog";
 import { orderService } from "../../services/orderService";
+import { packingJobService } from "../../services/packingJobService";
+import { laundryUserService } from "../../services/laundryUserService";
 import VisitImagesDialog from "../trips/VisitImagesDialog";
 import CustomSnackbar from "../layout/CustomSnackbar";
 import { formatCustomDate } from "../../utils/dateUtils";
 import CustomDrawer from "../common/CustomDrawer";
+import GlowingDot from "../common/GlowingDot";
+import { LEASING_ORDER_CATEGORY } from "../../constants/orderConstants";
 
 // Recalculate rejected quantities based on APPROVED rejection requests
 const recalcRejectedQuantities = (deliveryItems, rejectionRequests) => {
@@ -55,9 +62,40 @@ const calculateItemsCost = (items) =>
     0,
   );
 
+// Get combined order and fulfillment status
+const getCombinedStatus = (order) => {
+  const orderStatus = order?.status;
+  const fulfillmentStatus = order?.leasingOrderDetails?.orderFulfillment?.status;
+  if (orderStatus === "COMPLETED") {
+    return "COMPLETED";
+  }
+  if (fulfillmentStatus === "INVENTORY_PACKED") {
+    return "PACKED";
+  }
+  return orderStatus || "PENDING";
+};
+
+const getStatusColor = (status) => {
+  switch (status) {
+    case "COMPLETED":
+      return "success";
+    case "PACKED":
+    case "IN_PROGRESS":
+      return "info";
+    case "PENDING":
+      return "warning";
+    case "CANCELLED":
+      return "error";
+    default:
+      return "default";
+  }
+};
+
 /* ================= COMPONENT ================= */
 
-function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
+
+
+function OrderDetailSidebar({ open, order, onClose, onUpdateOrder }) {
   if (!order) return null;
 
   if (!onUpdateOrder) {
@@ -84,7 +122,6 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
   const [reserveDialogOpen, setReserveDialogOpen] = React.useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = React.useState(false);
 
-  /* ================= COMPLETE ORDER STATE ================= */
 
   const [isCompletingApi, setIsCompletingApi] = React.useState(false);
 
@@ -103,6 +140,85 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
 
   const closeOrderDetailsSnackbar = () => {
     setOrderSnackbarOpen(false);
+  };
+
+  /* ================= PACKING JOB STATE & ACTIONS ================= */
+
+  const [packingJob, setPackingJob] = React.useState(null);
+  const [loadingPackingJob, setLoadingPackingJob] = React.useState(false);
+  const [isCreatingPackingJob, setIsCreatingPackingJob] = React.useState(false);
+
+  React.useEffect(() => {
+    const fetchPackingJob = async () => {
+      const fulfillmentId = order?.leasingOrderDetails?.orderFulfillment?.id;
+      if (open && fulfillmentId) {
+        setLoadingPackingJob(true);
+        try {
+          const job = await packingJobService.getJobBySource("ORDER_FULFILLMENT", fulfillmentId);
+          setPackingJob(job);
+        } catch (error) {
+          console.log("No packing job found for order fulfillment:", fulfillmentId);
+          setPackingJob(null);
+        } finally {
+          setLoadingPackingJob(false);
+        }
+      } else {
+        setPackingJob(null);
+      }
+    };
+    fetchPackingJob();
+  }, [open, order]);
+
+  const handleCreatePackingJob = async () => {
+    const fulfillmentId = order?.leasingOrderDetails?.orderFulfillment?.id;
+    if (!fulfillmentId) {
+      showOrderDetailsSnackbar("No order fulfillment ID found to create packing job.", "error");
+      return;
+    }
+
+    setIsCreatingPackingJob(true);
+    try {
+      const productItems = (order.leasingOrderDetails?.deliveryItems || [])
+        .map((item) => {
+          const packingQuantity =
+            item.packingQuantity != null
+              ? Number(item.packingQuantity)
+              : Number(item.quantity || 0) -
+              Number(item.completedQuantity || 0) -
+              Number(item.rejectedQuantity || 0);
+
+          return {
+            referenceItemType: "LEASING_ORDER_DELIVERY_ITEM",
+            referenceItemId: String(item.id ?? item.productId),
+            productId: item.productId,
+            packingQuantity,
+            notes: item.remarks || "",
+          };
+        })
+        .filter((item) => item.packingQuantity > 0);
+
+      if (productItems.length === 0) {
+        showOrderDetailsSnackbar("No products with a positive packing quantity found.", "warning");
+        return;
+      }
+
+      const payload = {
+        referenceType: "ORDER_FULFILLMENT",
+        referenceId: String(fulfillmentId),
+        notes: order.notes || "",
+        productItems,
+      };
+
+      const newJob = await packingJobService.createJob(payload);
+      setPackingJob(newJob);
+      showOrderDetailsSnackbar(`Packing job created successfully! Job Number: ${newJob.jobNumber}`, "success");
+    } catch (error) {
+      console.error("Failed to create packing job:", error);
+      const errMsg = error?.response?.data?.message || error?.message || "Failed to create packing job.";
+      showOrderDetailsSnackbar(`Failed to create packing job: ${errMsg}`, "error");
+    } finally {
+      setIsCreatingPackingJob(false);
+    }
   };
 
   /* ================= ACTIONS ================= */
@@ -328,17 +444,29 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
                     </Typography>
 
                     <Typography variant="body2" color="text.primary">
-                      <strong>Status:</strong>{" "}
+                      <strong>Category:</strong>{" "}
                       <Chip
-                        label={order.status}
+                        label={order.leasingOrderDetails?.leasingOrderCategory || LEASING_ORDER_CATEGORY.REGULAR}
                         size="small"
                         color={
-                          order.status === "COMPLETED"
-                            ? "success"
-                            : order.status === "PENDING"
-                              ? "warning"
-                              : "error"
+                          order.leasingOrderDetails?.leasingOrderCategory === LEASING_ORDER_CATEGORY.REGULAR || !order.leasingOrderDetails?.leasingOrderCategory
+                            ? "primary"
+                            : order.leasingOrderDetails?.leasingOrderCategory === LEASING_ORDER_CATEGORY.AD_HOC
+                              ? "secondary"
+                              : order.leasingOrderDetails?.leasingOrderCategory === LEASING_ORDER_CATEGORY.ADJUSTMENT
+                                ? "warning"
+                                : "default"
                         }
+                        sx={{ ml: 1 }}
+                      />
+                    </Typography>
+
+                    <Typography variant="body2" color="text.primary">
+                      <strong>Status:</strong>{" "}
+                      <Chip
+                        label={getCombinedStatus(order)}
+                        size="small"
+                        color={getStatusColor(getCombinedStatus(order))}
                         sx={{ ml: 1 }}
                       />
                     </Typography>
@@ -386,14 +514,11 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
                         )}
                       </>
                     )}
-                    <Box>
-                      <Typography variant="body2" color="text.primary">
-                        <strong>Notes With Order:- </strong>
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {order.notes}
-                      </Typography>
-                    </Box>
+                      {order.notes && (
+                        <Typography variant="body2" color="text.primary">
+                          <strong>Notes:</strong> {order.notes}
+                        </Typography>
+                      )}
                   </Box>
                 }
               />
@@ -477,7 +602,7 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
                                   >
                                     Ordered quantity
                                   </TableCell>
-                                   {/* <TableCell
+                                  {/* <TableCell
                                     align="center"
                                     sx={{ fontWeight: 500 }}
                                   >
@@ -507,7 +632,7 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
                                       <TableCell align="center">
                                         {item.quantity}
                                       </TableCell>
-                                        {/* <TableCell
+                                      {/* <TableCell
                                           variant="scan"
                                           value={item.packedQuantity ?? 0}
                                           editable={false}
@@ -641,7 +766,9 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
                             </Typography>
                             <Typography variant="body2">
                               <strong>Status:</strong>{" "}
-                              {leasingDetails.orderFulfillment.status}
+                              {leasingDetails.orderFulfillment.status === "INVENTORY_PACKED"
+                                ? "PACKED"
+                                : leasingDetails.orderFulfillment.status}
                             </Typography>
                             <Typography variant="body2">
                               <strong>Start Date:</strong>{" "}
@@ -688,157 +815,219 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
             {/* ===== REJECTION REQUESTS ===== */}
             {(order.leasingOrderDetails?.rejectionRequests || []).length >
               0 && (
-              <>
-                <ListItem>
-                  <ListItemText
-                    primary={
-                      <Typography
-                        variant="subtitle1"
-                        sx={{
-                          color: "error.main",
-                          fontWeight: 500,
-                          mb: 1,
-                        }}
-                      >
-                        Rejection Requests
-                      </Typography>
-                    }
-                    secondary={
-                      <Box>
-                        {(
-                          order.leasingOrderDetails?.rejectionRequests || []
-                        ).map((rejectionRequest) => {
-                          const productName = rejectionRequest.productName;
-                          const isApproved =
-                            rejectionRequest.status === "APPROVED";
+                <>
+                  <ListItem>
+                    <ListItemText
+                      primary={
+                        <Typography
+                          variant="subtitle1"
+                          sx={{
+                            color: "error.main",
+                            fontWeight: 500,
+                            mb: 1,
+                          }}
+                        >
+                          Rejection Requests
+                        </Typography>
+                      }
+                      secondary={
+                        <Box>
+                          {[...(order.leasingOrderDetails?.rejectionRequests || [])]
+                            .sort((a, b) => {
+                              if (a.status === "APPROVED" && b.status !== "APPROVED") return 1;
+                              if (b.status === "APPROVED" && a.status !== "APPROVED") return -1;
+                              return 0;
+                            })
+                            .map((rejectionRequest) => {
+                            const productName = rejectionRequest.productName;
+                            const isApproved = rejectionRequest.status === "APPROVED";
+                            const isPending = rejectionRequest.status === "PENDING";
+                            
+                            let themeColor = "#f44336"; // Default/Rejected: Red
+                            let bgLight = "rgba(244, 67, 54, 0.04)";
+                            if (isApproved) {
+                              themeColor = "#2e7d32"; // Approved: Green
+                              bgLight = "rgba(46, 125, 50, 0.04)";
+                            } else if (isPending) {
+                              themeColor = "#ed6c02"; // Pending: Orange
+                              bgLight = "rgba(237, 108, 2, 0.04)";
+                            }
 
-                          return (
-                            <Box
-                              key={rejectionRequest.id}
-                              sx={{
-                                border: 1,
-                                borderColor: "divider",
-                                borderRadius: 2,
-                                p: 2,
-                                mb: 2,
-                                bgcolor: "background.default",
-                              }}
-                            >
-                              <Box
-                                sx={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  alignItems: "center",
-                                }}
-                              >
-                                <Typography sx={{ fontWeight: 600 }}>
-                                  {productName}
-                                </Typography>
+                            return (
+                               <Box
+                                 key={rejectionRequest.id}
+                                 sx={{
+                                   border: "1px solid rgba(0, 0, 0, 0.08)",
+                                   borderLeft: `5px solid ${themeColor}`,
+                                   borderRadius: "12px",
+                                   p: 2.5,
+                                   mb: 2.5,
+                                   bgcolor: "#ffffff",
+                                   boxShadow: "0 2px 8px rgba(0, 0, 0, 0.02)",
+                                   transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                                   position: "relative",
+                                   "&:hover": {
+                                     boxShadow: "0 8px 20px rgba(0, 0, 0, 0.06)",
+                                     transform: "translateY(-2px)",
+                                   },
+                                 }}
+                               >
+                                  {/* Combined Header & Metadata (All in one line aligned with Status) */}
+                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                                    <Box sx={{ display: "flex", gap: 3, alignItems: "center" }}>
+                                      {productName && (
+                                        <Box>
+                                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                            Product
+                                          </Typography>
+                                          <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "text.primary" }}>
+                                            {productName}
+                                          </Typography>
+                                        </Box>
+                                      )}
 
-                                <VisitImagesDialog
-                                  imageUrls={rejectionRequest.images || []}
-                                  title="Rejection Images"
-                                />
-                              </Box>
+                                      {productName && <Box sx={{ borderLeft: "1px solid rgba(0,0,0,0.08)", height: 28, mx: 0.5 }} />}
 
-                              <Box
-                                sx={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                }}
-                              >
-                                <Box>
-                                  <Typography sx={{ mt: 1 }}>
-                                    Qty:{" "}
-                                    <strong>{rejectionRequest.quantity}</strong>
-                                  </Typography>
+                                      <Box>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                          ID
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
+                                          #{rejectionRequest.id}
+                                        </Typography>
+                                      </Box>
 
-                                  <Typography sx={{ mt: 1 }}>
-                                    Issue:{" "}
-                                    <Typography
-                                      component="span"
-                                      color="error.main"
-                                      fontWeight="bold"
-                                    >
-                                      {rejectionRequest.issueType}
-                                    </Typography>
-                                  </Typography>
+                                      <Box sx={{ borderLeft: "1px solid rgba(0,0,0,0.08)", height: 28, mx: 0.5 }} />
 
-                                  <Typography sx={{ mt: 1 }}>
-                                    Status:{" "}
-                                    <Typography
-                                      component="span"
+                                      <Box>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                          Quantity
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
+                                          {rejectionRequest.quantity} pcs
+                                        </Typography>
+                                      </Box>
+
+                                      <Box sx={{ borderLeft: "1px solid rgba(0,0,0,0.08)", height: 28, mx: 0.5 }} />
+
+                                      <Box>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                                          Issue
+                                        </Typography>
+                                        <Chip
+                                          label={rejectionRequest.issueType}
+                                          size="small"
+                                          color="error"
+                                          variant="outlined"
+                                          sx={{ height: 20, fontSize: "0.7rem", fontWeight: 500 }}
+                                        />
+                                      </Box>
+                                    </Box>
+
+                                    <Chip
+                                      label={rejectionRequest.status}
+                                      size="small"
                                       sx={{
                                         fontWeight: "bold",
-                                        color: isApproved
-                                          ? "success.main"
-                                          : "error.main",
+                                        height: 22,
+                                        fontSize: "0.7rem",
+                                        bgcolor: bgLight,
+                                        color: themeColor,
+                                        border: `1px solid ${themeColor}33`,
                                       }}
-                                    >
-                                      {rejectionRequest.status}
-                                    </Typography>
-                                  </Typography>
-
-                                  <Box
-                                    sx={{
-                                      display: "flex",
-                                      gap: 1,
-                                      mt: 2,
-                                    }}
-                                  >
-                                    {!isApproved && (
-                                      <>
-                                        <Button
-                                          variant="outlined"
-                                          onClick={() =>
-                                            handleRejectRequestApprove(
-                                              rejectionRequest,
-                                            )
-                                          }
-                                        >
-                                          Approve
-                                        </Button>
-
-                                        <Button
-                                          variant="outlined"
-                                          color="error"
-                                          onClick={() =>
-                                            handleRejectRequestDelete(
-                                              rejectionRequest,
-                                            )
-                                          }
-                                        >
-                                          Delete
-                                        </Button>
-                                      </>
-                                    )}
+                                    />
                                   </Box>
-                                </Box>
-                              </Box>
-                            </Box>
-                          );
-                        })}
-                      </Box>
-                    }
-                  />
-                </ListItem>
 
-                <Divider />
-              </>
-            )}
+                                 {/* Remarks / Notes */}
+                                 {rejectionRequest.remarks && (
+                                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontSize: "0.85rem" }}>
+                                     <strong>Notes:</strong> {rejectionRequest.remarks}
+                                   </Typography>
+                                 )}
 
-            {/* COMPLETE ORDER BUTTON */}
-            {order.status !== "COMPLETED" && (
-              <Button
-                variant="contained"
-                color="success"
-                disabled={isCompletingApi}
-                onClick={handleOrderComplete}
-                sx={{ mt: 2 }}
-              >
-                {isCompletingApi ? "Completing..." : "Complete Order"}
-              </Button>
-            )}
+                                 {/* Card Footer Actions */}
+                                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 2, pt: 1.5, borderTop: "1px solid rgba(0, 0, 0, 0.05)" }}>
+                                   <VisitImagesDialog
+                                     imageUrls={rejectionRequest.images || []}
+                                     title="Rejection Images"
+                                   />
+
+                                   <Box sx={{ display: "flex", gap: 1 }}>
+                                     {!isApproved && (
+                                       <>
+                                         <Button
+                                           variant="contained"
+                                           color="success"
+                                           size="small"
+                                           onClick={() => handleRejectRequestApprove(rejectionRequest)}
+                                           sx={{ textTransform: "none", fontWeight: 600, boxShadow: "none", "&:hover": { boxShadow: "none" } }}
+                                         >
+                                           Approve
+                                         </Button>
+
+                                         <Button
+                                           variant="outlined"
+                                           color="error"
+                                           size="small"
+                                           onClick={() => handleRejectRequestDelete(rejectionRequest)}
+                                           sx={{ textTransform: "none", fontWeight: 600 }}
+                                         >
+                                           Delete
+                                         </Button>
+                                       </>
+                                     )}
+                                   </Box>
+                                 </Box>
+                               </Box>
+                             );
+                          })}
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+
+                  <Divider />
+                </>
+              )}
+
+            {/* ACTIONS FOOTER */}
+            <Box sx={{ display: "flex", gap: 1.5, mt: 2, alignItems: "center" }}>
+              {order.status !== "COMPLETED" && (
+                <Button
+                  variant="contained"
+                  color="success"
+                  disabled={isCompletingApi}
+                  onClick={handleOrderComplete}
+                >
+                  {isCompletingApi ? "Completing..." : "Complete Order"}
+                </Button>
+              )}
+
+              {order.leasingOrderDetails?.orderFulfillment && loadingPackingJob && (
+                <Box sx={{ display: "flex", alignItems: "center", ml: 1 }}>
+                  <GlowingDot color="#4caf50" size={10} />
+                </Box>
+              )}
+
+              {order.leasingOrderDetails?.orderFulfillment && !loadingPackingJob && !packingJob && (
+                <Button
+                  variant="contained"
+                  disabled={isCreatingPackingJob}
+                  onClick={handleCreatePackingJob}
+                  sx={{
+                    backgroundColor: "success.main",
+                    color: "#fff",
+                    boxShadow: 3,
+                    textTransform: "none",
+                    "&:hover": {
+                      backgroundColor: "success.dark",
+                    },
+                  }}
+                >
+                  {isCreatingPackingJob ? "Creating..." : "Create Packing Job"}
+                </Button>
+              )}
+            </Box>
 
             {/* Reserve items dialog */}
             <ReserveItemsDialog
@@ -847,6 +1036,7 @@ function OrderDetailSidebar({ order, onClose, onUpdateOrder }) {
               deliveryItems={order.leasingOrderDetails?.deliveryItems || []}
               customerId={customerId}
               orderId={order.id}
+              orderFulfillmentId={order.leasingOrderDetails?.orderFulfillment?.id}
             />
 
             {/* Rejection items dialog */}

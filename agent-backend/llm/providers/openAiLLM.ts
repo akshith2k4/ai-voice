@@ -21,6 +21,7 @@ export class OpenAILLM implements ILLMService {
         model: OPENAI_MODEL,
         temperature: 0,
         apiKey: OPENAI_API_KEY,
+        maxRetries: 2,
       });
     }
     return this.model.bindTools(allTools);
@@ -29,55 +30,75 @@ export class OpenAILLM implements ILLMService {
   async *generateStream(
     systemPrompt: string,
     userPrompt: string,
-    languageHint = ""
+    languageHint = "",
+    signal?: AbortSignal
   ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
     const modelWithTools = this.getModel();
     const toolCalls: LLMToolCall[] = [];
     let rawContent = "";
 
-    const stream = await modelWithTools.stream([
-      new SystemMessage(systemPrompt + languageHint),
-      new HumanMessage(userPrompt),
-    ]);
+    const controller = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      signal.addEventListener("abort", () => controller.abort());
+    }
+    const timeoutTimer = setTimeout(() => {
+      controller.abort();
+    }, 10000);
+    const combinedSignal = controller.signal;
 
-    let finalMessage: any = null;
+    try {
+      const stream = await modelWithTools.stream([
+        new SystemMessage(systemPrompt + languageHint),
+        new HumanMessage(userPrompt),
+      ], { signal: combinedSignal });
 
-    for await (const chunk of stream) {
-      finalMessage = finalMessage ? finalMessage.concat(chunk) : chunk;
+      let finalMessage: any = null;
 
-      let textContent = "";
-      if (typeof chunk.content === "string") {
-        textContent = chunk.content;
-      } else if (Array.isArray(chunk.content)) {
-        for (const block of chunk.content) {
-          if (typeof block === "string") {
-            textContent += block;
-          } else if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
-            textContent += block.text;
+      for await (const chunk of stream) {
+        if (combinedSignal.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        finalMessage = finalMessage ? finalMessage.concat(chunk) : chunk;
+
+        let textContent = "";
+        if (typeof chunk.content === "string") {
+          textContent = chunk.content;
+        } else if (Array.isArray(chunk.content)) {
+          for (const block of chunk.content) {
+            if (typeof block === "string") {
+              textContent += block;
+            } else if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+              textContent += block.text;
+            }
           }
+        }
+
+        if (textContent) {
+          rawContent += textContent;
+          yield { type: "text", text: textContent };
         }
       }
 
-      if (textContent) {
-        rawContent += textContent;
-        yield { type: "text", text: textContent };
+      if (finalMessage && finalMessage.tool_calls && finalMessage.tool_calls.length > 0) {
+        for (const tc of finalMessage.tool_calls) {
+          const toolCall = {
+            name: tc.name,
+            args: tc.args as Record<string, unknown>,
+          };
+          toolCalls.push(toolCall);
+          yield { type: "tool_call", toolCall };
+        }
       }
-    }
 
-    if (finalMessage && finalMessage.tool_calls && finalMessage.tool_calls.length > 0) {
-      for (const tc of finalMessage.tool_calls) {
-        const toolCall = {
-          name: tc.name,
-          args: tc.args as Record<string, unknown>,
-        };
-        toolCalls.push(toolCall);
-        yield { type: "tool_call", toolCall };
-      }
+      return {
+        toolCalls,
+        rawContent: rawContent.trim() || null,
+      };
+    } finally {
+      clearTimeout(timeoutTimer);
     }
-
-    return {
-      toolCalls,
-      rawContent: rawContent.trim() || null,
-    };
   }
 }

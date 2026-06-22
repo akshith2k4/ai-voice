@@ -17,6 +17,8 @@ import {
     Route as RouteIcon,
     Bolt as BoltIcon,
     DonutSmall as DonutSmallIcon,
+    Inventory2 as PackingIcon,
+    Forum as ForumIcon,
 } from "@mui/icons-material";
 import { matchPath } from "react-router-dom";
 import ErrorIcon from '@mui/icons-material/Error';
@@ -30,7 +32,9 @@ const menuItems = [
     { text: "Hotels", path: "/hotels", icon: <HotelIcon /> },
     { text: "Products", path: "/products", icon: <ShoppingCartIcon /> },
     { text: "Users", path: "/users", icon: <UserIcon /> },
+    { text: "Communication", path: "/communication", icon: <ForumIcon /> },
     { text: "Orders", path: "/orders", icon: <LocalShippingIcon /> },
+    { text: "Packing Jobs", path: "/packing-jobs", icon: <PackingIcon /> },
     { text: "Trips", path: "/trips", icon: <FlightTakeoffIcon /> },
     { text: "Manage Routes", path: "/routes", icon: <RouteIcon /> },
     { text: "Vehicles", path: "/vehicles", icon: <LocalShippingIcon /> },
@@ -269,7 +273,7 @@ const Sidebar = ({ currentPath, onNavigate, onLogout }) => {
                     {menuItems.map((item, index) => {
                         // const isSelected = currentPath.startsWith(item.path);
                         const isSelected = matchPath({ path: item.path + "/*" }, currentPath);
-                        const addDividerAfter = [0, 3, 6, 8, 10, 12, 15].includes(index);
+                        const addDividerAfter = [0, 4, 8, 10, 12, 14, 17].includes(index);
                         return (
                             <React.Fragment key={item.text}>
                                 <ListItem disablePadding>

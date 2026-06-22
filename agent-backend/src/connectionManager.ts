@@ -7,6 +7,7 @@ import type { ClientData, OutgoingMessage } from "./types";
 
 class ConnectionManager {
   private connections: Map<string, { ws: any; data: ClientData }> = new Map();
+  private pendingCleanups: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private voiceAdapterModule: any = null;
 
   /**
@@ -14,6 +15,13 @@ class ConnectionManager {
    */
   add(sessionId: string, ws: any): void {
     const now = Date.now();
+    const pending = this.pendingCleanups.get(sessionId);
+    if (pending) {
+      clearTimeout(pending);
+      this.pendingCleanups.delete(sessionId);
+      console.log(`[ConnectionManager] Cancelled pending cleanup for session ${sessionId} due to reconnect`);
+    }
+
     this.connections.set(sessionId, {
       ws,
       data: {
@@ -37,26 +45,32 @@ class ConnectionManager {
         `[ConnectionManager] Client disconnected: ${sessionId} (total: ${this.connections.size})`
       );
 
-      const performCleanup = (mod: any) => {
-        if (!this.has(sessionId)) {
-          mod.cleanupSession(sessionId);
-        } else {
-          console.log(`[ConnectionManager] Skipped cleanup for ${sessionId} because it reconnected`);
-        }
-      };
+      const timer = setTimeout(() => {
+        this.pendingCleanups.delete(sessionId);
 
-      if (this.voiceAdapterModule) {
-        performCleanup(this.voiceAdapterModule);
-      } else {
-        import("./adapters/voiceAdapter.js")
-          .then((mod) => {
-            this.voiceAdapterModule = mod;
-            performCleanup(mod);
-          })
-          .catch((err) => {
-            console.warn(`[ConnectionManager] Failed to cleanup session ${sessionId}:`, err);
-          });
-      }
+        const performCleanup = (mod: any) => {
+          if (!this.has(sessionId)) {
+            mod.cleanupSession(sessionId);
+          } else {
+            console.log(`[ConnectionManager] Skipped cleanup for ${sessionId} because it reconnected`);
+          }
+        };
+
+        if (this.voiceAdapterModule) {
+          performCleanup(this.voiceAdapterModule);
+        } else {
+          import("./adapters/voiceAdapter.js")
+            .then((mod) => {
+              this.voiceAdapterModule = mod;
+              performCleanup(mod);
+            })
+            .catch((err) => {
+              console.warn(`[ConnectionManager] Failed to cleanup session ${sessionId}:`, err);
+            });
+        }
+      }, 3000);
+
+      this.pendingCleanups.set(sessionId, timer);
     }
   }
 
@@ -89,6 +103,7 @@ class ConnectionManager {
         `[ConnectionManager] Failed to send to ${sessionId}:`,
         error
       );
+      this.remove(sessionId);
       return false;
     }
   }
