@@ -28,6 +28,8 @@ function getOrCreateCursor() {
 let clickBuffer = null;
 let clickLoadingPromise = null;
 
+const S3_BASE_URL = import.meta.env.VITE_S3_BASE_URL || "https://linengrass-voiceai-prod.s3.ap-southeast-2.amazonaws.com";
+
 async function loadClickBuffer() {
   if (clickBuffer) return clickBuffer;
   if (clickLoadingPromise) return clickLoadingPromise;
@@ -38,14 +40,23 @@ async function loadClickBuffer() {
       window.audioContext = ctx;
     }
     try {
-      const response = await fetch("/sounds/mouse_click_better.mp3");
+      const response = await fetch(`${S3_BASE_URL}/sounds/mouse_click_better.mp3`);
+      if (!response.ok) throw new Error(`S3 fetch returned status ${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
       clickBuffer = await ctx.decodeAudioData(arrayBuffer);
       return clickBuffer;
     } catch (err) {
-      console.warn("[CursorManager] Failed to load click buffer:", err);
-      clickLoadingPromise = null;
-      return null;
+      console.warn("[CursorManager] S3 click buffer fetch failed, trying local fallback:", err);
+      try {
+        const response = await fetch("/sounds/mouse_click_better.mp3");
+        const arrayBuffer = await response.arrayBuffer();
+        clickBuffer = await ctx.decodeAudioData(arrayBuffer);
+        return clickBuffer;
+      } catch (localErr) {
+        console.error("[CursorManager] Local click buffer fallback failed:", localErr);
+        clickLoadingPromise = null;
+        return null;
+      }
     }
   })();
 
@@ -88,14 +99,23 @@ async function loadKeystrokeBuffer() {
       window.audioContext = ctx;
     }
     try {
-      const response = await fetch("/sounds/generate-a-single-me-2-1780897822936_p5cVxQ5N.mp3");
+      const response = await fetch(`${S3_BASE_URL}/sounds/generate-a-single-me-2-1780897822936_p5cVxQ5N.mp3`);
+      if (!response.ok) throw new Error(`S3 fetch returned status ${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
       keystrokeBuffer = await ctx.decodeAudioData(arrayBuffer);
       return keystrokeBuffer;
     } catch (err) {
-      console.warn("[CursorManager] Failed to load keystroke buffer:", err);
-      keystrokeLoadingPromise = null;
-      return null;
+      console.warn("[CursorManager] S3 keystroke buffer fetch failed, trying local fallback:", err);
+      try {
+        const response = await fetch("/sounds/generate-a-single-me-2-1780897822936_p5cVxQ5N.mp3");
+        const arrayBuffer = await response.arrayBuffer();
+        keystrokeBuffer = await ctx.decodeAudioData(arrayBuffer);
+        return keystrokeBuffer;
+      } catch (localErr) {
+        console.error("[CursorManager] Local keystroke buffer fallback failed:", localErr);
+        keystrokeLoadingPromise = null;
+        return null;
+      }
     }
   })();
 

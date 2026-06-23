@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useForm, Controller } from "react-hook-form";
 import {
   Alert,
   Box,
@@ -30,6 +31,7 @@ import { routeService } from "../../services/routeService";
 import { userService } from "../../services/userService";
 import { packingJobService } from "../../services/packingJobService";
 import { normalizePackingJob } from "./packingJobMapper";
+import { useCreateAssignmentAgent } from "../../useagent/useCreateAssignmentAgent";
 
 const JOB_ASSIGNMENT_TYPE = "JOB";
 
@@ -61,26 +63,28 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
 
   const [routes, setRoutes] = useState([]);
   const [users, setUsers] = useState([]);
-  const [selectedRoute, setSelectedRoute] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(addDays(new Date(), 1));
-  const [selectedUser, setSelectedUser] = useState(null);
   const [jobs, setJobs] = useState([]);
-  const [selectedJobIds, setSelectedJobIds] = useState(() => new Set());
   const [loadingLookups, setLoadingLookups] = useState(false);
   const [loadingJobs, setLoadingJobs] = useState(false);
-  const [error, setError] = useState("");
+  const [generalError, setGeneralError] = useState("");
+
+  const { control, handleSubmit, reset, setValue, watch } = useForm({
+    defaultValues: {
+      route: null,
+      date: addDays(new Date(), 1),
+      user: null,
+      selectedJobIds: new Set(),
+    },
+  });
+
+  const watchedRoute = watch("route");
+  const watchedDate = watch("date");
+  const selectedJobIds = watch("selectedJobIds") || new Set();
 
   const resetForm = () => {
-    setRoutes([]);
-    setUsers([]);
-    setSelectedRoute(null);
-    setSelectedDate(addDays(new Date(), 1));
-    setSelectedUser(null);
+    reset();
     setJobs([]);
-    setSelectedJobIds(new Set());
-    setLoadingLookups(false);
-    setLoadingJobs(false);
-    setError("");
+    setGeneralError("");
   };
 
   useEffect(() => {
@@ -88,7 +92,7 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
 
     let active = true;
     const loadLookups = async () => {
-      setError("");
+      setGeneralError("");
       setLoadingLookups(true);
       try {
         const [routesData, usersData] = await Promise.all([
@@ -102,14 +106,15 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
         const userList = Array.isArray(usersData) ? usersData : [];
         setRoutes(routeList);
         setUsers(userList);
-        setSelectedRoute(null);
-        setSelectedDate(addDays(new Date(), 1));
-        setSelectedUser(userList[0] || null);
+        
+        setValue("route", null);
+        setValue("date", addDays(new Date(), 1));
+        setValue("user", userList[0] || null);
         setJobs([]);
-        setSelectedJobIds(new Set());
+        setValue("selectedJobIds", new Set());
       } catch (err) {
         console.error("Failed to load lookup data", err);
-        setError(
+        setGeneralError(
           err?.response?.data?.message ||
             err?.message ||
             "Failed to load routes or users.",
@@ -124,7 +129,7 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
     return () => {
       active = false;
     };
-  }, [open, branchId]);
+  }, [open, branchId, setValue]);
 
   useEffect(() => {
     if (!open) {
@@ -133,31 +138,31 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
   }, [open]);
 
   useEffect(() => {
-    if (!open || !selectedRoute?.id || !selectedDate) {
+    if (!open || !watchedRoute?.id || !watchedDate) {
       setJobs([]);
-      setSelectedJobIds(new Set());
+      setValue("selectedJobIds", new Set());
       return;
     }
 
     let active = true;
     const loadJobs = async () => {
       setLoadingJobs(true);
-      setError("");
+      setGeneralError("");
       try {
         const data = await packingJobService.getJobsByRouteAndDate({
-          routeId: selectedRoute.id,
-          date: format(selectedDate, "yyyy-MM-dd"),
+          routeId: watchedRoute.id,
+          date: format(watchedDate, "yyyy-MM-dd"),
         });
         if (!active) return;
 
         const normalized = asArray(data).map((job) => normalizePackingJob(job));
         setJobs(normalized);
-        setSelectedJobIds(new Set());
+        setValue("selectedJobIds", new Set());
       } catch (err) {
         console.error("Failed to load packing jobs by route/date", err);
         setJobs([]);
-        setSelectedJobIds(new Set());
-        setError(
+        setValue("selectedJobIds", new Set());
+        setGeneralError(
           err?.response?.data?.message ||
             err?.message ||
             "Failed to load packing jobs for the selected route and date.",
@@ -172,7 +177,7 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
     return () => {
       active = false;
     };
-  }, [open, selectedRoute?.id, selectedDate]);
+  }, [open, watchedRoute?.id, watchedDate, setValue]);
 
   const selectedJobs = useMemo(
     () => jobs.filter((job) => selectedJobIds.has(String(job.id))),
@@ -180,30 +185,30 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
   );
 
   const toggleJob = (jobId) => {
-    setSelectedJobIds((prev) => {
-      const next = new Set(prev);
-      const key = String(jobId);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    const next = new Set(selectedJobIds);
+    const key = String(jobId);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setValue("selectedJobIds", next);
   };
 
   const selectAllVisibleJobs = (checked) => {
-    setSelectedJobIds(() => {
-      if (!checked) return new Set();
-      return new Set(jobs.map((job) => String(job.id)));
-    });
+    if (!checked) {
+      setValue("selectedJobIds", new Set());
+    } else {
+      setValue("selectedJobIds", new Set(jobs.map((job) => String(job.id))));
+    }
   };
 
-  const buildPayload = () => {
-    if (!selectedRoute?.id) {
+  const buildPayload = (data) => {
+    const { route, date, user } = data;
+    if (!route?.id) {
       throw new Error("Select a route.");
     }
-    if (!selectedDate) {
+    if (!date) {
       throw new Error("Select a date.");
     }
-    if (!selectedUser?.id) {
+    if (!user?.id) {
       throw new Error("Select a user.");
     }
     if (!selectedJobs.length) {
@@ -212,20 +217,20 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
 
     return selectedJobs.map((job) => ({
       jobId: job.id,
-      userId: selectedUser.id,
+      userId: user.id,
       allocationLevelType: JOB_ASSIGNMENT_TYPE,
       productIds: [],
     }));
   };
 
-  const handleSubmit = async () => {
+  const onSubmit = async (data) => {
     try {
-      const payload = buildPayload();
-      setError("");
+      const payload = buildPayload(data);
+      setGeneralError("");
       await onAssign(payload);
       resetForm();
     } catch (err) {
-      setError(err?.message || "Fix the assignment values before saving.");
+      setGeneralError(err?.message || "Fix the assignment values before saving.");
     }
   };
 
@@ -233,6 +238,15 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
     resetForm();
     onClose();
   };
+
+  useCreateAssignmentAgent({
+    open,
+    routes,
+    users,
+    jobs,
+    setValue,
+    reset: resetForm,
+  });
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
@@ -248,7 +262,7 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
           }}
         >
           <Stack spacing={3}>
-            {error && <Alert severity="error">{error}</Alert>}
+            {generalError && <Alert severity="error">{generalError}</Alert>}
 
             <Box
               sx={{
@@ -262,63 +276,81 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
                 gap: 3,
               }}
             >
-              <TextField
-                select
-                label="Route"
-                size="small"
-                fullWidth
-                value={selectedRoute?.id ?? ""}
-                onChange={(event) => {
-                  const nextRoute = routes.find(
-                    (route) => String(route.id) === String(event.target.value),
-                  );
-                  setSelectedRoute(nextRoute || null);
-                }}
-                disabled={loadingLookups}
-              >
-                <MenuItem value="">Select route</MenuItem>
-                {routes.map((route) => (
-                  <MenuItem key={route.id} value={route.id}>
-                    {getRouteLabel(route)}
-                  </MenuItem>
-                ))}
-              </TextField>
-
-              <DatePicker
-                label="Packing Job Date"
-                value={selectedDate}
-                onChange={(value) => setSelectedDate(value)}
-                slotProps={{
-                  textField: {
-                    size: "small",
-                    fullWidth: true,
-                    disabled: loadingLookups,
-                  },
-                }}
+              <Controller
+                name="route"
+                control={control}
+                render={({ field }) => (
+                  <TextField
+                    select
+                    label="Route"
+                    size="small"
+                    fullWidth
+                    value={field.value?.id ?? ""}
+                    onChange={(event) => {
+                      const nextRoute = routes.find(
+                        (route) => String(route.id) === String(event.target.value),
+                      );
+                      field.onChange(nextRoute || null);
+                    }}
+                    disabled={loadingLookups}
+                  >
+                    <MenuItem value="">Select route</MenuItem>
+                    {routes.map((route) => (
+                      <MenuItem key={route.id} value={route.id}>
+                        {getRouteLabel(route)}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
               />
 
-              <FormControl size="small" fullWidth>
-                <InputLabel>User</InputLabel>
-                <Select
-                  label="User"
-                  value={selectedUser?.id ?? ""}
-                  onChange={(event) => {
-                    const nextUser = users.find(
-                      (user) => String(user.id) === String(event.target.value),
-                    );
-                    setSelectedUser(nextUser || null);
-                  }}
-                  disabled={loadingLookups}
-                >
-                  <MenuItem value="">Select user</MenuItem>
-                  {users.map((user) => (
-                    <MenuItem key={user.id} value={user.id}>
-                      {getUserLabel(user)}
-                    </MenuItem>
-                  ))}
-                </Select>
-                <FormHelperText>Select a user for the jobs.</FormHelperText>
-              </FormControl>
+              <Controller
+                name="date"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker
+                    label="Packing Job Date"
+                    value={field.value}
+                    onChange={(value) => field.onChange(value)}
+                    slotProps={{
+                      textField: {
+                        size: "small",
+                        fullWidth: true,
+                        disabled: loadingLookups,
+                      },
+                    }}
+                  />
+                )}
+              />
+
+              <Controller
+                name="user"
+                control={control}
+                render={({ field }) => (
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>User</InputLabel>
+                    <Select
+                      label="User"
+                      value={field.value?.id ?? ""}
+                      onChange={(event) => {
+                        const nextUser = users.find(
+                          (user) => String(user.id) === String(event.target.value),
+                        );
+                        field.onChange(nextUser || null);
+                      }}
+                      disabled={loadingLookups}
+                    >
+                      <MenuItem value="">Select user</MenuItem>
+                      {users.map((user) => (
+                        <MenuItem key={user.id} value={user.id}>
+                          {getUserLabel(user)}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    <FormHelperText>Select a user for the jobs.</FormHelperText>
+                  </FormControl>
+                )}
+              />
             </Box>
 
           </Stack>
@@ -353,7 +385,7 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
             </Box>
             <Divider sx={{ mb: 1.5 }} />
 
-            {!selectedRoute || !selectedDate ? (
+            {!watchedRoute || !watchedDate ? (
               <Alert severity="info">Choose a route and date to load jobs.</Alert>
             ) : loadingJobs ? (
               <Alert severity="info">Loading jobs for the selected route.</Alert>
@@ -444,7 +476,7 @@ export default function CreateAssignmentDialog({ open, saving, onClose, onAssign
         </Button>
         <Button
           variant="contained"
-          onClick={handleSubmit}
+          onClick={handleSubmit(onSubmit)}
           disabled={saving || loadingLookups || loadingJobs}
         >
           {saving ? "Assigning..." : "Assign"}

@@ -176,7 +176,7 @@ function playFiller(text: string, lang: string, sessionId: string, send: Handler
   console.log(`[VoiceAdapter] Filler: "${filler.text}"`);
   markAgentSpeechStart(sessionId);
   responseSender.sendRespond(send, filler.text, true, fillerMessageId);
-  responseSender.sendTtsAudio(send, filler.base64, fillerMessageId, true);
+  responseSender.sendTtsAudioUrl(send, filler.s3Url, fillerMessageId);
 }
 
 export function interruptTTS(sessionId: string): void {

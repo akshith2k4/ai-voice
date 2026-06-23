@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { useCreateTripAgent } from "../../useagent/useCreateTripAgent";
 import {
     Dialog,
@@ -97,16 +98,31 @@ export default function CreateTripFromRouteDialog({
             ? Number(localStorage.getItem("branchId"))
             : null;
 
-    // Left form
-    const [routes, setRoutes] = useState([]);
-    const [selectedRoute, setSelectedRoute] = useState(null);
-    const [deliveryDate, setDeliveryDate] = useState(new Date());
-    // Multiple drivers with roles
-    const [selectedDriverIds, setSelectedDriverIds] = useState([]);
-    const [rolesByUserId, setRolesByUserId] = useState({}); // { [userId]: role }
-    const [vehicle, setVehicle] = useState(null);
-    const [notes, setNotes] = useState("");
+    const { control, handleSubmit, reset, setValue, getValues, watch } = useForm({
+        defaultValues: {
+            tripType: ORDER_TRIP,
+            route: null,
+            deliveryDate: new Date(),
+            deliveryTeam: [],
+            rolesByUserId: {},
+            vehicle: null,
+            notes: "",
+        }
+    });
 
+    const watchedTripType = watch("tripType");
+    const watchedRoute = watch("route");
+    const watchedDeliveryDate = watch("deliveryDate");
+    const watchedDeliveryTeam = watch("deliveryTeam");
+    const watchedRolesByUserId = watch("rolesByUserId") || {};
+    const watchedVehicle = watch("vehicle");
+    const watchedNotes = watch("notes");
+
+    const isCustomerTrip = watchedTripType === ORDER_TRIP;
+
+    // Left form data state (loaded lists)
+    const [routes, setRoutes] = useState([]);
+    
     // Right pane data
     const [drivers, setDrivers] = useState([]);
     const [vehicles, setVehicles] = useState([]);
@@ -134,25 +150,23 @@ export default function CreateTripFromRouteDialog({
     const [orderSearch, _setOrderSearch] = useState("");
     const [statusFilter, _setStatusFilter] = useState("ALL");
     const debouncedSearch = useDebounced(orderSearch, 250);
-    const [resolvedTripType, setResolvedTripType] = useState(ORDER_TRIP);
-    const isCustomerTrip = resolvedTripType === ORDER_TRIP;
 
     useEffect(() => {
         // When route changes, clear selection; we'll enable only customers that have orders after fetch
-        if (!selectedRoute) {
+        if (!watchedRoute) {
             setEnabledCustomers(new Set());
         }
-    }, [selectedRoute]);
+    }, [watchedRoute]);
 
     const activateCustomerTrip = useCallback(() => {
-        setResolvedTripType(ORDER_TRIP);
+        setValue("tripType", ORDER_TRIP);
         setEnabledVendors(new Set());
-    }, []);
+    }, [setValue]);
 
     const activateWashTrip = useCallback(() => {
-        setResolvedTripType(WASH_TRIP);
+        setValue("tripType", WASH_TRIP);
         setEnabledCustomers(new Set());
-    }, []);
+    }, [setValue]);
 
     const toggleCustomerEnabled = useCallback((customerId) => {
         activateCustomerTrip();
@@ -171,16 +185,16 @@ export default function CreateTripFromRouteDialog({
 
     // Derived
     const customers = useMemo(
-        () => (selectedRoute?.points || [])
+        () => (watchedRoute?.points || [])
             .filter(p => p.partyType === "CUSTOMER")
             .map(p => ({ ...p, id: p.partyId })),
-        [selectedRoute]
+        [watchedRoute]
     );
     const vendors = useMemo(
-        () => (selectedRoute?.points || [])
+        () => (watchedRoute?.points || [])
             .filter(p => p.partyType === "LAUNDRY_VENDOR")
             .map(p => ({ ...p, id: p.partyId })),
-        [selectedRoute]
+        [watchedRoute]
     );
 
     // Load dropdown data on open
@@ -211,7 +225,7 @@ export default function CreateTripFromRouteDialog({
     useEffect(() => {
         const run = async () => {
             setOrdersError("");
-            if (!selectedRoute || !deliveryDate) {
+            if (!watchedRoute || !watchedDeliveryDate) {
                 setOrders([]);
                 setWashRequests([]);
                 return;
@@ -222,7 +236,7 @@ export default function CreateTripFromRouteDialog({
             setLoadingOrders(true);
             setLoadingWashRequests(true);
             try {
-                const tasks = await tripService.fetchScheduledTasksByDate(allCustomerIds, allVendorIds, deliveryDate);
+                const tasks = await tripService.fetchScheduledTasksByDate(allCustomerIds, allVendorIds, watchedDeliveryDate);
                 
                 // 1. Process Orders (Tasks of type ORDER)
                 const orderTasks = (tasks || []).filter(t => t.taskType === "ORDER");
@@ -272,8 +286,8 @@ export default function CreateTripFromRouteDialog({
                 });
 
                 // Only default to WASH_TRIP if there are ONLY wash requests and no orders
-                if (orderTasks.length === 0 && washTasks.length > 0 && resolvedTripType === ORDER_TRIP) {
-                    setResolvedTripType(WASH_TRIP);
+                if (orderTasks.length === 0 && washTasks.length > 0 && watchedTripType === ORDER_TRIP) {
+                    setValue("tripType", WASH_TRIP);
                 }
 
             } catch (e) {
@@ -285,7 +299,7 @@ export default function CreateTripFromRouteDialog({
             }
         };
         run();
-    }, [selectedRoute, deliveryDate, customers, vendors]);
+    }, [watchedRoute, watchedDeliveryDate, customers, vendors, watchedTripType, setValue]);
 
     // Grouped for fast lookup
     const groupedOrdersByCustomer = useMemo(() => {
@@ -440,6 +454,14 @@ export default function CreateTripFromRouteDialog({
     );
 
     const handleCreate = async () => {
+        const selectedRoute = getValues("route");
+        const deliveryDate = getValues("deliveryDate");
+        const vehicle = getValues("vehicle");
+        const selectedDriverIds = getValues("deliveryTeam") || [];
+        const rolesByUserId = getValues("rolesByUserId") || {};
+        const notes = getValues("notes");
+        const resolvedTripType = getValues("tripType");
+
         // Client-side required fields: route, delivery date, driver, vehicle
         if (!selectedRoute || !deliveryDate || !vehicle || !selectedDriverIds || selectedDriverIds.length === 0) {
             setSubmitAttempted(true);
@@ -517,12 +539,7 @@ export default function CreateTripFromRouteDialog({
     };
 
     const resetStateAndClose = () => {
-        setSelectedRoute(null);
-        setDeliveryDate(new Date());
-        setSelectedDriverIds([]);
-        setRolesByUserId({});
-        setVehicle(null);
-        setNotes("");
+        reset();
         setOrders([]);
         setWashRequests([]);
         setSelectedOrderIdsByCustomer({});
@@ -533,7 +550,6 @@ export default function CreateTripFromRouteDialog({
         setSequenceByVendor({});
         setEnabledCustomers(new Set());
         setEnabledVendors(new Set());
-        setResolvedTripType(ORDER_TRIP);
         setSubmitAttempted(false);
         onClose?.();
     };
@@ -543,14 +559,14 @@ export default function CreateTripFromRouteDialog({
         routes,
         drivers,
         vehicles,
-        setResolvedTripType,
-        setSelectedRoute,
-        setDeliveryDate,
-        setSelectedDriverIds,
-        rolesByUserId,
-        setRolesByUserId,
-        setVehicle,
-        setNotes,
+        setResolvedTripType: (val) => setValue("tripType", val),
+        setSelectedRoute: (val) => setValue("route", val),
+        setDeliveryDate: (val) => setValue("deliveryDate", val),
+        setSelectedDriverIds: (val) => setValue("deliveryTeam", val),
+        rolesByUserId: watchedRolesByUserId,
+        setRolesByUserId: (val) => setValue("rolesByUserId", val),
+        setVehicle: (val) => setValue("vehicle", val),
+        setNotes: (val) => setValue("notes", val),
         customersWithOrders,
         enabledCustomers,
         toggleCustomerEnabled,
@@ -607,7 +623,7 @@ export default function CreateTripFromRouteDialog({
                             </Typography>
                             <ButtonGroup name="tripType" id="tripType" fullWidth size="small" variant="outlined">
                                 <Button
-                                    onClick={() => setResolvedTripType(ORDER_TRIP)}
+                                    onClick={() => setValue("tripType", ORDER_TRIP)}
                                     sx={(theme) => ({ 
                                         bgcolor: isCustomerTrip ? `${theme.palette.primary.main}14` : 'white',
                                         color: isCustomerTrip ? 'primary.main' : 'text.secondary',
@@ -625,7 +641,7 @@ export default function CreateTripFromRouteDialog({
                                     Customer Trip
                                 </Button>
                                 <Button
-                                    onClick={() => setResolvedTripType(WASH_TRIP)}
+                                    onClick={() => setValue("tripType", WASH_TRIP)}
                                     sx={(theme) => ({ 
                                         bgcolor: !isCustomerTrip ? `${theme.palette.primary.main}14` : 'white',
                                         color: !isCustomerTrip ? 'primary.main' : 'text.secondary',
@@ -671,248 +687,279 @@ export default function CreateTripFromRouteDialog({
                                 gap: 1.5,
                             }}
                         >
-                            {/* Route */}
-                            <Box data-agent-field="route" sx={{ width: "100%" }}>
-                                <TextField
-                                    select
-                                    label="Route"
-                                    size="small"
-                                    name="route"
-                                    id="route"
-                                    value={selectedRoute?.id ?? ""}
-                                    onChange={(e) => {
-                                        const v = routes.find(
-                                            (r) => r.id === Number(e.target.value)
-                                        );
-                                        setSelectedRoute(v || null);
-                                    }}
-                                    required
-                                    error={submitAttempted && !selectedRoute}
-                                    helperText={submitAttempted && !selectedRoute ? "Route is required" : ""}
-                                    fullWidth
-                                >
-                                    {routes.map((r) => (
-                                        <MenuItem key={r.id} value={r.id}>
-                                            {r.name}
-                                        </MenuItem>
-                                    ))}
-                                </TextField>
-                            </Box>
+                             {/* Route */}
+                             <Box data-agent-field="route" sx={{ width: "100%" }}>
+                                 <Controller
+                                     name="route"
+                                     control={control}
+                                     render={({ field }) => (
+                                         <TextField
+                                             {...field}
+                                             select
+                                             label="Route"
+                                             size="small"
+                                             id="route"
+                                             value={field.value?.id ?? ""}
+                                             onChange={(e) => {
+                                                 const v = routes.find(
+                                                     (r) => r.id === Number(e.target.value)
+                                                 );
+                                                 field.onChange(v || null);
+                                             }}
+                                             required
+                                             error={submitAttempted && !field.value}
+                                             helperText={submitAttempted && !field.value ? "Route is required" : ""}
+                                             fullWidth
+                                         >
+                                             {routes.map((r) => (
+                                                 <MenuItem key={r.id} value={r.id}>
+                                                     {r.name}
+                                                 </MenuItem>
+                                             ))}
+                                         </TextField>
+                                     )}
+                                 />
+                             </Box>
+ 
+                             {/* Date */}
+                             <Box sx={{ display: "flex", gap: 1 }} data-agent-field="deliveryDate">
+                                 <Controller
+                                     name="deliveryDate"
+                                     control={control}
+                                     render={({ field }) => (
+                                         <DatePicker
+                                             label="Delivery Date"
+                                             value={field.value}
+                                             onChange={(d) => field.onChange(d)}
+                                             slotProps={{
+                                                 textField: {
+                                                     fullWidth: true,
+                                                     size: "small",
+                                                     required: true,
+                                                     name: "deliveryDate",
+                                                     id: "deliveryDate",
+                                                     error: submitAttempted && !field.value,
+                                                     helperText:
+                                                         submitAttempted && !field.value
+                                                             ? "Delivery Date is required"
+                                                             : undefined,
+                                                 },
+                                             }}
+                                         />
+                                     )}
+                                 />
+                             </Box>
+ 
+                             {/* Delivery Team */}
+                             <Box data-agent-field="deliveryTeam" sx={{ width: "100%" }}>
+                                 <Controller
+                                     name="deliveryTeam"
+                                     control={control}
+                                     render={({ field }) => (
+                                         <Autocomplete
+                                             multiple
+                                             options={drivers}
+                                             getOptionLabel={(o) => o?.name || String(o?.id || '')}
+                                             value={(field.value || []).map((id) => drivers.find((d) => d.id === id)).filter(Boolean)}
+                                             disableClearable
+                                             slotProps={{
+                                                 listbox: {
+                                                     sx: {
+                                                         p: 0,
+                                                         '& .MuiAutocomplete-option': {
+                                                             minHeight: 'auto',
+                                                             py: 0.5,
+                                                             px: 1,
+                                                             fontSize: '0.9rem',
+                                                         },
+                                                     },
+                                                 },
+                                                 paper: { sx: { mt: 0.5 } },
+                                             }}
+                                             onChange={(_, val) => {
+                                                 const ids = (val || []).map((v) => v.id);
+                                                 field.onChange(ids);
+                                                 const next = { ...watchedRolesByUserId };
+                                                 ids.forEach((uid, idx) => {
+                                                     if (!next[uid]) next[uid] = idx === 0 ? 'DRIVER' : 'HELPER';
+                                                 });
+                                                 Object.keys(next).forEach((uid) => {
+                                                     if (!ids.includes(Number(uid)) && !ids.includes(uid)) delete next[uid];
+                                                 });
+                                                 setValue("rolesByUserId", next);
+                                             }}
+                                             disableCloseOnSelect
+                                             renderOption={(props, option, { selected }) => (
+                                                 <li {...props} key={option.id} style={{ paddingTop: 4, paddingBottom: 4, paddingLeft: 8, paddingRight: 8 }}>
+                                                     <Checkbox size="small" style={{ marginRight: 6 }} checked={selected} />
+                                                     {option.name}
+                                                 </li>
+                                             )}
+                                             renderTags={(value) => {
+                                                 const text = (value || []).map((u) => u?.name).filter(Boolean).join(', ');
+                                                 return (
+                                                     <Box
+                                                         sx={{
+                                                             display: 'inline-flex',
+                                                             alignItems: 'center',
+                                                             flexWrap: 'nowrap',
+                                                             overflowX: 'auto',
+                                                             overflowY: 'hidden',
+                                                             maxWidth: '100%',
+                                                             whiteSpace: 'nowrap',
+                                                             scrollbarWidth: 'thin',
+                                                         }}
+                                                     >
+                                                         <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>{text}</Typography>
+                                                     </Box>
+                                                 );
+                                             }}
+                                             renderInput={(params) => (
+                                                 <TextField
+                                                     {...params}
+                                                     label="Delivery Team"
+                                                     name="deliveryTeam"
+                                                     size="small"
+                                                     required
+                                                     error={submitAttempted && (!field.value || field.value.length === 0)}
+                                                     helperText={submitAttempted && (!field.value || field.value.length === 0) ? 'At least one team member is required' : ''}
+                                                 />
+                                             )}
+                                             fullWidth
+                                             sx={{
+                                                 '& .MuiInputBase-root': {
+                                                     position: 'relative',
+                                                     alignItems: 'center',
+                                                     minHeight: 44,
+                                                     pt: 0.5,
+                                                     pb: 0.5,
+                                                     pr: '56px',
+                                                 },
+                                                 '& .MuiAutocomplete-inputRoot': {
+                                                     flexWrap: 'nowrap',
+                                                 },
+                                                 '& .MuiChip-root': { height: 24, m: 0.25 },
+                                                 '& .MuiAutocomplete-input': {
+                                                     py: 0.5,
+                                                     minWidth: 8,
+                                                     flex: '0 0 auto',
+                                                 },
+                                             }}
+                                         />
+                                     )}
+                                 />
+                             </Box>
+ 
+                             {/* Role pickers per selected driver */}
+                             {watchedDeliveryTeam && watchedDeliveryTeam.length > 0 && (
+                                 <Box sx={{ mt: 1 }}>
+                                     {watchedDeliveryTeam.map((uid, idx) => {
+                                         const user = drivers.find((d) => d.id === uid);
+                                         const role = watchedRolesByUserId[uid] || (idx === 0 ? 'DRIVER' : 'HELPER');
+                                         return (
+                                             <Box key={uid} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                                                 <Typography sx={{ minWidth: 140 }}>{user?.name || uid}</Typography>
+                                                 <FormControl size="small" sx={{ minWidth: 120 }}>
+                                                     <InputLabel>Role</InputLabel>
+                                                     <Select
+                                                         label="Role"
+                                                         value={role}
+                                                         onChange={(e) => {
+                                                             setValue("rolesByUserId", {
+                                                                 ...watchedRolesByUserId,
+                                                                 [uid]: e.target.value
+                                                             });
+                                                         }}
+                                                     >
+                                                         <MenuItem value="DRIVER">DRIVER</MenuItem>
+                                                         <MenuItem value="HELPER">HELPER</MenuItem>
+                                                     </Select>
+                                                 </FormControl>
+                                                 <IconButton
+                                                     aria-label="Remove team member"
+                                                     size="small"
+                                                     onClick={() => {
+                                                         const updatedDrivers = watchedDeliveryTeam.filter((id) => id !== uid);
+                                                         setValue("deliveryTeam", updatedDrivers);
+                                                         const next = { ...watchedRolesByUserId };
+                                                         delete next[uid];
+                                                         setValue("rolesByUserId", next);
+                                                     }}
+                                                 >
+                                                     <CloseIcon fontSize="small" />
+                                                 </IconButton>
+                                             </Box>
+                                         )
+                                     })}
+                                 </Box>
+                             )}
+ 
+                             {/* Vehicle */}
+                             <Box data-agent-field="vehicle" sx={{ width: "100%" }}>
+                                 <Controller
+                                     name="vehicle"
+                                     control={control}
+                                     render={({ field }) => (
+                                         <TextField
+                                             {...field}
+                                             select
+                                             label="Vehicle"
+                                             size="small"
+                                             id="vehicle"
+                                             value={field.value?.id ?? ""}
+                                             onChange={(e) => {
+                                                 const v = vehicles.find(
+                                                     (v) => v.id === Number(e.target.value)
+                                                 );
+                                                 field.onChange(v || null);
+                                             }}
+                                             required
+                                             error={submitAttempted && !field.value}
+                                             helperText={
+                                                 submitAttempted && !field.value
+                                                     ? "Vehicle is required"
+                                                     : field.value
+                                                         ? "Vehicle reserved for this trip"
+                                                         : ""
+                                             }
+                                             fullWidth
+                                         >
+                                             <MenuItem value="">—</MenuItem>
+                                             {vehicles.map((v) => (
+                                                 <MenuItem key={v.id} value={v.id}>
+                                                     {v.vehicleNumber}
+                                                     {v.type ? ` — ${v.type}` : ""}
+                                                 </MenuItem>
+                                             ))}
+                                         </TextField>
+                                     )}
+                                 />
+                             </Box>
+ 
+                             <Box data-agent-field="notes" sx={{ width: "100%" }}>
+                                 <Controller
+                                     name="notes"
+                                     control={control}
+                                     render={({ field }) => (
+                                         <TextField
+                                             {...field}
+                                             label="Trip Notes"
+                                             id="notes"
+                                             fullWidth
+                                             size="small"
+                                             placeholder="Any instructions for this trip (optional)"
+                                         />
+                                     )}
+                                 />
+                             </Box>
 
-                            {/* Date */}
-                            <Box sx={{ display: "flex", gap: 1 }} data-agent-field="deliveryDate">
-                                <DatePicker
-                                    label="Delivery Date"
-                                    value={deliveryDate}
-                                    onChange={(d) => setDeliveryDate(d)}
-                                    slotProps={{
-                                        textField: {
-                                            fullWidth: true,
-                                            size: "small",
-                                            required: true,
-                                            name: "deliveryDate",
-                                            id: "deliveryDate",
-                                            error: submitAttempted && !deliveryDate,
-                                            helperText:
-                                                submitAttempted && !deliveryDate
-                                                    ? "Delivery Date is required"
-                                                    : undefined,
-                                        },
-                                    }}
-                                />
-                            </Box>
-
-                            {/* Delivery Team */}
-                            <Box data-agent-field="deliveryTeam" sx={{ width: "100%" }}>
-                                <Autocomplete
-                                    multiple
-                                    options={drivers}
-                                getOptionLabel={(o) => o?.name || String(o?.id || '')}
-                                value={(selectedDriverIds || []).map((id) => drivers.find((d) => d.id === id)).filter(Boolean)}
-                                disableClearable
-                                slotProps={{
-                                    listbox: {
-                                        sx: {
-                                            p: 0,
-                                            '& .MuiAutocomplete-option': {
-                                                minHeight: 'auto',
-                                                py: 0.5,
-                                                px: 1,
-                                                fontSize: '0.9rem',
-                                            },
-                                        },
-                                    },
-                                    paper: { sx: { mt: 0.5 } },
-                                }}
-                                onChange={(_, val) => {
-                                    const ids = (val || []).map((v) => v.id);
-                                    setSelectedDriverIds(ids);
-                                    const next = { ...rolesByUserId };
-                                    ids.forEach((uid, idx) => {
-                                        if (!next[uid]) next[uid] = idx === 0 ? 'DRIVER' : 'HELPER';
-                                    });
-                                    Object.keys(next).forEach((uid) => {
-                                        if (!ids.includes(Number(uid)) && !ids.includes(uid)) delete next[uid];
-                                    });
-                                    setRolesByUserId(next);
-                                }}
-                                disableCloseOnSelect
-                                renderOption={(props, option, { selected }) => (
-                                    <li {...props} key={option.id} style={{ paddingTop: 4, paddingBottom: 4, paddingLeft: 8, paddingRight: 8 }}>
-                                        <Checkbox size="small" style={{ marginRight: 6 }} checked={selected} />
-                                        {option.name}
-                                    </li>
-                                )}
-                                renderTags={(value) => {
-                                    const text = (value || []).map((u) => u?.name).filter(Boolean).join(', ');
-                                    return (
-                                        <Box
-                                            sx={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                flexWrap: 'nowrap',
-                                                overflowX: 'auto',
-                                                overflowY: 'hidden',
-                                                maxWidth: '100%',
-                                                whiteSpace: 'nowrap',
-                                                scrollbarWidth: 'thin',
-                                            }}
-                                        >
-                                            <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>{text}</Typography>
-                                        </Box>
-                                    );
-                                }}
-                                renderInput={(params) => (
-                                    <TextField
-                                        {...params}
-                                        label="Delivery Team"
-                                        name="deliveryTeam"
-                                        size="small"
-                                        required
-                                        error={submitAttempted && (!selectedDriverIds || selectedDriverIds.length === 0)}
-                                        helperText={submitAttempted && (!selectedDriverIds || selectedDriverIds.length === 0) ? 'At least one team member is required' : ''}
-                                    />
-                                )}
-                                fullWidth
-                                sx={{
-                                    '& .MuiInputBase-root': {
-                                        position: 'relative',
-                                        alignItems: 'center',
-                                        minHeight: 44,
-                                        pt: 0.5,
-                                        pb: 0.5,
-                                        pr: '56px',
-                                    },
-                                    // Prevent multiline by keeping input root on one line
-                                    '& .MuiAutocomplete-inputRoot': {
-                                        flexWrap: 'nowrap',
-                                    },
-                                    '& .MuiChip-root': { height: 24, m: 0.25 },
-                                    '& .MuiAutocomplete-input': {
-                                        py: 0.5,
-                                        minWidth: 8,
-                                        flex: '0 0 auto',
-                                    },
-                                }}
-                            />
-                            </Box>
-
-                            {/* Role pickers per selected driver */}
-                            {selectedDriverIds && selectedDriverIds.length > 0 && (
-                                <Box sx={{ mt: 1 }}>
-                                    {selectedDriverIds.map((uid, idx) => {
-                                        const user = drivers.find((d) => d.id === uid);
-                                        const role = rolesByUserId[uid] || (idx === 0 ? 'DRIVER' : 'HELPER');
-                                        return (
-                                            <Box key={uid} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-                                                <Typography sx={{ minWidth: 140 }}>{user?.name || uid}</Typography>
-                                                <FormControl size="small" sx={{ minWidth: 120 }}>
-                                                    <InputLabel>Role</InputLabel>
-                                                    <Select
-                                                        label="Role"
-                                                        value={role}
-                                                        onChange={(e) => setRolesByUserId((prev) => ({ ...prev, [uid]: e.target.value }))}
-                                                    >
-                                                        <MenuItem value="DRIVER">DRIVER</MenuItem>
-                                                        <MenuItem value="HELPER">HELPER</MenuItem>
-                                                    </Select>
-                                                </FormControl>
-                                                <IconButton
-                                                    aria-label="Remove team member"
-                                                    size="small"
-                                                    onClick={() => {
-                                                        setSelectedDriverIds((prev) => prev.filter((id) => id !== uid));
-                                                        setRolesByUserId((prev) => {
-                                                            const n = { ...prev };
-                                                            delete n[uid];
-                                                            return n;
-                                                        });
-                                                    }}
-                                                >
-                                                    <CloseIcon fontSize="small" />
-                                                </IconButton>
-                                            </Box>
-                                        )
-                                    })}
-                                </Box>
-                            )}
-
-                            {/* Vehicle */}
-                            <Box data-agent-field="vehicle" sx={{ width: "100%" }}>
-                                <TextField
-                                    select
-                                    label="Vehicle"
-                                    size="small"
-                                    name="vehicle"
-                                    id="vehicle"
-                                    value={vehicle?.id ?? ""}
-                                    onChange={(e) => {
-                                        const v = vehicles.find(
-                                            (v) => v.id === Number(e.target.value)
-                                        );
-                                        setVehicle(v || null);
-                                    }}
-                                    required
-                                    error={submitAttempted && !vehicle}
-                                    helperText={
-                                        submitAttempted && !vehicle
-                                            ? "Vehicle is required"
-                                            : vehicle
-                                                ? "Vehicle reserved for this trip"
-                                                : ""
-                                    }
-                                    fullWidth
-                                >
-                                    <MenuItem value="">—</MenuItem>
-                                    {vehicles.map((v) => (
-                                        <MenuItem key={v.id} value={v.id}>
-                                            {v.vehicleNumber}
-                                            {v.type ? ` — ${v.type}` : ""}
-                                        </MenuItem>
-                                    ))}
-                                </TextField>
-                            </Box>
-
-                            <Box data-agent-field="notes" sx={{ width: "100%" }}>
-                                <TextField
-                                    label="Trip Notes"
-                                    name="notes"
-                                    id="notes"
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    fullWidth
-                                    size="small"
-                                    placeholder="Any instructions for this trip (optional)"
-                                />
-                            </Box>
-
-                            {selectedRoute && (
+                            {watchedRoute && (
                                 <Box sx={{ mt: 1 }}>
                                     <Typography
                                         variant="subtitle2"
                                         sx={{ mb: 0.75, fontWeight: 700 }}
                                     >
-                                        {isCustomerTrip ? 'Customers' : 'Vendors'} in “{selectedRoute.name}”
+                                        {isCustomerTrip ? 'Customers' : 'Vendors'} in “{watchedRoute.name}”
                                     </Typography>
                                     <Box
                                         sx={{
@@ -1586,29 +1633,23 @@ export default function CreateTripFromRouteDialog({
                     <Chip
                         color="secondary"
                         variant="outlined"
-                        label={`Wash Req: ${selectedWashRequestsCount}`}
+                        label={`Trip Type: ${watchedTripType}`}
                         size="small"
                     />
-                    <Chip
-                        color={isCustomerTrip ? "primary" : "secondary"}
-                        variant="outlined"
-                        label={`Trip Type: ${resolvedTripType}`}
-                        size="small"
-                    />
-                    {selectedDriverIds && selectedDriverIds.length > 0 && (
+                    {watchedDeliveryTeam && watchedDeliveryTeam.length > 0 && (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {selectedDriverIds.map((uid) => {
+                            {watchedDeliveryTeam.map((uid) => {
                                 const user = drivers.find((d) => d.id === uid);
-                                const role = rolesByUserId[uid] || 'DRIVER';
+                                const role = watchedRolesByUserId[uid] || 'DRIVER';
                                 return (
                                     <Chip key={uid} label={`${user?.name || uid} — ${role}`} size="small" />
                                 );
                             })}
                         </Box>
                     )}
-                    {vehicle && (
+                    {watchedVehicle && (
                         <Chip
-                            label={`Vehicle: ${vehicle.vehicleNumber}${vehicle.type ? ` — ${vehicle.type}` : ""
+                            label={`Vehicle: ${watchedVehicle.vehicleNumber}${watchedVehicle.type ? ` — ${watchedVehicle.type}` : ""
                                 }`}
                             size="small"
                         />
@@ -1618,7 +1659,7 @@ export default function CreateTripFromRouteDialog({
                 <Button onClick={resetStateAndClose} color="secondary">
                     Cancel
                 </Button>
-                <Tooltip title={(!selectedRoute || !deliveryDate || !vehicle || !selectedDriverIds || selectedDriverIds.length === 0) ? "Route, Delivery Date, at least one Delivery Team member, and Vehicle are required" : ""}>
+                <Tooltip title={(!watchedRoute || !watchedDeliveryDate || !watchedVehicle || !watchedDeliveryTeam || watchedDeliveryTeam.length === 0) ? "Route, Delivery Date, at least one Delivery Team member, and Vehicle are required" : ""}>
                     <span>
                         <Button onClick={handleCreate} variant="contained">
                             Create Trip

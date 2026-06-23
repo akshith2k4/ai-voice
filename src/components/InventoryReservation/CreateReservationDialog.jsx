@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { useCreateReservationAgent } from "../../useagent/useCreateReservationAgent";
 import {
   Dialog,
@@ -27,72 +28,71 @@ function CreateReservationDialog({
   onSave,
   pools,
   poolsWithProducts,
-  initialData, // New prop for edit mode
+  initialData,
 }) {
-  const [customerId, setCustomerId] = useState("");
   const [customerOptions, setCustomerOptions] = useState([]);
-  const [reservationType, setReservationType] = useState("");
-  const [notes, setNotes] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [items, setItems] = useState([]);
-  const [poolProducts, setPoolProducts] = useState({ id: "all", productItems: [] });
-  // removed unused loadingProducts
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
 
   const isEditMode = Boolean(initialData);
 
+  const { control, handleSubmit, reset, setValue, getValues, watch } = useForm({
+    defaultValues: {
+      poolId: "",
+      customer: null,
+      reservationType: "",
+      notes: "",
+      startDate: "",
+      endDate: "",
+      items: [],
+    }
+  });
+
+  const watchedPoolId = watch("poolId");
+  const watchedCustomer = watch("customer");
+  const customerId = watchedCustomer?.id || "";
+  const reservationType = watch("reservationType");
+  const startDate = watch("startDate");
+  const endDate = watch("endDate");
+  const notes = watch("notes");
+  const items = watch("items") || [];
+
+  const poolProducts = useMemo(() => {
+    return poolsWithProducts.find((pool) => String(pool.id) === String(watchedPoolId)) || {
+      id: "all",
+      productItems: [],
+    };
+  }, [watchedPoolId, poolsWithProducts]);
+
   // Effect to populate form when initialData changes
   useEffect(() => {
     if (initialData) {
-      setCustomerId(initialData.customerId);
-      setSelectedCustomer({ id: initialData.customerId, name: initialData.customerName }); // Assuming customerName exists
-      setReservationType(initialData.reservationType);
-      setNotes(initialData.notes || "");
-      setStartDate(initialData.startDate ? initialData.startDate.slice(0, 16) : "");
-      setEndDate(initialData.endDate ? initialData.endDate.slice(0, 16) : "");
+      const transformedItems = (initialData.items || []).map(item => ({
+        ...item,
+        quantityAllocatedWithDC: Number(item.totalReservedQuantity || 0) - Number(item.quantityAllocatedWithCustomer || 0)
+      }));
 
-      // Select the pool
-      if (initialData.poolId) {
-        setPoolProducts(
-          poolsWithProducts.find((pool) => pool.id === initialData.poolId) || {
-            id: initialData.poolId, // Fallback if not found in list immediately
-            productItems: [],
-          }
-        );
-      }
-
-      // Populate items
-      if (initialData.items) {
-        const transformedItems = initialData.items.map(item => ({
-          ...item,
-          quantityAllocatedWithDC: Number(item.totalReservedQuantity || 0) - Number(item.quantityAllocatedWithCustomer || 0)
-        }));
-        setItems(transformedItems);
-      }
+      reset({
+        poolId: initialData.poolId || "",
+        customer: { id: initialData.customerId, name: initialData.customerName || `Customer ${initialData.customerId}` },
+        reservationType: initialData.reservationType || "",
+        notes: initialData.notes || "",
+        startDate: initialData.startDate ? initialData.startDate.slice(0, 16) : "",
+        endDate: initialData.endDate ? initialData.endDate.slice(0, 16) : "",
+        items: transformedItems,
+      });
     } else {
-      // Reset form for create mode
-      setCustomerId("");
-      setSelectedCustomer(null);
-      setReservationType("");
-      setNotes("");
-      setStartDate("");
-      setEndDate("");
-      setItems([]);
-      setPoolProducts({ id: "all", productItems: [] });
+      reset({
+        poolId: "",
+        customer: null,
+        reservationType: "",
+        notes: "",
+        startDate: "",
+        endDate: "",
+        items: [],
+      });
     }
-  }, [initialData, poolsWithProducts]);
-
-  const handlePoolChange = (newPoolId) => {
-    setPoolProducts(
-      poolsWithProducts.find((pool) => pool.id === newPoolId) || {
-        id: "all",
-        productItems: [],
-      }
-    );
-  };
+  }, [initialData, reset]);
 
   const fetchCustomerOptions = async (searchTerm) => {
     try {
@@ -103,47 +103,28 @@ function CreateReservationDialog({
     }
   };
 
-  const handleItemChange = (index, field, value) => {
-    setItems((prevItems) =>
-      prevItems.map((item, i) => {
-        if (i !== index) return item;
-
-        // apply change
-        const updated = { ...item, [field]: value };
-
-        // auto-calc quantityAllocatedWithDC when total or customer allocation changes
-        const total = Number(updated.totalReservedQuantity) || 0;
-        const withCustomer = Number(updated.quantityAllocatedWithCustomer) || 0;
-        updated.quantityAllocatedWithDC = Math.max(0, total - withCustomer);
-
-        return updated;
-      })
-    );
-  };
-
-  const handleSave = async () => {
-    if (!customerId) {
+  const handleSave = async (data) => {
+    const custId = data.customer?.id;
+    if (!custId) {
       alert("Please select a customer.");
       return;
     }
 
-    // Map UI items to API expected shape
-    const mappedItems = items.map((it) => ({
+    const mappedItems = (data.items || []).map((it) => ({
       productId: it.productId,
       totalReservedQuantity: Number(it.totalReservedQuantity) || 0,
-      quantityAllocatedWithCustomer:
-        Number(it.quantityAllocatedWithCustomer) || 0,
+      quantityAllocatedWithCustomer: Number(it.quantityAllocatedWithCustomer) || 0,
       quantityAllocatedWithDC: Number(it.quantityAllocatedWithDC) || 0,
     }));
 
     const requestData = {
-      customerId,
-      reservationType: reservationType,
-      notes,
-      startDate,
-      endDate,
+      customerId: custId,
+      reservationType: data.reservationType,
+      notes: data.notes,
+      startDate: data.startDate,
+      endDate: data.endDate,
       items: mappedItems,
-      poolId: poolProducts.id ?? null,
+      poolId: data.poolId || null,
       branchId: localStorage.getItem("branchId") || "default-branch-id",
     };
 
@@ -151,7 +132,7 @@ function CreateReservationDialog({
       if (isEditMode) {
         await inventoryService.updateReservation(initialData.id, requestData);
       } else {
-        await inventoryService.createReservation(requestData, customerId);
+        await inventoryService.createReservation(requestData, custId);
       }
       onSave();
       onClose();
@@ -169,21 +150,19 @@ function CreateReservationDialog({
   };
 
   const fetchActiveProducts = useCallback(async () => {
-    if (!customerId || isEditMode) return; // Don't auto-fetch in edit mode, as we want to show existing items
+    if (!customerId || isEditMode) return;
 
     try {
-      const data = await agreementService.getActiveProductsForCustomer(
-        customerId
-      );
-      setItems(data);
+      const data = await agreementService.getActiveProductsForCustomer(customerId);
+      setValue("items", data);
     } catch (error) {
-      setItems([]);
+      setValue("items", []);
       console.error("Error fetching active products for customer:", error);
     }
-  }, [customerId, isEditMode]);
+  }, [customerId, isEditMode, setValue]);
 
   const validatePoolProducts = useCallback(() => {
-    if (!poolProducts.id) return;
+    if (!poolProducts.id || poolProducts.id === "all") return;
 
     const availableIds = new Set(
       poolProducts.productItems.map((p) => String(p.productId))
@@ -197,11 +176,10 @@ function CreateReservationDialog({
       alert(
         "One or more selected items are not available in the chosen inventory pool."
       );
-      setPoolProducts({ id: "", productItems: [] });
+      setValue("poolId", "");
     }
-  }, [items, poolProducts]);
+  }, [items, poolProducts, setValue]);
 
-  // When customerId changes, fetch active products for that customer
   useEffect(() => {
     fetchActiveProducts();
   }, [fetchActiveProducts]);
@@ -210,21 +188,26 @@ function CreateReservationDialog({
     validatePoolProducts();
   }, [validatePoolProducts]);
 
+  const resetForm = () => {
+    reset({
+      poolId: "",
+      customer: null,
+      reservationType: "",
+      notes: "",
+      startDate: "",
+      endDate: "",
+      items: [],
+    });
+  };
+
   useCreateReservationAgent({
     open,
     pools,
-    handlePoolChange,
-    setSelectedCustomer,
-    setCustomerId,
-    fetchCustomerOptions,
     customerOptions,
-    setReservationType,
-    setStartDate,
-    setEndDate,
-    setNotes,
-    handleItemChange,
-    setItems,
-    setPoolProducts,
+    fetchCustomerOptions,
+    setValue,
+    getValues,
+    reset: resetForm,
   });
 
   return (
@@ -234,82 +217,109 @@ function CreateReservationDialog({
 
       <DialogContent>
         <Box display={"flex"} gap={3} sx={{ my: 2 }}>
-          <Box flex={1} item xs={12}>
-            <FormControl fullWidth>
-              <InputLabel>Inventory Pool</InputLabel>
-              <Select
-                value={poolProducts.id || ""}
-                onChange={(e) => handlePoolChange(e.target.value)}
-              >
-                {pools &&
-                  pools.map((pool) => (
-                    <MenuItem key={pool.id} value={pool.id}>
-                      {pool.name}
-                    </MenuItem>
-                  ))}
-              </Select>
-            </FormControl>
+          <Box flex={1}>
+            <Controller
+              name="poolId"
+              control={control}
+              render={({ field }) => (
+                <FormControl fullWidth>
+                  <InputLabel>Inventory Pool</InputLabel>
+                  <Select
+                    {...field}
+                    value={field.value || ""}
+                  >
+                    {pools &&
+                      pools.map((pool) => (
+                        <MenuItem key={pool.id} value={pool.id}>
+                          {pool.name}
+                        </MenuItem>
+                      ))}
+                  </Select>
+                </FormControl>
+              )}
+            />
           </Box>
-          <Box flex={1} item xs={12} sm={12} fullWidth>
-            <Autocomplete
-              fullWidth
-              options={customerOptions}
-              getOptionLabel={(option) => option.name}
-              value={selectedCustomer}
-              onInputChange={(_, newInputValue) => {
-                fetchCustomerOptions(newInputValue);
-              }}
-              onChange={(_, newValue) => {
-                setSelectedCustomer(newValue);
-                setCustomerId(newValue ? newValue.id : "");
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Customer Name"
-                  size="small"
+          <Box flex={1} fullWidth>
+            <Controller
+              name="customer"
+              control={control}
+              render={({ field }) => (
+                <Autocomplete
                   fullWidth
+                  options={customerOptions}
+                  getOptionLabel={(option) => option?.name || ""}
+                  value={field.value}
+                  onInputChange={(_, newInputValue) => {
+                    fetchCustomerOptions(newInputValue);
+                  }}
+                  onChange={(_, newValue) => {
+                    field.onChange(newValue);
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Customer Name"
+                      size="small"
+                      fullWidth
+                    />
+                  )}
                 />
               )}
             />
           </Box>
-          <Box flex={1} item xs={12}>
-            <FormControl fullWidth>
-              <InputLabel>Reservation Type</InputLabel>
-              <Select
-                value={reservationType}
-                onChange={(e) => setReservationType(e.target.value)}
-              >
-                <MenuItem value="FIXED">Fixed</MenuItem>
-                <MenuItem value="FLEXIBLE">Flexible</MenuItem>
-                <MenuItem value="ROTATIONAL">Rotational</MenuItem>
-              </Select>
-            </FormControl>
+          <Box flex={1}>
+            <Controller
+              name="reservationType"
+              control={control}
+              render={({ field }) => (
+                <FormControl fullWidth>
+                  <InputLabel>Reservation Type</InputLabel>
+                  <Select
+                    {...field}
+                    value={field.value || ""}
+                  >
+                    <MenuItem value="FIXED">Fixed</MenuItem>
+                    <MenuItem value="FLEXIBLE">Flexible</MenuItem>
+                    <MenuItem value="ROTATIONAL">Rotational</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+            />
           </Box>
         </Box>
         <Box display={"flex"} gap={3} sx={{ mt: 2, width: "66.3%" }}>
-          <Box flex={1} item xs={6} sx={{ mt: 1 }}>
-            <TextField
-              label="Start Date"
-              type="datetime-local"
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+          <Box flex={1} sx={{ mt: 1 }}>
+            <Controller
+              name="startDate"
+              control={control}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  label="Start Date"
+                  type="datetime-local"
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              )}
             />
           </Box>
-          <Box flex={1} item xs={6} sx={{ mt: 1 }}>
-            <TextField
-              label="End Date"
-              type="datetime-local"
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+          <Box flex={1} sx={{ mt: 1 }}>
+            <Controller
+              name="endDate"
+              control={control}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  label="End Date"
+                  type="datetime-local"
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              )}
             />
           </Box>
         </Box>
-        <Box item xs={12} sx={{ mt: 2 }}>
+        <Box sx={{ mt: 2 }}>
           <Typography>Items</Typography>
           {items.length > 0 ? (
             items.map((item, index) => (
@@ -320,50 +330,69 @@ function CreateReservationDialog({
                 alignItems="center"
                 sx={{ my: 1 }}
               >
-                <Box flex={1} item xs={3}>
+                <Box flex={1}>
                   <Typography variant="body2">
                     <strong>
                       {index + 1}. {item.productName}
                     </strong>
                   </Typography>
                 </Box>
-                <Box flex={1} item xs={3}>
-                  <TextField
-                    label="Quantity"
-                    type="number"
-                    fullWidth
-                    value={item.totalReservedQuantity ?? ""}
-                    onChange={(e) =>
-                      handleItemChange(
-                        index,
-                        "totalReservedQuantity",
-                        e.target.value
-                      )
-                    }
+                <Box flex={1}>
+                  <Controller
+                    name={`items.${index}.totalReservedQuantity`}
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        label="Quantity"
+                        type="number"
+                        fullWidth
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          field.onChange(e.target.value);
+                          const total = Number(e.target.value) || 0;
+                          const withCustomer = Number(getValues(`items.${index}.quantityAllocatedWithCustomer`) || 0);
+                          setValue(`items.${index}.quantityAllocatedWithDC`, Math.max(0, total - withCustomer));
+                        }}
+                      />
+                    )}
                   />
                 </Box>
-                <Box flex={1} item xs={3}>
-                  <TextField
-                    label="Qty with Customer"
-                    type="number"
-                    fullWidth
-                    value={item.quantityAllocatedWithCustomer ?? ""}
-                    onChange={(e) =>
-                      handleItemChange(
-                        index,
-                        "quantityAllocatedWithCustomer",
-                        e.target.value
-                      )
-                    }
+                <Box flex={1}>
+                  <Controller
+                    name={`items.${index}.quantityAllocatedWithCustomer`}
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        label="Qty with Customer"
+                        type="number"
+                        fullWidth
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          field.onChange(e.target.value);
+                          const total = Number(getValues(`items.${index}.totalReservedQuantity`) || 0);
+                          const withCustomer = Number(e.target.value) || 0;
+                          setValue(`items.${index}.quantityAllocatedWithDC`, Math.max(0, total - withCustomer));
+                        }}
+                      />
+                    )}
                   />
                 </Box>
-                <Box flex={1} item xs={3}>
-                  <TextField
-                    label="Qty with DC"
-                    value={item.quantityAllocatedWithDC}
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{ readOnly: true }}
+                <Box flex={1}>
+                  <Controller
+                    name={`items.${index}.quantityAllocatedWithDC`}
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        label="Qty with DC"
+                        value={field.value ?? "0"}
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{ readOnly: true }}
+                      />
+                    )}
                   />
                 </Box>
               </Box>
@@ -378,27 +407,32 @@ function CreateReservationDialog({
             </Typography>
           )}
         </Box>
-        <Box item xs={12} sx={{ mt: 2 }}>
-          <TextField
-            label="Notes"
-            fullWidth
-            value={notes}
-            multiline
-            minRows={2}
-            sx={{
-              "& .MuiOutlinedInput-root": {
-                maxHeight: "none",
-                height: "auto !important", // override global height
-                overflow: "visible",
-              },
-            }}
-            onChange={(e) => setNotes(e.target.value)}
+        <Box sx={{ mt: 2 }}>
+          <Controller
+            name="notes"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                label="Notes"
+                fullWidth
+                multiline
+                minRows={2}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    maxHeight: "none",
+                    height: "auto !important",
+                    overflow: "visible",
+                  },
+                }}
+              />
+            )}
           />
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained">
+        <Button onClick={handleSubmit(handleSave)} variant="contained">
           Save
         </Button>
       </DialogActions>

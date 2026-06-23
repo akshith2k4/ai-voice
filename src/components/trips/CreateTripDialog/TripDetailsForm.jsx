@@ -60,7 +60,7 @@ export default function TripDetailsForm({
                 Trip Details
             </Typography>
 
-            <Box sx={{ mb: 2 }}>
+            <Box data-agent-field="tripType" sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.2 }}>
                     Select Trip Type
                 </Typography>
@@ -130,14 +130,16 @@ export default function TripDetailsForm({
                 }}
             >
                 {/* Route */}
+                <Box data-agent-field="route">
                 <TextField
                     select
                     label="Route"
                     size="small"
+                    fullWidth
                     value={selectedRoute?.id ?? ""}
                     onChange={(e) => {
                         const v = routes.find(
-                            (r) => r.id === Number(e.target.value)
+                             (r) => r.id === Number(e.target.value)
                         );
                         setSelectedRoute(v || null);
                     }}
@@ -151,9 +153,10 @@ export default function TripDetailsForm({
                         </MenuItem>
                     ))}
                 </TextField>
+                </Box>
 
                 {/* Date */}
-                <Box sx={{ display: "flex", gap: 1 }}>
+                <Box data-agent-field="deliveryDate" sx={{ display: "flex", gap: 1 }}>
                     <DatePicker
                         label="Delivery Date"
                         value={deliveryDate}
@@ -174,6 +177,7 @@ export default function TripDetailsForm({
                 </Box>
 
                 {/* Delivery Team */}
+                <Box data-agent-field="deliveryTeam">
                 <Autocomplete
                     multiple
                     options={drivers}
@@ -264,6 +268,7 @@ export default function TripDetailsForm({
                         },
                     }}
                 />
+                </Box>
 
                 {/* Role pickers per selected driver */}
                 {selectedDriverIds && selectedDriverIds.length > 0 && (
@@ -306,10 +311,12 @@ export default function TripDetailsForm({
                 )}
 
                 {/* Vehicle */}
+                <Box data-agent-field="vehicle">
                 <TextField
                     select
                     label="Vehicle"
                     size="small"
+                    fullWidth
                     value={vehicle?.id ?? ""}
                     onChange={(e) => {
                         const v = vehicles.find(
@@ -335,7 +342,9 @@ export default function TripDetailsForm({
                         </MenuItem>
                     ))}
                 </TextField>
+                </Box>
 
+                <Box data-agent-field="notes">
                 <TextField
                     label="Trip Notes"
                     value={notes}
@@ -344,6 +353,7 @@ export default function TripDetailsForm({
                     size="small"
                     placeholder="Any instructions for this trip (optional)"
                 />
+                </Box>
 
                 {selectedRoute && (
                     <Box sx={{ mt: 1 }}>

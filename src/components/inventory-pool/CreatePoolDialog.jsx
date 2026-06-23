@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useForm, Controller } from 'react-hook-form';
 import { useCreatePoolAgent } from '../../useagent/useCreatePoolAgent';
 import {
     Dialog,
@@ -16,18 +17,25 @@ import productService from '../../services/productService';
 
 export default function CreatePoolDialog({ open, onClose, onSave }) {
     // --------------------------
-    // 1. State
+    // 1. State & Form
     // --------------------------
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
     const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
+    const [generalError, setGeneralError] = useState('');
     const [products, setProducts] = useState([]);
-    const [selectedProducts, setSelectedProducts] = useState([]);
     const [loadingProducts, setLoadingProducts] = useState(false);
 
+    const { control, handleSubmit, reset, setValue, getValues, watch } = useForm({
+        defaultValues: {
+            name: '',
+            description: '',
+            products: [],
+        }
+    });
+
+    const watchedProducts = watch("products") || [];
+
     // --------------------------
-    // 2. useEffects (ALL TOGETHER)
+    // 2. useEffects
     // --------------------------
     useEffect(() => {
         const fetchProducts = async () => {
@@ -48,45 +56,45 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
     // --------------------------
     // 3. Handlers & Helpers
     // --------------------------
-    const reset = () => {
-        setName('');
-        setDescription('');
-        setSelectedProducts([]);
-        setError('');
+    const resetForm = () => {
+        reset();
+        setGeneralError('');
     };
 
     useCreatePoolAgent({
         open,
-        setName,
-        setDescription,
-        setSelectedProducts,
         products,
-        reset,
+        setValue,
+        getValues,
+        reset: resetForm,
     });
 
     const handleClose = () => {
-        reset();
+        resetForm();
         onClose?.();
     };
 
-    const handleSave = async () => {
-        if (!name.trim()) {
-            setError('Name is required');
+    const onSubmit = async (data) => {
+        const nameVal = data.name.trim();
+        const productsVal = data.products || [];
+
+        if (!nameVal) {
+            setGeneralError('Name is required');
             return;
         }
 
-        if (selectedProducts.length === 0) {
-            setError('At least one product is required');
+        if (productsVal.length === 0) {
+            setGeneralError('At least one product is required');
             return;
         }
 
         setSaving(true);
-        setError('');
+        setGeneralError('');
         try {
             const payload = {
-                name: name.trim(),
-                description: description.trim(),
-                products: selectedProducts.map((p) => ({
+                name: nameVal,
+                description: data.description.trim(),
+                products: productsVal.map((p) => ({
                     productId: p.id,
                     productName: p.name,
                 })),
@@ -98,11 +106,17 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
         } catch (err) {
             console.error('Failed to create pool', err);
             const backend = err?.response?.data?.message || err?.message || 'Failed to create pool';
-            setError(backend);
+            setGeneralError(backend);
         } finally {
             setSaving(false);
         }
     };
+
+    useEffect(() => {
+        if (!open) {
+            resetForm();
+        }
+    }, [open]);
 
     // --------------------------
     // 4. Render
@@ -113,45 +127,29 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
             <DialogContent>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1, minHeight: 200 }}>
 
-                    <TextField
+                    <Controller
                         name="name"
-                        label="Pool Name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        required
-                        fullWidth
-                    />
-
-                    <TextField
-                        name="description"
-                        label="Description"
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        fullWidth
-                        multiline
-                        minRows={3}
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                maxHeight: 'none',
-                                height: 'auto !important',
-                                overflow: 'visible',
-                            },
-                        }}
-                    />
-
-                    <Autocomplete
-                        multiple
-                        loading={loadingProducts}
-                        options={products}
-                        getOptionLabel={(option) => option.name || ''}
-                        value={selectedProducts}
-                        onChange={(_, newValue) => setSelectedProducts(newValue)}
-                        fullWidth
-                        renderInput={(params) => (
+                        control={control}
+                        render={({ field }) => (
                             <TextField
-                                {...params}
-                                label="Select Products"
+                                {...field}
+                                label="Pool Name"
                                 required
+                                fullWidth
+                            />
+                        )}
+                    />
+
+                    <Controller
+                        name="description"
+                        control={control}
+                        render={({ field }) => (
+                            <TextField
+                                {...field}
+                                label="Description"
+                                fullWidth
+                                multiline
+                                minRows={3}
                                 sx={{
                                     '& .MuiOutlinedInput-root': {
                                         maxHeight: 'none',
@@ -163,8 +161,39 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
                         )}
                     />
 
-                    {error && (
-                        <Box sx={{ color: 'error.main', fontSize: '0.9rem' }}>{error}</Box>
+                    <Controller
+                        name="products"
+                        control={control}
+                        render={({ field }) => (
+                            <Autocomplete
+                                multiple
+                                loading={loadingProducts}
+                                options={products}
+                                getOptionLabel={(option) => option.name || ''}
+                                value={field.value}
+                                onChange={(_, newValue) => field.onChange(newValue)}
+                                fullWidth
+                                isOptionEqualToValue={(option, value) => option.id === value.id}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Select Products"
+                                        required
+                                        sx={{
+                                            '& .MuiOutlinedInput-root': {
+                                                maxHeight: 'none',
+                                                height: 'auto !important',
+                                                overflow: 'visible',
+                                            },
+                                        }}
+                                    />
+                                )}
+                            />
+                        )}
+                    />
+
+                    {generalError && (
+                        <Box sx={{ color: 'error.main', fontSize: '0.9rem' }}>{generalError}</Box>
                     )}
                 </Box>
             </DialogContent>
@@ -173,7 +202,7 @@ export default function CreatePoolDialog({ open, onClose, onSave }) {
                 <Button onClick={handleClose} disabled={saving}>Cancel</Button>
                 <Button
                     variant="contained"
-                    onClick={handleSave}
+                    onClick={handleSubmit(onSubmit)}
                     disabled={saving}
                     startIcon={saving ? <CircularProgress size={18} color="inherit" /> : null}
                 >

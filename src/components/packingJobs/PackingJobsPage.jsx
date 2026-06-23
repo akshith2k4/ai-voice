@@ -374,6 +374,7 @@ export default function PackingJobsPage() {
         actions={
           <GreenButton
             onClick={() => setCreateAssignmentOpen(true)}
+            data-agent-action="create-assignment"
             sx={{ height: 40, whiteSpace: "nowrap" }}
           >
             Create Assignment

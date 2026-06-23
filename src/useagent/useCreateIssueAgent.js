@@ -5,28 +5,31 @@ import { useAgentForm } from "../agent/useAgentForm";
  */
 export function useCreateIssueAgent({
   open,
-  setFormField,
-  handleSourceTypeChange,
-  handleSourceSelect,
+  setValue,
+  getValues,
+  reset,
   sourceOptions,
-  setForm,
   entityOptions,
-  setSingleItemField,
-  setProductQuery,
   productOptions,
-  resetState,
+  setProductQuery,
 }) {
   useAgentForm("createIssue", {
     fields: [
       {
         key: "issueDate",
         type: "date",
-        set: (v) => setFormField("recordedDateTime", v ? new Date(v) : new Date()),
+        set: (v) => setValue("recordedDateTime", v ? new Date(v) : new Date()),
       },
       {
         key: "sourceType",
         type: "select",
-        set: (v) => handleSourceTypeChange(v),
+        set: (v) => {
+          setValue("sourceType", v);
+          setValue("sourceId", undefined);
+          setValue("sourceName", "");
+          setValue("triggerEntityType", "");
+          setValue("triggerEntityId", undefined);
+        },
       },
       {
         key: "sourceName",
@@ -34,10 +37,13 @@ export function useCreateIssueAgent({
         set: (source) => {
           if (source) {
             const id = source.id ?? source.customerId ?? source.vendorId;
-            handleSourceSelect(id);
+            const name = source.name || source.customerName || source.laundryName || source.companyName || '';
+            setValue("sourceId", id);
+            setValue("sourceName", name);
+            setValue("triggerEntityId", undefined);
           } else {
-            setFormField("sourceId", undefined);
-            setFormField("sourceName", "");
+            setValue("sourceId", undefined);
+            setValue("sourceName", "");
           }
         },
         getOptions: () => sourceOptions,
@@ -49,7 +55,7 @@ export function useCreateIssueAgent({
       {
         key: "triggerEntity",
         type: "select",
-        set: (v) => setFormField("triggerEntityType", v),
+        set: (v) => setValue("triggerEntityType", v),
       },
       {
         key: "orderDate",
@@ -59,7 +65,8 @@ export function useCreateIssueAgent({
             const d = new Date(v);
             const start = new Date(d); start.setHours(0,0,0,0);
             const end = new Date(d); end.setHours(23,59,59,0);
-            setForm((prev) => ({ ...prev, startDate: start, endDate: end }));
+            setValue("startDate", start);
+            setValue("endDate", end);
           }
         }
       },
@@ -67,11 +74,8 @@ export function useCreateIssueAgent({
         key: "orders",
         type: "select",
         set: (v) => {
-          setForm((prev) => ({
-            ...prev,
-            triggerEntityId: v,
-            triggerEntityType: prev.sourceType === 'CUSTOMER' ? 'ORDER' : 'WASH_FULFILLMENT'
-          }));
+          setValue("triggerEntityId", v);
+          setValue("triggerEntityType", getValues("sourceType") === 'CUSTOMER' ? 'ORDER' : 'WASH_FULFILLMENT');
         },
         getOptions: () => entityOptions,
       },
@@ -83,29 +87,33 @@ export function useCreateIssueAgent({
             const d = new Date(v);
             const start = new Date(d); start.setHours(0,0,0,0);
             const end = new Date(d); end.setHours(23,59,59,0);
-            setForm((prev) => ({ ...prev, startDate: start, endDate: end }));
+            setValue("startDate", start);
+            setValue("endDate", end);
           }
         }
       },
       {
         key: "issueType",
         type: "select",
-        set: (v) => setFormField("issueType", v),
+        set: (v) => setValue("issueType", v),
       },
       {
         key: "status",
         type: "select",
-        set: (v) => setFormField("status", v),
+        set: (v) => setValue("status", v),
       },
       {
         key: "description",
         type: "text",
-        set: (v) => setFormField("description", v),
+        set: (v) => setValue("description", v),
       },
       {
         key: "product",
         type: "autocomplete",
-        set: (product) => setSingleItemField("product", product),
+        set: (product) => {
+          const item = getValues("item") || {};
+          setValue("item", { ...item, product });
+        },
         search: (q) => setProductQuery(q),
         getOptions: () => productOptions,
         getElement: () => {
@@ -116,9 +124,12 @@ export function useCreateIssueAgent({
       {
         key: "quantity",
         type: "number",
-        set: (v) => setSingleItemField("quantity", v),
+        set: (v) => {
+          const item = getValues("item") || {};
+          setValue("item", { ...item, quantity: v });
+        },
       }
     ],
-    clearAll: resetState,
+    clearAll: () => reset(),
   }, open);
 }

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { Paper, IconButton, Typography, Box } from "@mui/material";
 import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
@@ -11,6 +12,8 @@ import { audioQueue } from "./AudioQueue";
 import AgentChat from "./AgentChat";
 import { STATUS } from "./protocol";
 import "./spotlight.css";
+
+const S3_BASE_URL = import.meta.env.VITE_S3_BASE_URL || "https://linengrass-voiceai-prod.s3.ap-southeast-2.amazonaws.com";
 
 const STATUS_COLOR = {
   [STATUS.CONNECTING]:   "#f59e0b",
@@ -30,7 +33,7 @@ export default function AgentOverlay() {
     if (!welcomePlayed) {
       const msgId = crypto.randomUUID();
       addMessage("agent", "Hi, I am Narad, and I am here to help you. How can I help you?");
-      audioQueue.enqueueUrl("/tara/narad_welcome.mp3", msgId);
+      audioQueue.enqueueUrl(`${S3_BASE_URL}/tara/narad_welcome.mp3`, msgId);
       setWelcomePlayed(true);
     }
   }, [welcomePlayed, addMessage]);
@@ -139,8 +142,12 @@ export default function AgentOverlay() {
     if (isWalkthroughActive && !prevActiveRef.current) setExpanded(false);
     prevActiveRef.current = isWalkthroughActive;
   }, [isWalkthroughActive]);
+  const location = useLocation();
+  const token = localStorage.getItem("token");
 
-
+  if (location.pathname === "/login" || !token) {
+    return null;
+  }
 
   const statusColor = STATUS_COLOR[connectionStatus] || STATUS_COLOR[STATUS.DISCONNECTED];
   const isSpeaking = isAgentSpeaking && !isRecording;

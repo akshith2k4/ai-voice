@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
 import {
   Dialog,
   DialogTitle,
@@ -44,12 +45,27 @@ const ITEM_CONDITION_TYPES = [
 function FulfillmentDialog({ open, onClose, onSuccess }) {
   const { dcid } = useDcid();
   const [warehouses, setWarehouses] = useState([]);
-  const [vendorId, setVendorId] = useState("");
-  const [fulfilledDateTime, setFulfilledDateTime] = useState("");
-  const [washType, setWashType] = useState("WASH"); // "WASH" | "RE_WASH"
-  const [poolId, setPoolId] = useState("");
-  const [requestNumber, setRequestNumber] = useState("");
-  const [notes, setNotes] = useState("");
+
+  const { control, setValue, getValues, watch, reset } = useForm({
+    defaultValues: {
+      vendorId: "",
+      fulfilledDateTime: "",
+      washType: "WASH",
+      poolId: "",
+      requestNumber: "",
+      notes: "",
+    }
+  });
+
+  const formData = watch();
+  const { vendorId, fulfilledDateTime, washType, poolId, requestNumber, notes } = formData;
+
+  const setVendorId = useCallback((val) => setValue("vendorId", val), [setValue]);
+  const setFulfilledDateTime = useCallback((val) => setValue("fulfilledDateTime", val), [setValue]);
+  const setWashType = useCallback((val) => setValue("washType", val), [setValue]);
+  const setPoolId = useCallback((val) => setValue("poolId", val), [setValue]);
+  const setRequestNumber = useCallback((val) => setValue("requestNumber", val), [setValue]);
+  const setNotes = useCallback((val) => setValue("notes", val), [setValue]);
 
   const [vendors, setVendors] = useState([]);
   const [vendorLoading, setVendorLoading] = useState(false);
@@ -60,8 +76,6 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
   const [loadingReview, setLoadingReview] = useState(false);
   const [loadingRows, setLoadingRows] = useState(false);
   const [knockOffDialogData, setKnockOffDialogData] = useState(null);
-
-
 
   //scannerHeader
   const [showScannerHeader, setShowScannerHeader] = useState(false);
@@ -78,14 +92,11 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
   // Track if we've already auto-activated to WASHED on first connection
   const hasAutoActivatedRef = useRef(false);
 
-
   // Prefix for Request Number e.g., "WFR-2025-" and allow only 4 digits after
   const requestNumberPrefix = useMemo(() => {
     const year = new Date().getFullYear();
     return `WFR-${year}-`;
   }, []);
-
-
 
   /**
    * sections = [
@@ -100,12 +111,14 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
   const inputRefs = useRef({}); // key: `${referenceId}-${productId}` -> ref
 
   const resetFulfillmentDialogState = useCallback(() => {
-    setVendorId("");
-    setFulfilledDateTime("");
-    setWashType("WASH");
-    setPoolId("");
-    setRequestNumber(requestNumberPrefix);
-    setNotes("");
+    reset({
+      vendorId: "",
+      fulfilledDateTime: "",
+      washType: "WASH",
+      poolId: "",
+      requestNumber: requestNumberPrefix,
+      notes: "",
+    });
     setSections([]);
     setLoadingRows(false);
     setLoadingSubmit(false);
@@ -123,7 +136,7 @@ function FulfillmentDialog({ open, onClose, onSuccess }) {
 
     pendingScansRef.current = [];
     hasAutoActivatedRef.current = false;
-  }, [requestNumberPrefix]);
+  }, [requestNumberPrefix, reset]);
 
   const handleDialogClose = useCallback(async (...args) => {
     try {

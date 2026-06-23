@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  agent-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      # Environment variables in 'environment' override those in 'env_file'.
+
+

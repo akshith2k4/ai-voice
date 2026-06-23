@@ -3,6 +3,7 @@ import { tripService } from "../services/tripService";
 import { userService } from "../services/userService";
 import { inventoryService } from "../services/inventoryService";
 import { useDcid } from "../context/DcidContext";
+import { useCreateTripAgent } from "../useagent/useCreateTripAgent";
 
 const ORDER_TRIP = "ORDER_TRIP";
 const WASH_TRIP = "WASH_TRIP";
@@ -656,6 +657,39 @@ export default function useCreateTripDialog({
         setSubmitAttempted(false);
         onClose?.();
     };
+
+    // ── Voice‑agent walkthrough integration ──────────────────────────────
+    const normalizeString = (str) => {
+        if (str == null) return "";
+        return String(str)
+            .toLowerCase()
+            .replace(/[\u2014\u2013-]/g, "-")
+            .replace(/\s+/g, "");
+    };
+
+    useCreateTripAgent({
+        open,
+        routes,
+        drivers,
+        vehicles,
+        setResolvedTripType: (t) => setTripType(t),
+        setSelectedRoute,
+        setDeliveryDate,
+        setSelectedDriverIds,
+        rolesByUserId,
+        setRolesByUserId,
+        setVehicle,
+        setNotes,
+        customersWithOrders,
+        enabledCustomers,
+        toggleCustomerEnabled,
+        setSequenceByCustomer,
+        setVisitNotesByCustomer,
+        resetStateAndClose,
+        normalizeString,
+        WASH_TRIP,
+        ORDER_TRIP,
+    });
 
     return {
         isCustomerTrip,

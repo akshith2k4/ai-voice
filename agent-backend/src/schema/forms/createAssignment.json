@@ -1,0 +1,85 @@
+{
+  "id": "createAssignment",
+  "name": "Create Assignment",
+  "route": "/packing-jobs",
+  "setupSteps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "route": "/packing-jobs"
+      },
+      "waitFor": "navigation_complete",
+      "waitAfterMs": 300
+    },
+    {
+      "tool": "open_dialog",
+      "args": {
+        "selector": "[data-agent-action='create-assignment']",
+        "fallbackText": "Create Assignment"
+      },
+      "waitFor": "form_registered"
+    }
+  ],
+  "overview": {
+    "en": "[excited] Okay, let's create a new packing job assignment! [friendly] This is where we assign packing jobs from a specific route and date to a packer. We'll select the route, the date, and the user to assign them to. Then we'll select the jobs to be allocated. Let's get started!",
+    "hi": "[excited] ठीक है, चलिए एक नया packing job assignment बनाते हैं! [friendly] यहाँ हम एक specific route और date के packing jobs को एक packer को assign करते हैं। हम route, date, और user चुनेंगे जिन्हें ये assign करना है। फिर हम select करेंगे कि कौन से jobs allocate करने हैं। चलिए शुरू करते हैं!"
+  },
+  "nodes": [
+    {
+      "nodeType": "field",
+      "key": "route",
+      "label": "Route",
+      "type": "select",
+      "demoValue": "Idhi naa routeuu",
+      "explanation": {
+        "en": "[casual] First, select the Route that contains the packing jobs you want to assign.",
+        "hi": "[casual] सबसे पहले, वो Route चुनें जिसमें वो packing jobs हैं जिन्हें आप assign करना चाहते हैं।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "date",
+      "label": "Packing Job Date",
+      "type": "date",
+      "demoValue": "2026-06-17",
+      "explanation": {
+        "en": "[casual] Next, choose the Packing Job Date. This is the scheduled date for the packing run.",
+        "hi": "[casual] इसके बाद, Packing Job Date चुनें। यह packing run की scheduled date है।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "user",
+      "label": "User",
+      "type": "select",
+      "demoValue": "Akash",
+      "explanation": {
+        "en": "[friendly] Now, select the User. This is the packer who will be responsible for packing these items.",
+        "hi": "[friendly] अब, User चुनें। यह वो packer है जो इन items को pack करने के लिए responsible होगा।"
+      }
+    },
+    {
+      "nodeType": "field",
+      "key": "selectAllJobs",
+      "label": "Select All Jobs",
+      "type": "toggle",
+      "demoValue": true,
+      "explanation": {
+        "en": "[casual] Choose if you want to select all available jobs on this route. By default, we select all of them, but you can change it.",
+        "hi": "[casual] चुनें कि क्या आप इस route के सभी available jobs select करना चाहते हैं। By default हम सभी को select कर लेते हैं, लेकिन आप इसे बदल सकते हैं।"
+      }
+    }
+  ],
+  "wrapUp": {
+    "en": "[warm and satisfied] And that's all! [chuckles] We've configured the route, date, and user, and selected all the jobs. Once you click Assign, the packer will be scheduled for these packing jobs. Great job!",
+    "hi": "[warm and satisfied] और बस इतना ही! [chuckles] हमने route, date, और user configure कर लिए हैं और सभी jobs select कर लिए हैं। जैसे ही आप Assign पर click करेंगे, packer इन packing jobs के लिए schedule हो जाएगा। बहुत बढ़िया!"
+  },
+  "aliases": [
+    "create assignment",
+    "new assignment",
+    "assign packer",
+    "assign packing jobs",
+    "bulk assignment"
+  ],
+  "description": "Walkthrough for creating a new packing job assignment for a user"
+}

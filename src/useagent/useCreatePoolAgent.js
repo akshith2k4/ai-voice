@@ -5,10 +5,9 @@ import { useAgentForm } from "../agent/useAgentForm";
  */
 export function useCreatePoolAgent({
   open,
-  setName,
-  setDescription,
-  setSelectedProducts,
   products,
+  setValue,
+  getValues,
   reset,
 }) {
   useAgentForm("createInventoryPool", {
@@ -16,28 +15,27 @@ export function useCreatePoolAgent({
       {
         key: "name",
         type: "text",
-        set: (v) => setName(v),
+        set: (v) => setValue("name", v),
       },
       {
         key: "description",
         type: "text",
-        set: (v) => setDescription(v),
+        set: (v) => setValue("description", v),
       },
       {
         key: "products",
         type: "autocomplete",
         set: (prod) => {
           if (!prod) return;
-          setSelectedProducts((prev) => {
-            const list = Array.isArray(prod) ? prod : [prod];
-            const merged = [...prev];
-            list.forEach(p => {
-              if (!merged.some(m => m.id === p.id)) {
-                merged.push(p);
-              }
-            });
-            return merged;
+          const prev = getValues("products") || [];
+          const list = Array.isArray(prod) ? prod : [prod];
+          const merged = [...prev];
+          list.forEach(p => {
+            if (!merged.some(m => m.id === p.id)) {
+              merged.push(p);
+            }
           });
+          setValue("products", merged);
         },
         getOptions: () => products,
         getElement: () => {
@@ -46,6 +44,6 @@ export function useCreatePoolAgent({
         }
       }
     ],
-    clearAll: reset,
+    clearAll: () => reset(),
   }, open);
 }

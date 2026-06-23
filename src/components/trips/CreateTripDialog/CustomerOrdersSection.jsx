@@ -59,6 +59,7 @@ const CustomerRowSummary = React.memo(({
                     >
                         <Tooltip title={isEnabled ? "Exclude this customer" : "Include this customer"}>
                             <Checkbox 
+                                data-agent-field="selected"
                                 size="small" 
                                 checked={isEnabled} 
                                 onChange={() => toggleCustomerEnabled(customerId)} 
@@ -98,6 +99,7 @@ const CustomerRowSummary = React.memo(({
                     sx={{ width: '45%', flexShrink: 0 }}
                 >
                         <TextField
+                            data-agent-field="visitNotes"
                             value={visitNoteValue || ""}
                             onChange={(e) => setVisitNotesByCustomer(prev => ({ ...prev, [customerId]: e.target.value }))}
                             size="small"
@@ -216,6 +218,7 @@ const CustomerAccordionItem = React.memo(({
 
     return (
         <Accordion
+            data-agent-row-customer={String(customerId)}
             disableGutters
             square={false}
             draggable={isEnabled && isDraggable}

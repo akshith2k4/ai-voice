@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useForm, useFieldArray, Controller } from "react-hook-form";
 import debounce from "lodash.debounce";
 import {
     Container,
@@ -73,28 +74,39 @@ function HotelList() {
     const [isNewHotel, setIsNewHotel] = useState(false);
     // removed unused CustomSnackbarOpen and errorMessage states
     // Removed unused hotelFormData local state
-    const [agreementFormData, setAgreementFormData] = useState({
-        startDate: "",
-        endDate: "",
-        type: "",
-        status: "",
-        linenDeliveryDays: "",
-        serviceFrequency: "",
-        totalRooms: "",
-        occupancyRate: "",
-        depositAmount: "",
-        billingStartDay: "",
-        billingEndDay: "",
-        billingCycle: "",
-        billingType: "",
-        fixedMonthlyAmount: "",
-        creditDays: "",
-        discountPercentage: "",
-        creditTermDays: "",
-        pickupFrequencyDays: "",
-        deliveryTatDays: "",
-        prices: [],
+    const { control, handleSubmit, reset, setValue, getValues, watch } = useForm({
+        defaultValues: {
+            startDate: "",
+            endDate: "",
+            type: "",
+            status: "",
+            linenDeliveryDays: "",
+            serviceFrequency: "",
+            totalRooms: "",
+            occupancyRate: "",
+            depositAmount: "",
+            billingStartDay: "",
+            billingEndDay: "",
+            billingCycle: "",
+            billingType: "",
+            fixedMonthlyAmount: "",
+            creditDays: "",
+            discountPercentage: "",
+            creditTermDays: "",
+            pickupFrequencyDays: "",
+            deliveryTatDays: "",
+            prices: [],
+        }
     });
+
+    const { fields: prices, append, remove } = useFieldArray({
+        control,
+        name: "prices"
+    });
+
+    const watchedAgreementType = watch("type");
+    const watchedAgreementPrices = watch("prices") || [];
+
     const [products, setProducts] = useState([]);
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState("");
@@ -105,7 +117,7 @@ function HotelList() {
 
     // Ensure refs arrays always match the number of price items
     useEffect(() => {
-        const count = agreementFormData.prices.length;
+        const count = watchedAgreementPrices.length;
         if (quantityRefs.current.length !== count) {
             quantityRefs.current = Array(count)
                 .fill(null)
@@ -116,7 +128,7 @@ function HotelList() {
                 .fill(null)
                 .map((_, i) => priceRefs.current[i] || null);
         }
-    }, [agreementFormData.prices.length]);
+    }, [watchedAgreementPrices.length]);
 
     const focusNextInRefs = (refsArray, index, backwards = false) => {
         const list = refsArray.current;
@@ -193,11 +205,11 @@ function HotelList() {
             );
             console.log("Agreement Response:", agreementResponse); // Debugging log
             setAgreementDetails(agreementResponse);
-            setAgreementFormData({
-                startDate: agreementResponse.startDate,
-                endDate: agreementResponse.endDate,
-                type: agreementResponse.type,
-                status: agreementResponse.status,
+            reset({
+                startDate: agreementResponse.startDate || "",
+                endDate: agreementResponse.endDate || "",
+                type: agreementResponse.type || "",
+                status: agreementResponse.status || "",
                 linenDeliveryDays:
                     agreementResponse?.rentalDetails?.linenDeliveryDays ??
                     agreementResponse.linenDeliveryDays ??
@@ -206,19 +218,19 @@ function HotelList() {
                     agreementResponse?.rentalDetails?.serviceFrequency ??
                     agreementResponse.serviceFrequency ??
                     "",
-                totalRooms: agreementResponse.totalRooms,
-                occupancyRate: agreementResponse.occupancyRate,
-                depositAmount: agreementResponse.depositAmount,
-                billingStartDay: agreementResponse.billingStartDay,
-                billingEndDay: agreementResponse.billingEndDay,
-                billingCycle: agreementResponse.billingCycle,
-                billingType: agreementResponse.billingType,
-                fixedMonthlyAmount: agreementResponse.fixedMonthlyAmount,
-                creditDays: agreementResponse.creditDays,
-                discountPercentage: agreementResponse.discountPercentage,
-                creditTermDays: agreementResponse.creditTermDays,
-                pickupFrequencyDays: agreementResponse.pickupFrequencyDays,
-                deliveryTatDays: agreementResponse.deliveryTatDays,
+                totalRooms: agreementResponse.totalRooms || "",
+                occupancyRate: agreementResponse.occupancyRate || "",
+                depositAmount: agreementResponse.depositAmount || "",
+                billingStartDay: agreementResponse.billingStartDay || "",
+                billingEndDay: agreementResponse.billingEndDay || "",
+                billingCycle: agreementResponse.billingCycle || "",
+                billingType: agreementResponse.billingType || "",
+                fixedMonthlyAmount: agreementResponse.fixedMonthlyAmount || "",
+                creditDays: agreementResponse.creditDays || "",
+                discountPercentage: agreementResponse.discountPercentage || "",
+                creditTermDays: agreementResponse.creditTermDays || "",
+                pickupFrequencyDays: agreementResponse.pickupFrequencyDays || "",
+                deliveryTatDays: agreementResponse.deliveryTatDays || "",
                 prices: agreementResponse.prices || [],
             });
         } catch (error) {
@@ -229,7 +241,7 @@ function HotelList() {
             setSnackbarMessage(backendMessage);
             setSnackbarOpen(true);
             setAgreementDetails(null);
-            setAgreementFormData({
+            reset({
                 startDate: "",
                 endDate: "",
                 type: "",
@@ -303,33 +315,10 @@ function HotelList() {
 
     // Removed unused handleEditAgreement
 
-    const handleAgreementFormChange = (field, value) => {
-        setAgreementFormData((prevData) => ({
-            ...prevData,
-            [field]: value,
-        }));
-    };
-
-    const handleAddPriceItem = () => {
-        setAgreementFormData((prev) => ({
-            ...prev,
-            prices: [
-                ...prev.prices,
-                {
-                    productId: "",
-                    quantity: 0,
-                    price: 0,
-                    remarks: "",
-                    serviceType: "",
-                },
-            ],
-        }));
-    };
-
     const handleRemovePriceItem = async (index) => {
-        const itemToRemove = agreementFormData.prices[index];
+        const itemToRemove = getValues("prices")[index];
 
-        if (itemToRemove.id) {
+        if (itemToRemove?.id) {
             if (!window.confirm("Are you sure you want to permanently delete this price entry from the agreement?")) {
                 return;
             }
@@ -347,29 +336,27 @@ function HotelList() {
             }
         }
 
-        setAgreementFormData((prev) => ({
-            ...prev,
-            prices: prev.prices.filter((_, i) => i !== index),
-        }));
+        remove(index);
     };
 
-    const handlePriceItemChange = (index, field, value) => {
-        const updatedPrices = [...agreementFormData.prices];
-        updatedPrices[index][field] = value;
-        setAgreementFormData((prev) => ({
-            ...prev,
-            prices: updatedPrices,
-        }));
+    const handleAddPriceItem = () => {
+        append({
+            productId: "",
+            quantity: "",
+            price: "",
+            serviceType: "",
+            remarks: "",
+        });
     };
 
-    const handleAgreementSubmit = async () => {
+    const handleAgreementSubmit = async (data) => {
         try {
             const requestBody = {
                 customerId: selectedHotel.id,
-                type: agreementFormData.type,
-                startDate: agreementFormData.startDate,
-                endDate: agreementFormData.endDate,
-                prices: agreementFormData.prices.map((price) => ({
+                type: data.type,
+                startDate: data.startDate,
+                endDate: data.endDate,
+                prices: (data.prices || []).map((price) => ({
                     productId: price.productId,
                     quantity: price.quantity,
                     price: price.price,
@@ -377,33 +364,33 @@ function HotelList() {
                 })),
             };
 
-            if (agreementFormData.type === "RENTAL_LAUNDRY") {
+            if (data.type === "RENTAL_LAUNDRY") {
                 requestBody.rentalDetails = {
-                    totalRooms: agreementFormData.totalRooms,
-                    occupancyRate: agreementFormData.occupancyRate,
-                    depositAmount: agreementFormData.depositAmount,
-                    billingStartDay: agreementFormData.billingStartDay,
-                    billingEndDay: agreementFormData.billingEndDay,
-                    billingCycle: agreementFormData.billingCycle,
-                    billingType: agreementFormData.billingType,
-                    fixedMonthlyAmount: agreementFormData.fixedMonthlyAmount,
-                    creditDays: agreementFormData.creditDays,
-                    linenDeliveryDays: agreementFormData.linenDeliveryDays,
-                    serviceFrequency: agreementFormData.serviceFrequency,
+                    totalRooms: data.totalRooms,
+                    occupancyRate: data.occupancyRate,
+                    depositAmount: data.depositAmount,
+                    billingStartDay: data.billingStartDay,
+                    billingEndDay: data.billingEndDay,
+                    billingCycle: data.billingCycle,
+                    billingType: data.billingType,
+                    fixedMonthlyAmount: data.fixedMonthlyAmount,
+                    creditDays: data.creditDays,
+                    linenDeliveryDays: data.linenDeliveryDays,
+                    serviceFrequency: data.serviceFrequency,
                 };
-            } else if (agreementFormData.type === "LAUNDRY") {
+            } else if (data.type === "LAUNDRY") {
                 requestBody.laundryDetails = {
-                    totalRooms: agreementFormData.totalRooms,
-                    occupancyRate: agreementFormData.occupancyRate,
-                    creditTermDays: agreementFormData.creditTermDays,
-                    billingCycle: agreementFormData.billingCycle,
-                    billingStartDay: agreementFormData.billingStartDay,
-                    billingEndDay: agreementFormData.billingEndDay,
-                    pickupFrequencyDays: agreementFormData.pickupFrequencyDays,
-                    deliveryTatDays: agreementFormData.deliveryTatDays,
-                    billingType: agreementFormData.billingType,
-                    fixedMonthlyAmount: agreementFormData.fixedMonthlyAmount,
-                    discountPercentage: agreementFormData.discountPercentage,
+                    totalRooms: data.totalRooms,
+                    occupancyRate: data.occupancyRate,
+                    creditTermDays: data.creditTermDays,
+                    billingCycle: data.billingCycle,
+                    billingStartDay: data.billingStartDay,
+                    billingEndDay: data.billingEndDay,
+                    pickupFrequencyDays: data.pickupFrequencyDays,
+                    deliveryTatDays: data.deliveryTatDays,
+                    billingType: data.billingType,
+                    fixedMonthlyAmount: data.fixedMonthlyAmount,
+                    discountPercentage: data.discountPercentage,
                 };
             }
 
@@ -431,15 +418,8 @@ function HotelList() {
         }
     };
 
-    const handleAgreementTypeChange = (event) => {
-        setAgreementFormData({
-            ...agreementFormData,
-            type: event.target.value,
-        });
-    };
-
     const resetAgreementForm = () => {
-        setAgreementFormData({
+        reset({
             startDate: "",
             endDate: "",
             type: "",
@@ -465,11 +445,11 @@ function HotelList() {
 
     useCreateAgreementAgent({
         isAgreementDialogOpen,
-        handleAgreementFormChange,
-        handleAddPriceItem,
+        setValue,
+        getValues,
+        reset: resetAgreementForm,
+        append,
         products,
-        handlePriceItemChange,
-        resetAgreementForm,
     });
 
     // Removed unused renderAgreementFormFields
@@ -487,7 +467,7 @@ function HotelList() {
                         sx={{ mt: 2 }}
                         data-agent-action="add-agreement"
                         onClick={() => {
-                            setAgreementFormData({
+                            reset({
                                 startDate: "",
                                 endDate: "",
                                 type: "",
@@ -1257,339 +1237,363 @@ function HotelList() {
                 <DialogContent>
                     <Box display={"flex"} gap={2} sx={{ mt: 2 }}>
                         <Box flex={1}>
-                            <TextField
-                                fullWidth
-                                select
-                                size="small"
-                                label="Agreement Type"
+                            <Controller
                                 name="type"
-                                value={agreementFormData.type}
-                                onChange={handleAgreementTypeChange}
-                            >
-                                <MenuItem value="RENTAL_LAUNDRY">
-                                    Rental Laundry
-                                </MenuItem>
-                                <MenuItem value="LAUNDRY">Laundry</MenuItem>
-                            </TextField>
-                        </Box>
-                        <Box flex={1}>
-                            <TextField
-                                fullWidth
-                                size="small"
-                                label="Start Date"
-                                type="date"
-                                value={agreementFormData.startDate}
-                                onChange={(e) =>
-                                    handleAgreementFormChange(
-                                        "startDate",
-                                        e.target.value
-                                    )
-                                }
-                                InputLabelProps={{ shrink: true }}
+                                control={control}
+                                render={({ field }) => (
+                                    <TextField
+                                        {...field}
+                                        fullWidth
+                                        select
+                                        size="small"
+                                        label="Agreement Type"
+                                    >
+                                        <MenuItem value="RENTAL_LAUNDRY">
+                                            Rental Laundry
+                                        </MenuItem>
+                                        <MenuItem value="LAUNDRY">Laundry</MenuItem>
+                                    </TextField>
+                                )}
                             />
                         </Box>
                         <Box flex={1}>
-                            <TextField
-                                fullWidth
-                                size="small"
-                                label="End Date"
-                                type="date"
-                                value={agreementFormData.endDate}
-                                onChange={(e) =>
-                                    handleAgreementFormChange(
-                                        "endDate",
-                                        e.target.value
-                                    )
-                                }
-                                InputLabelProps={{ shrink: true }}
+                            <Controller
+                                name="startDate"
+                                control={control}
+                                render={({ field }) => (
+                                    <TextField
+                                        {...field}
+                                        fullWidth
+                                        size="small"
+                                        label="Start Date"
+                                        type="date"
+                                        InputLabelProps={{ shrink: true }}
+                                    />
+                                )}
+                            />
+                        </Box>
+                        <Box flex={1}>
+                            <Controller
+                                name="endDate"
+                                control={control}
+                                render={({ field }) => (
+                                    <TextField
+                                        {...field}
+                                        fullWidth
+                                        size="small"
+                                        label="End Date"
+                                        type="date"
+                                        InputLabelProps={{ shrink: true }}
+                                    />
+                                )}
                             />
                         </Box>
                     </Box>
                     <Box display={"flex"} sx={{ mt: 2 }}>
                         <Box flex={1}>
                             <FormControl fullWidth size="small">
-                                <InputLabel>Status</InputLabel>
-                                <Select
-                                    value={agreementFormData.status}
-                                    onChange={(e) =>
-                                        handleAgreementFormChange(
-                                            "status",
-                                            e.target.value
-                                        )
-                                    }
-                                >
-                                    <MenuItem value="ACTIVE">Active</MenuItem>
-                                    <MenuItem value="INACTIVE">
-                                        Inactive
-                                    </MenuItem>
-                                </Select>
+                                <InputLabel id="agreement-status-label">Status</InputLabel>
+                                <Controller
+                                    name="status"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select
+                                            {...field}
+                                            labelId="agreement-status-label"
+                                            label="Status"
+                                        >
+                                            <MenuItem value="ACTIVE">Active</MenuItem>
+                                            <MenuItem value="INACTIVE">
+                                                Inactive
+                                            </MenuItem>
+                                        </Select>
+                                    )}
+                                />
                             </FormControl>
                         </Box>
                     </Box>
                     {/* Linen delivery settings are only applicable to RENTAL_LAUNDRY */}
-                    {agreementFormData.type === "RENTAL_LAUNDRY" && (
+                    {watchedAgreementType === "RENTAL_LAUNDRY" && (
                         <>
                             <Box display={"flex"} gap={2} sx={{ mt: 2 }}>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Total Rooms"
-                                        type="number"
-                                        value={agreementFormData.totalRooms}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "totalRooms",
-                                                e.target.value
-                                            )
-                                        }
+                                    <Controller
+                                        name="totalRooms"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Total Rooms"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Occupancy Rate"
-                                        type="number"
-                                        value={agreementFormData.occupancyRate}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "occupancyRate",
-                                                e.target.value
-                                            )
-                                        }
+                                    <Controller
+                                        name="occupancyRate"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Occupancy Rate"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                             </Box>
                             <Box display={"flex"} gap={2} sx={{ mt: 2 }}>
                                 <Box flex={2}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Deposit Amount"
-                                        type="number"
-                                        value={agreementFormData.depositAmount}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "depositAmount",
-                                                e.target.value
-                                            )
-                                        }
+                                    <Controller
+                                        name="depositAmount"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Deposit Amount"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Credit Days"
-                                        type="number"
-                                        value={agreementFormData.creditDays}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "creditDays",
-                                                e.target.value
-                                            )
-                                        }
+                                    <Controller
+                                        name="creditDays"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Credit Days"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                             </Box>
                             <Box display={"flex"} gap={2} sx={{ mt: 2 }}>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Linen Delivery Days"
-                                        type="number"
-                                        value={agreementFormData.linenDeliveryDays}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "linenDeliveryDays",
-                                                e.target.value
-                                            )
-                                        }
+                                    <Controller
+                                        name="linenDeliveryDays"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Linen Delivery Days"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                                 <Box flex={1}>
                                     <FormControl fullWidth size="small">
-                                        <InputLabel>Service Frequency</InputLabel>
-                                        <Select
-                                            value={agreementFormData.serviceFrequency}
-                                            label="Service Frequency"
-                                            onChange={(e) =>
-                                                handleAgreementFormChange(
-                                                    "serviceFrequency",
-                                                    e.target.value
-                                                )
-                                            }
-                                        >
-                                            {serviceFrequencies.map((freq) => (
-                                                <MenuItem key={freq} value={freq}>
-                                                    {freq.replace("_", " ")}
-                                                </MenuItem>
-                                            ))}
-                                        </Select>
+                                        <InputLabel id="service-frequency-label">Service Frequency</InputLabel>
+                                        <Controller
+                                            name="serviceFrequency"
+                                            control={control}
+                                            render={({ field }) => (
+                                                <Select
+                                                    {...field}
+                                                    labelId="service-frequency-label"
+                                                    label="Service Frequency"
+                                                >
+                                                    {serviceFrequencies.map((freq) => (
+                                                        <MenuItem key={freq} value={freq}>
+                                                            {freq.replace("_", " ")}
+                                                        </MenuItem>
+                                                    ))}
+                                                </Select>
+                                            )}
+                                        />
                                     </FormControl>
                                 </Box>
                             </Box>
                             <Box display={"flex"} gap={2} sx={{ mt: 2 }}>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Billing Cycle"
-                                        type="number"
+                                    <Controller
                                         name="billingCycle"
-                                        value={agreementFormData.billingCycle}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "billingCycle",
-                                                e.target.value
-                                            )
-                                        }
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Billing Cycle"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Billing Start Day"
+                                    <Controller
                                         name="billingStartDay"
-                                        type="number"
-                                        value={agreementFormData.billingStartDay}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "billingStartDay",
-                                                e.target.value
-                                            )
-                                        }
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Billing Start Day"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                                 <Box flex={1}>
-                                    <TextField
-                                        fullWidth
-                                        size="small"
-                                        label="Billing End Day"
+                                    <Controller
                                         name="billingEndDay"
-                                        type="number"
-                                        value={agreementFormData.billingEndDay}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "billingEndDay",
-                                                e.target.value
-                                            )
-                                        }
+                                        control={control}
+                                        render={({ field }) => (
+                                            <TextField
+                                                {...field}
+                                                fullWidth
+                                                size="small"
+                                                label="Billing End Day"
+                                                type="number"
+                                            />
+                                        )}
                                     />
                                 </Box>
                             </Box>
                             <Box flex={1} sx={{ mt: 2 }}>
                                 <FormControl fullWidth size="small">
-                                    <InputLabel>Billing Type</InputLabel>
-                                    <Select
-                                        value={agreementFormData.billingType}
-                                        onChange={(e) =>
-                                            handleAgreementFormChange(
-                                                "billingType",
-                                                e.target.value
-                                            )
-                                        }
-                                    >
-                                        <MenuItem value="FLEXIBLE">
-                                            Flexible
-                                        </MenuItem>
-                                        <MenuItem value="FIXED">Fixed</MenuItem>
-                                    </Select>
+                                    <InputLabel id="billing-type-label">Billing Type</InputLabel>
+                                    <Controller
+                                        name="billingType"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Select
+                                                {...field}
+                                                labelId="billing-type-label"
+                                                label="Billing Type"
+                                            >
+                                                <MenuItem value="FLEXIBLE">
+                                                    Flexible
+                                                </MenuItem>
+                                                <MenuItem value="FIXED">Fixed</MenuItem>
+                                            </Select>
+                                        )}
+                                    />
                                 </FormControl>
                             </Box>
                             <Box sx={{ mt: 3 }}>
-
                                 <Typography variant="h6" sx={{ mb: 1 }}>
                                     Price List
                                 </Typography>
-                                {agreementFormData.prices.map((price, index) => (
-                                    <Box key={index} display={"flex"} gap={2} sx={{ mb: 2 }} alignItems="center">
+                                {prices.map((price, index) => (
+                                    <Box key={price.id} display={"flex"} gap={2} sx={{ mb: 2 }} alignItems="center">
                                         <Box flex={3}>
                                             <FormControl fullWidth size="small" sx={{ flex: 2 }}>
-                                                <InputLabel>Product</InputLabel>
-                                                <Select
-                                                    value={price.productId}
-                                                    onChange={(e) =>
-                                                        handlePriceItemChange(index, "productId", e.target.value)
-                                                    }
-                                                >
-                                                    {products.map((product) => (
-                                                        <MenuItem key={product.id} value={product.id}>
-                                                            {product.name}
-                                                        </MenuItem>
-                                                    ))}
-                                                </Select>
+                                                <InputLabel id={`price-product-label-${index}`}>Product</InputLabel>
+                                                <Controller
+                                                    name={`prices.${index}.productId`}
+                                                    control={control}
+                                                    render={({ field }) => (
+                                                        <Select
+                                                            {...field}
+                                                            labelId={`price-product-label-${index}`}
+                                                            label="Product"
+                                                        >
+                                                            {products.map((product) => (
+                                                                <MenuItem key={product.id} value={product.id}>
+                                                                    {product.name}
+                                                                </MenuItem>
+                                                            ))}
+                                                        </Select>
+                                                    )}
+                                                />
                                             </FormControl>
                                         </Box>
                                         <Box flex={1}>
-                                            <TextField
-                                                size="small"
-                                                label="Quantity"
-                                                type="number"
-                                                value={price.quantity}
-                                                onChange={(e) =>
-                                                    handlePriceItemChange(index, "quantity", e.target.value)
-                                                }
-                                                onKeyDown={(e) => {
-                                                    if (e.key === "Enter") {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        focusNextInRefs(quantityRefs, index);
-                                                    }
-                                                }}
-                                                inputRef={(el) => (quantityRefs.current[index] = el)}
-                                                sx={{ maxWidth: 80 }}
+                                            <Controller
+                                                name={`prices.${index}.quantity`}
+                                                control={control}
+                                                render={({ field }) => (
+                                                    <TextField
+                                                        {...field}
+                                                        size="small"
+                                                        label="Quantity"
+                                                        type="number"
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                focusNextInRefs(quantityRefs, index);
+                                                            }
+                                                        }}
+                                                        inputRef={(el) => (quantityRefs.current[index] = el)}
+                                                        sx={{ maxWidth: 80 }}
+                                                    />
+                                                )}
                                             />
                                         </Box>
                                         <Box flex={1}>
-                                            <TextField
-                                                size="small"
-                                                label="Price"
-                                                type="number"
-                                                value={price.price}
-                                                onChange={(e) =>
-                                                    handlePriceItemChange(index, "price", e.target.value)
-                                                }
-                                                onKeyDown={(e) => {
-                                                    if (e.key === "Enter") {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        focusNextInRefs(priceRefs, index);
-                                                    }
-                                                }}
-                                                inputRef={(el) => (priceRefs.current[index] = el)}
-                                                sx={{ maxWidth: 100 }}
+                                            <Controller
+                                                name={`prices.${index}.price`}
+                                                control={control}
+                                                render={({ field }) => (
+                                                    <TextField
+                                                        {...field}
+                                                        size="small"
+                                                        label="Price"
+                                                        type="number"
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                focusNextInRefs(priceRefs, index);
+                                                            }
+                                                        }}
+                                                        inputRef={(el) => (priceRefs.current[index] = el)}
+                                                        sx={{ maxWidth: 100 }}
+                                                    />
+                                                )}
                                             />
                                         </Box>
                                         <Box flex={1}>
                                             <FormControl fullWidth size="small" sx={{ flex: 2 }}>
-                                                <InputLabel>Service Type</InputLabel>
-                                                <Select
-                                                    value={price.serviceType}
-                                                    onChange={(e) =>
-                                                        handlePriceItemChange(index, "serviceType", e.target.value)
-                                                    }
-                                                >
-                                                    {serviceTypes.map((type) => (
-                                                        <MenuItem key={type} value={type}>
-                                                            {type.replace("_", " ")}
-                                                        </MenuItem>
-                                                    ))}
-                                                </Select>
+                                                <InputLabel id={`price-service-label-${index}`}>Service Type</InputLabel>
+                                                <Controller
+                                                    name={`prices.${index}.serviceType`}
+                                                    control={control}
+                                                    render={({ field }) => (
+                                                        <Select
+                                                            {...field}
+                                                            labelId={`price-service-label-${index}`}
+                                                            label="Service Type"
+                                                        >
+                                                            {serviceTypes.map((type) => (
+                                                                <MenuItem key={type} value={type}>
+                                                                    {type.replace("_", " ")}
+                                                                </MenuItem>
+                                                            ))}
+                                                        </Select>
+                                                    )}
+                                                />
                                             </FormControl>
                                         </Box>
                                         <Box flex={1}>
-                                            <TextField
-                                                size="small"
-                                                label="Remarks"
-                                                value={price.remarks}
-                                                onChange={(e) =>
-                                                    handlePriceItemChange(index, "remarks", e.target.value)
-                                                }
-                                                sx={{ flex: 2 }}
+                                            <Controller
+                                                name={`prices.${index}.remarks`}
+                                                control={control}
+                                                render={({ field }) => (
+                                                    <TextField
+                                                        {...field}
+                                                        size="small"
+                                                        label="Remarks"
+                                                        sx={{ flex: 2 }}
+                                                    />
+                                                )}
                                             />
                                         </Box>
                                         <Box flex={1}>
@@ -1615,7 +1619,7 @@ function HotelList() {
                         Cancel
                     </Button>
                     <Button
-                        onClick={handleAgreementSubmit}
+                        onClick={handleSubmit(handleAgreementSubmit)}
                         variant="contained"
                         color="primary"
                     >

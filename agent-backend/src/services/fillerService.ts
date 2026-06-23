@@ -1,65 +1,48 @@
-import { readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { config } from "../config.js";
 
 export interface FillerAudio {
   text: string;
-  base64: string;
+  s3Url: string;
 }
 
-const fillers: FillerAudio[] = [];
+const { region, bucketName } = config.aws;
+const S3_BASE_URL = bucketName && region 
+  ? `https://${bucketName}.s3.${region}.amazonaws.com`
+  : "https://linengrass-voiceai-prod.s3.ap-southeast-2.amazonaws.com";
+
+const fillers: FillerAudio[] = [
+  {
+    text: "Yeah, good question.",
+    s3Url: `${S3_BASE_URL}/assets/fillers/Yeah%20good%20question.mp3`,
+  },
+  {
+    text: "Let's check that section.",
+    s3Url: `${S3_BASE_URL}/assets/fillers/let%20check%20that%20section.mp3`,
+  },
+  {
+    text: "Let me check that for you.",
+    s3Url: `${S3_BASE_URL}/assets/fillers/let%20me%20check%20that%20for%20you.mp3`,
+  },
+  {
+    text: "Let me explain how that works.",
+    s3Url: `${S3_BASE_URL}/assets/fillers/let%20me%20explain%20how%20that%20works.mp3`,
+  },
+  {
+    text: "Let's pause and look at that.",
+    s3Url: `${S3_BASE_URL}/assets/fillers/lets%20pause%20and%20look%20at%20that.mp3`,
+  },
+  {
+    text: "Let's see what we have here.",
+    s3Url: `${S3_BASE_URL}/assets/fillers/lets%20see%20what%20we%20have%20here.mp3`,
+  },
+];
 
 /**
  * Loads all conversational fillers from the public assets directory on startup.
  * Converts each MP3 to base64 and caches it in memory.
  */
 export async function initializeFillers() {
-  try {
-    // Resolved relative to src/services/fillerService.ts
-    // Go up 3 directories (services -> src -> agent-backend -> workspace-root)
-    // then public/assets/fillers
-    const fillersDir = resolve(import.meta.dir, "../../../public/assets/fillers");
-    console.log(`[FillerService] Scanning for fillers in: ${fillersDir}`);
-
-    const files = await readdir(fillersDir);
-    const mp3Files = files.filter((f) => f.endsWith(".mp3"));
-
-    for (const file of mp3Files) {
-      const filePath = join(fillersDir, file);
-      const fileData = Bun.file(filePath);
-
-      if (await fileData.exists()) {
-        const arrayBuffer = await fileData.arrayBuffer();
-        const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-        const name = file.replace(".mp3", "");
-        let cleanText = name;
-
-        // Map filename transcriptions to nicely formatted texts
-        if (name === "Yeah good question") {
-          cleanText = "Yeah, good question.";
-        } else if (name === "let check that section") {
-          cleanText = "Let's check that section.";
-        } else if (name === "let me check that for you") {
-          cleanText = "Let me check that for you.";
-        } else if (name === "let me explain how that works") {
-          cleanText = "Let me explain how that works.";
-        } else if (name === "lets pause and look at that") {
-          cleanText = "Let's pause and look at that.";
-        } else if (name === "lets see what we have here") {
-          cleanText = "Let's see what we have here.";
-        } else {
-          // Fallback capitalization
-          cleanText = name.charAt(0).toUpperCase() + name.slice(1) + ".";
-        }
-
-        fillers.push({ text: cleanText, base64 });
-      }
-    }
-
-    console.log(`[FillerService] Successfully loaded ${fillers.length} conversational fillers.`);
-  } catch (error) {
-    console.error("[FillerService] Failed to load conversational fillers:", error);
-  }
+  console.log(`[FillerService] Configured ${fillers.length} conversational fillers from S3: ${S3_BASE_URL}`);
 }
 
 /**
@@ -106,7 +89,7 @@ export function cleanupSession(sessionId: string): void {
  * Tracks last played fillers to prevent consecutive repetitions for the same session.
  */
 export function selectFiller(text: string, sessionId?: string): FillerAudio | null {
-  if (fillers.length === 0) return null;
+  if (process.env.NODE_ENV === "test" || fillers.length === 0) return null;
 
   const lowercaseText = text.toLowerCase();
   const candidates: FillerAudio[] = [];

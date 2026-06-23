@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useForm } from 'react-hook-form';
 import { format } from 'date-fns';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
 import issueService from '../../services/issueService.jsx';
@@ -15,81 +16,81 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
     product: null,
     quantity: '',
   });
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
-    sourceType: '',
-    sourceId: undefined,
-    sourceName: '',
-    triggerEntityType: '',
-    issueType: '',
-    status: 'OPEN',
-    description: '',
-    images: [],
-    // Single item per API contract
-    item: newItem(),
-    recordedDateTime: new Date(),
-  });
 
-  // product search state
+  const [creating, setCreating] = useState(false);
   const [productOptions, setProductOptions] = useState([]);
   const [productQuery, setProductQuery] = useState('');
   const [productsLoading, setProductsLoading] = useState(false);
-  const [imageLoading, setImageLoading] = useState({}); // { [url]: true }
-  const [uploadPreviews, setUploadPreviews] = useState([]); // [{ id, url, file }]
+  const [imageLoading, setImageLoading] = useState({});
+  const [uploadPreviews, setUploadPreviews] = useState([]);
   const cancelledUploadsRef = useRef(new Set());
   const [sourceOptions, setSourceOptions] = useState([]);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [entityOptions, setEntityOptions] = useState([]);
   const [entityLoading, setEntityLoading] = useState(false);
-  
-  const initialForm = () => ({
-    sourceType: '',
-    sourceId: undefined,
-    sourceName: '',
-    triggerEntityType: '',
-    issueType: '',
-    status: 'OPEN',
-    description: '',
-    images: [],
-    item: newItem(),
-    recordedDateTime: new Date(),
+
+  const { control, handleSubmit, reset, setValue, getValues, watch } = useForm({
+    defaultValues: {
+      sourceType: '',
+      sourceId: undefined,
+      sourceName: '',
+      triggerEntityType: '',
+      triggerEntityId: undefined,
+      issueType: '',
+      status: 'OPEN',
+      description: '',
+      images: [],
+      item: newItem(),
+      recordedDateTime: new Date(),
+      startDate: null,
+      endDate: null,
+    }
   });
 
+  const watchedForm = watch();
+
   const resetState = () => {
-    // reset form
-    setForm(initialForm());
-    // reset product search state
+    reset({
+      sourceType: '',
+      sourceId: undefined,
+      sourceName: '',
+      triggerEntityType: '',
+      triggerEntityId: undefined,
+      issueType: '',
+      status: 'OPEN',
+      description: '',
+      images: [],
+      item: newItem(),
+      recordedDateTime: new Date(),
+      startDate: null,
+      endDate: null,
+    });
     setProductOptions([]);
     setProductQuery('');
     setProductsLoading(false);
-    // cancel and clear previews
     cancelledUploadsRef.current = new Set();
     try {
       uploadPreviews.forEach((p) => p?.url && URL.revokeObjectURL(p.url));
     } catch {
-      // Ignore errors revoking object URLs during cleanup
+      // Ignore errors revoking object URLs
     }
     setUploadPreviews([]);
-    // clear remote images loading map
     setImageLoading({});
-    // reset source dropdown options
     setSourceOptions([]);
     setSourceLoading(false);
-    // reset entity options
     setEntityOptions([]);
     setEntityLoading(false);
-    // reset creating flag
     setCreating(false);
   };
 
   const canSubmit = useMemo(() => {
     return (
-      form.sourceType &&
-      form.issueType &&
-      form.status &&
-      form.description?.trim().length > 0
+      watchedForm.sourceType &&
+      watchedForm.issueType &&
+      watchedForm.status &&
+      watchedForm.description?.trim().length > 0
     );
-  }, [form]);
+  }, [watchedForm]);
 
   // Normalize possible dayjs or date-like values to Date
   const asDate = (v) => {
@@ -100,15 +101,16 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
     return isNaN(parsed?.getTime?.()) ? null : parsed;
   };
 
-  const setFormField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
-  const setSingleItemField = (field, value) =>
-    setForm((prev) => ({ ...prev, item: { ...prev.item, [field]: value } }));
+  const setFormField = (field, value) => setValue(field, value);
+  const setSingleItemField = (field, value) => {
+    const currentItem = getValues("item") || {};
+    setValue("item", { ...currentItem, [field]: value });
+  };
 
   const onUploadImages = async (filesLike) => {
     const files = Array.from(filesLike || []).filter((f) => f && f.type?.startsWith?.('image/'));
     if (!files.length) return;
 
-    // Create local previews immediately
     const entries = files.map((file) => ({
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       url: URL.createObjectURL(file),
@@ -116,7 +118,6 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
     }));
     setUploadPreviews((prev) => [...prev, ...entries]);
 
-    // Start uploads in background
     entries.forEach(async ({ id, url: localUrl, file }) => {
       try {
         const remoteUrl = await issueService.uploadImage(file);
@@ -124,13 +125,12 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
           URL.revokeObjectURL(localUrl);
           return;
         }
-        // Add to images and show as loading until <img> loads
-        setForm((prev) => ({ ...prev, images: [...(prev.images || []), remoteUrl] }));
+        const currentImages = getValues("images") || [];
+        setValue("images", [...currentImages, remoteUrl]);
         setImageLoading((prev) => ({ ...prev, [remoteUrl]: true }));
       } catch (e) {
         console.error('Image upload failed', e);
       } finally {
-        // Remove preview and revoke URL
         setUploadPreviews((prev) => prev.filter((p) => p.id !== id));
         URL.revokeObjectURL(localUrl);
       }
@@ -138,7 +138,8 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
   };
 
   const removeImage = (url) => {
-    setForm((prev) => ({ ...prev, images: (prev.images || []).filter((u) => u !== url) }));
+    const currentImages = getValues("images") || [];
+    setValue("images", currentImages.filter((u) => u !== url));
     setImageLoading((prev) => {
       const next = { ...prev };
       delete next[url];
@@ -156,36 +157,33 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
   };
 
   const clearAllImages = () => {
-    // cancel and clear previews
     uploadPreviews.forEach((p) => URL.revokeObjectURL(p.url));
     setUploadPreviews([]);
     cancelledUploadsRef.current = new Set();
-    // clear remote
-    setForm((prev) => ({ ...prev, images: [] }));
+    setValue("images", []);
     setImageLoading({});
   };
 
-  const submit = async () => {
+  const handleSave = async (data) => {
     if (!canSubmit) return;
     setCreating(true);
     try {
       const payload = {
-        sourceType: form.sourceType || undefined,
-        sourceId: form.sourceId || undefined,
-        sourceName: form.sourceName || undefined,
-        triggerEntityType: form.triggerEntityType || undefined,
-        triggerEntityId: form.triggerEntityId || undefined,
-        issueType: form.issueType || undefined,
-        status: form.status || undefined,
-        description: form.description,
-        recordedDateTime: (function() { const d = asDate(form.recordedDateTime); return d ? format(d, "yyyy-MM-dd'T'00:00:00") : undefined; })(),
-        // Single item only per API contract
+        sourceType: data.sourceType || undefined,
+        sourceId: data.sourceId || undefined,
+        sourceName: data.sourceName || undefined,
+        triggerEntityType: data.triggerEntityType || undefined,
+        triggerEntityId: data.triggerEntityId || undefined,
+        issueType: data.issueType || undefined,
+        status: data.status || undefined,
+        description: data.description,
+        recordedDateTime: (function() { const d = asDate(data.recordedDateTime); return d ? format(d, "yyyy-MM-dd'T'00:00:00") : undefined; })(),
         ...(function buildItem() {
-          const it = form.item || {};
+          const it = data.item || {};
           const productId = it.product?.id ?? it.product?.productId ?? it.product?.productID;
           const productName = it.product?.name ?? it.product?.productName ?? it.product?.title;
           const quantity = it.quantity ? Number(it.quantity) : undefined;
-          const images = form.images || [];
+          const images = data.images || [];
           const has = (productId || productName || quantity || images.length);
           if (!has) return {};
           return {
@@ -209,7 +207,6 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
     onClose?.();
   };
 
-  // Fetch products when query changes (simple debounce)
   useEffect(() => {
     let active = true;
     const q = productQuery?.trim();
@@ -238,29 +235,26 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
     };
   }, [productQuery]);
 
-  // When dialog closes (open -> false), reset internal state so next open is clean
   useEffect(() => {
     if (!open) {
       resetState();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Load Source Name options when Source Type changes
   useEffect(() => {
     let cancelled = false;
     async function loadSources() {
-      if (!form.sourceType) {
+      if (!watchedForm.sourceType) {
         setSourceOptions([]);
         return;
       }
       setSourceLoading(true);
       try {
-        if (form.sourceType === 'CUSTOMER') {
+        if (watchedForm.sourceType === 'CUSTOMER') {
           const data = await customerService.getAllCustomers();
           const list = Array.isArray(data) ? data : (data?.content ?? data?.items ?? []);
           if (!cancelled) setSourceOptions(list);
-        } else if (form.sourceType === 'LAUNDRY') {
+        } else if (watchedForm.sourceType === 'LAUNDRY') {
           const data = await laundryVendorService.getAllVendors();
           const list = Array.isArray(data) ? data : (data?.content ?? data?.items ?? []);
           if (!cancelled) setSourceOptions(list);
@@ -276,41 +270,37 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
     }
     loadSources();
     return () => { cancelled = true; };
-  }, [form.sourceType]);
+  }, [watchedForm.sourceType]);
 
   const handleSourceTypeChange = (value) => {
-    setForm((prev) => ({
-      ...prev,
-      sourceType: value,
-      sourceId: undefined,
-      sourceName: '',
-      triggerEntityType: '',
-      triggerEntityId: undefined,
-    }));
+    setValue("sourceType", value);
+    setValue("sourceId", undefined);
+    setValue("sourceName", "");
+    setValue("triggerEntityType", "");
+    setValue("triggerEntityId", undefined);
   };
 
   const handleSourceSelect = (id) => {
     const found = sourceOptions.find((o) => (o?.id ?? o?.customerId ?? o?.vendorId) === id);
     const name = found?.name || found?.customerName || found?.laundryName || found?.companyName || '';
-    setForm((prev) => ({ ...prev, sourceId: id, sourceName: name, triggerEntityId: undefined }));
+    setValue("sourceId", id);
+    setValue("sourceName", name);
+    setValue("triggerEntityId", undefined);
   };
 
   useCreateIssueAgent({
     open,
-    setFormField,
-    handleSourceTypeChange,
-    handleSourceSelect,
+    setValue,
+    getValues,
+    reset: resetState,
     sourceOptions,
-    setForm,
     entityOptions,
-    setSingleItemField,
-    setProductQuery,
     productOptions,
-    resetState,
+    setProductQuery,
   });
 
   return (
-  <Dialog open={open} onClose={clearAndClose} maxWidth="lg" fullWidth>
+    <Dialog open={open} onClose={clearAndClose} maxWidth="lg" fullWidth>
       <DialogTitle>New Issue</DialogTitle>
       <DialogContent
         dividers
@@ -322,7 +312,6 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
           maxHeight: { xs: 'calc(100vh - 120px)', md: 'calc(100vh - 140px)' },
         }}
       >
-        {/* 2-column layout: left details, right item + images */}
         <Box
           sx={{
             display: 'grid',
@@ -332,7 +321,7 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
           }}
         >
           <IssueDetailsPanel
-            form={form}
+            form={watchedForm}
             setFormField={setFormField}
             sourceOptions={sourceOptions}
             sourceLoading={sourceLoading}
@@ -344,12 +333,12 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
             setEntityLoading={setEntityLoading}
           />
           <ItemAndImagesPanel
-            item={form.item}
+            item={watchedForm.item}
             setItemField={setSingleItemField}
             productOptions={productOptions}
             productsLoading={productsLoading}
             setProductQuery={setProductQuery}
-            form={form}
+            form={watchedForm}
             uploadPreviews={uploadPreviews}
             imageLoading={imageLoading}
             onUploadImages={onUploadImages}
@@ -362,7 +351,7 @@ export default function CreateIssueDialog({ open, onClose, onSubmit }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={clearAndClose} disabled={creating}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={!canSubmit || creating}>
+        <Button onClick={handleSubmit(handleSave)} variant="contained" disabled={!canSubmit || creating}>
           {creating ? 'Creating…' : 'Create Issue'}
         </Button>
       </DialogActions>

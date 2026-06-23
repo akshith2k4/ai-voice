@@ -239,6 +239,17 @@
         "customer management",
         "customer page"
       ]
+    },
+    {
+      "path": "/packing-jobs",
+      "name": "Packing Jobs",
+      "aliases": [
+        "packing jobs",
+        "packing job list",
+        "packing",
+        "packing jobs page",
+        "packing jobs management"
+      ]
     }
   ]
 }

@@ -70,6 +70,14 @@ export function sendTtsAudio(
   send({ type: "tts_audio", audio: base64, messageId, done });
 }
 
+export function sendTtsAudioUrl(
+  send: HandlerContext["send"],
+  url: string,
+  messageId: string
+): void {
+  send({ type: "tts_audio", url, messageId });
+}
+
 export function sendStopAudio(
   send: HandlerContext["send"]
 ): void {

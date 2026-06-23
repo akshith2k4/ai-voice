@@ -4,6 +4,7 @@ import React, {
   useState,
   useCallback,
 } from "react";
+import { useForm, Controller } from "react-hook-form";
 import {
   Dialog,
   DialogTitle,
@@ -135,17 +136,19 @@ export default function WRUnifiedDialog({
     setShowRewashScannerHeader(false);
   }, [open]);
 
-  // shared form
-  const [formData, setFormData] = useState({
-    vendorId: "",
-    poolId: "",
-    deliveryDate: "",
-    washRequestRecordedDateTime: nowLocalDate(),
-    notes: "",
-    // NEW: requestType field drives mode too
-    washRequestType: "WASH", // "WASH" | "RE_WASH",
-    manual: true,
+  const { control, setValue, getValues, watch, reset } = useForm({
+    defaultValues: {
+      vendorId: "",
+      poolId: "",
+      deliveryDate: "",
+      washRequestRecordedDateTime: nowLocalDate(),
+      notes: "",
+      washRequestType: "WASH",
+      manual: true,
+    }
   });
+
+  const formData = watch();
 
   const { poolId, vendorId, deliveryDate, washRequestType } = formData;
 
@@ -359,10 +362,10 @@ export default function WRUnifiedDialog({
   /* ---------- handlers ---------- */
   const handleChange = (key) => (e) => {
     const val = e.target.value;
-    setFormData((prev) => ({ ...prev, [key]: val }));
+    setValue(key, val);
     // Link WR date to Trips Date while WR date hasn't been manually edited
     if (key === "deliveryDate" && !wrDateTouched) {
-      setFormData((prev) => ({ ...prev, washRequestRecordedDateTime: val }));
+      setValue("washRequestRecordedDateTime", val);
     }
     if (key === "washRequestRecordedDateTime") {
       // User touched WR date; break the link going forward
@@ -372,7 +375,7 @@ export default function WRUnifiedDialog({
 
   const handleRequestTypeChange = (e) => {
     const val = e.target.value; // "WASH" | "RE_WASH"
-    setFormData((prev) => ({ ...prev, washRequestType: val }));
+    setValue("washRequestType", val);
     // clear info/errors and rows when switching type
     setInfo("");
     setError("");
@@ -386,7 +389,7 @@ export default function WRUnifiedDialog({
   };
 
   const resetAll = useCallback(() => {
-    setFormData({
+    reset({
       vendorId: "",
       poolId: "",
       deliveryDate: "",
@@ -415,7 +418,7 @@ export default function WRUnifiedDialog({
     setScannedInventoryIds(new Set());
     setShowWashScannerHeader(false);
     setShowRewashScannerHeader(false);
-  }, []);
+  }, [reset]);
 
   const handleClose = async (...args) => {
     try {
@@ -848,7 +851,7 @@ export default function WRUnifiedDialog({
             size="small"
             name="manual"
             checked={formData.manual}
-            onChange={(e) => setFormData(prev => ({ ...prev, manual: e.target.checked }))}
+            onChange={(e) => setValue("manual", e.target.checked)}
           />
           <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>Manual / Direct Transfer (Bypass Trip Creation)</Typography>
         </Box>
@@ -1400,7 +1403,14 @@ export default function WRUnifiedDialog({
 
   useCreateWashRequestAgent({
     open,
-    setFormData,
+    setFormData: (val) => {
+      if (typeof val === "function") {
+        const next = val(getValues());
+        Object.entries(next).forEach(([k, v]) => setValue(k, v));
+      } else {
+        Object.entries(val).forEach(([k, v]) => setValue(k, v));
+      }
+    },
     setInfo,
     setError,
     setRewashRows,

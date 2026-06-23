@@ -124,17 +124,6 @@
         },
         {
           "nodeType": "field",
-          "key": "sequence",
-          "label": "Sequence",
-          "type": "text",
-          "demoValue": "1",
-          "explanation": {
-            "en": "[friendly] Now click on the seq input. Here, you specify the delivery sequence number, which determines the exact order and level in which we need to deliver to this customer.",
-            "hi": "[friendly] अब seq input पर click करें। यहाँ, आप delivery sequence number डालते हैं, जो बताता है कि हमें किस exact order और priority level पर इस customer को deliver करना है।"
-          }
-        },
-        {
-          "nodeType": "field",
           "key": "visitNotes",
           "label": "Visit Notes",
           "type": "text",

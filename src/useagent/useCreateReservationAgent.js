@@ -6,18 +6,11 @@ import { useAgentForm } from "../agent/useAgentForm";
 export function useCreateReservationAgent({
   open,
   pools,
-  handlePoolChange,
-  setSelectedCustomer,
-  setCustomerId,
-  fetchCustomerOptions,
   customerOptions,
-  setReservationType,
-  setStartDate,
-  setEndDate,
-  setNotes,
-  handleItemChange,
-  setItems,
-  setPoolProducts,
+  fetchCustomerOptions,
+  setValue,
+  getValues,
+  reset,
 }) {
   useAgentForm("createReservation", {
     fields: [
@@ -26,15 +19,14 @@ export function useCreateReservationAgent({
         type: "select",
         set: (v) => {
           const pool = pools.find((p) => String(p.id) === String(v) || p.name.toLowerCase() === String(v).toLowerCase());
-          if (pool) handlePoolChange(pool.id);
+          if (pool) setValue("poolId", pool.id);
         },
       },
       {
         key: "customer",
         type: "autocomplete",
         set: (customer) => {
-          setSelectedCustomer(customer);
-          setCustomerId(customer ? customer.id : "");
+          setValue("customer", customer);
         },
         search: fetchCustomerOptions,
         getOptions: () => customerOptions,
@@ -46,22 +38,22 @@ export function useCreateReservationAgent({
       {
         key: "reservationType",
         type: "select",
-        set: (v) => setReservationType(v),
+        set: (v) => setValue("reservationType", v),
       },
       {
         key: "startDate",
         type: "date",
-        set: (v) => setStartDate(v ? v.slice(0, 16) : ""),
+        set: (v) => setValue("startDate", v ? v.slice(0, 16) : ""),
       },
       {
         key: "endDate",
         type: "date",
-        set: (v) => setEndDate(v ? v.slice(0, 16) : ""),
+        set: (v) => setValue("endDate", v ? v.slice(0, 16) : ""),
       },
       {
         key: "notes",
         type: "text",
-        set: (v) => setNotes(v),
+        set: (v) => setValue("notes", v),
       }
     ],
     subForms: [
@@ -71,25 +63,26 @@ export function useCreateReservationAgent({
           {
             key: "quantity",
             type: "text",
-            setByIndex: (val, idx) => handleItemChange(idx, "totalReservedQuantity", val),
+            setByIndex: (val, idx) => {
+              setValue(`items.${idx}.totalReservedQuantity`, val);
+              const total = Number(val) || 0;
+              const withCustomer = Number(getValues(`items.${idx}.quantityAllocatedWithCustomer`) || 0);
+              setValue(`items.${idx}.quantityAllocatedWithDC`, Math.max(0, total - withCustomer));
+            },
           },
           {
             key: "qtyWithCustomer",
             type: "text",
-            setByIndex: (val, idx) => handleItemChange(idx, "quantityAllocatedWithCustomer", val),
+            setByIndex: (val, idx) => {
+              setValue(`items.${idx}.quantityAllocatedWithCustomer`, val);
+              const total = Number(getValues(`items.${idx}.totalReservedQuantity`) || 0);
+              const withCustomer = Number(val) || 0;
+              setValue(`items.${idx}.quantityAllocatedWithDC`, Math.max(0, total - withCustomer));
+            },
           }
         ]
       }
     ],
-    clearAll: () => {
-      setCustomerId("");
-      setSelectedCustomer(null);
-      setReservationType("");
-      setNotes("");
-      setStartDate("");
-      setEndDate("");
-      setItems([]);
-      setPoolProducts({ id: "all", productItems: [] });
-    }
+    clearAll: () => reset(),
   }, open);
 }

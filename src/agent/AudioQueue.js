@@ -36,8 +36,24 @@ export class AudioQueue {
   // ── Play URL audio (S3 presigned — HTML5 Audio) ───────────────────────────
 
   async enqueueUrl(url, messageId) {
-    console.log(`[AudioQueue] enqueueUrl: ${messageId}`);
+    console.log(`[AudioQueue] enqueueUrl: ${messageId} (${url})`);
     this._activeMessages.add(messageId);
+
+    // Compute fallback path if URL is from S3
+    const S3_BASE_URL = import.meta.env.VITE_S3_BASE_URL || "https://linengrass-voiceai-prod.s3.ap-southeast-2.amazonaws.com";
+    let fallbackUrl = null;
+    if (url.startsWith(S3_BASE_URL)) {
+      fallbackUrl = url.substring(S3_BASE_URL.length);
+    } else {
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname.endsWith(".amazonaws.com")) {
+          fallbackUrl = parsed.pathname;
+        }
+      } catch (e) {
+        // Not a valid absolute URL
+      }
+    }
 
     this.playbackQueue = this.playbackQueue.then(() => new Promise((resolve) => {
       if (!this._activeMessages.has(messageId)) {
@@ -45,26 +61,40 @@ export class AudioQueue {
         return;
       }
 
-      const arrivedAt = Date.now();
-      const audio = new Audio(url);
-      this._audioElements.set(messageId, audio);
-      this._onStarted(messageId);
+      const playWithFallback = (playUrl, isFallback = false) => {
+        const arrivedAt = Date.now();
+        console.log(`[AudioQueue] Playing: ${playUrl} (fallback=${isFallback})`);
+        const audio = new Audio(playUrl);
+        this._audioElements.set(messageId, audio);
+        this._onStarted(messageId);
 
-      audio.onended = () => {
-        console.log(`[AudioQueue] url ended: ${messageId} (${Date.now() - arrivedAt}ms)`);
-        this._onEnded(messageId);
-        resolve();
+        audio.onended = () => {
+          console.log(`[AudioQueue] url ended: ${messageId} (${Date.now() - arrivedAt}ms)`);
+          this._onEnded(messageId);
+          resolve();
+        };
+
+        const handleError = (err) => {
+          console.warn(`[AudioQueue] url play failed: ${playUrl}`, err);
+          if (!isFallback && fallbackUrl) {
+            console.log(`[AudioQueue] Attempting local fallback: ${fallbackUrl}`);
+            playWithFallback(fallbackUrl, true);
+          } else {
+            this._onEnded(messageId);
+            resolve();
+          }
+        };
+
+        audio.onerror = (errEvent) => {
+          handleError(errEvent);
+        };
+
+        audio.play().catch((err) => {
+          handleError(err);
+        });
       };
-      audio.onerror = (err) => {
-        console.error(`[AudioQueue] url error: ${messageId}`, err);
-        this._onEnded(messageId);
-        resolve();
-      };
-      audio.play().catch((err) => {
-        console.error(`[AudioQueue] play() failed: ${messageId}`, err);
-        this._onEnded(messageId);
-        resolve();
-      });
+
+      playWithFallback(url, false);
     }));
   }
 

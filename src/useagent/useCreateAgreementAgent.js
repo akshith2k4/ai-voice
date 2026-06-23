@@ -5,38 +5,38 @@ import { useAgentForm } from "../agent/useAgentForm";
  */
 export function useCreateAgreementAgent({
   isAgreementDialogOpen,
-  handleAgreementFormChange,
-  handleAddPriceItem,
+  setValue,
+  getValues,
+  reset,
+  append,
   products,
-  handlePriceItemChange,
-  resetAgreementForm,
 }) {
   useAgentForm('createAgreement', {
     fields: [
-      { key: 'type', type: 'select', set: v => handleAgreementFormChange('type', v) },
-      { key: 'startDate', type: 'date', set: v => handleAgreementFormChange('startDate', v) },
-      { key: 'endDate', type: 'date', set: v => handleAgreementFormChange('endDate', v) },
-      { key: 'status', type: 'select', set: v => handleAgreementFormChange('status', v) },
-      { key: 'totalRooms', type: 'text', set: v => handleAgreementFormChange('totalRooms', v) },
-      { key: 'occupancyRate', type: 'text', set: v => handleAgreementFormChange('occupancyRate', v) },
-      { key: 'depositAmount', type: 'text', set: v => handleAgreementFormChange('depositAmount', v) },
-      { key: 'creditDays', type: 'text', set: v => handleAgreementFormChange('creditDays', v) },
-      { key: 'linenDeliveryDays', type: 'text', set: v => handleAgreementFormChange('linenDeliveryDays', v) },
-      { key: 'serviceFrequency', type: 'select', set: v => handleAgreementFormChange('serviceFrequency', v) },
-      { key: 'creditTermDays', type: 'text', set: v => handleAgreementFormChange('creditTermDays', v) },
-      { key: 'pickupFrequencyDays', type: 'text', set: v => handleAgreementFormChange('pickupFrequencyDays', v) },
-      { key: 'deliveryTatDays', type: 'text', set: v => handleAgreementFormChange('deliveryTatDays', v) },
-      { key: 'discountPercentage', type: 'text', set: v => handleAgreementFormChange('discountPercentage', v) },
-      { key: 'billingCycle', type: 'text', set: v => handleAgreementFormChange('billingCycle', v) },
-      { key: 'billingStartDay', type: 'text', set: v => handleAgreementFormChange('billingStartDay', v) },
-      { key: 'billingEndDay', type: 'text', set: v => handleAgreementFormChange('billingEndDay', v) },
-      { key: 'billingType', type: 'select', set: v => handleAgreementFormChange('billingType', v) },
-      { key: 'fixedMonthlyAmount', type: 'text', set: v => handleAgreementFormChange('fixedMonthlyAmount', v) },
+      { key: 'type', type: 'select', set: v => setValue('type', v) },
+      { key: 'startDate', type: 'date', set: v => setValue('startDate', v) },
+      { key: 'endDate', type: 'date', set: v => setValue('endDate', v) },
+      { key: 'status', type: 'select', set: v => setValue('status', v) },
+      { key: 'totalRooms', type: 'text', set: v => setValue('totalRooms', v) },
+      { key: 'occupancyRate', type: 'text', set: v => setValue('occupancyRate', v) },
+      { key: 'depositAmount', type: 'text', set: v => setValue('depositAmount', v) },
+      { key: 'creditDays', type: 'text', set: v => setValue('creditDays', v) },
+      { key: 'linenDeliveryDays', type: 'text', set: v => setValue('linenDeliveryDays', v) },
+      { key: 'serviceFrequency', type: 'select', set: v => setValue('serviceFrequency', v) },
+      { key: 'creditTermDays', type: 'text', set: v => setValue('creditTermDays', v) },
+      { key: 'pickupFrequencyDays', type: 'text', set: v => setValue('pickupFrequencyDays', v) },
+      { key: 'deliveryTatDays', type: 'text', set: v => setValue('deliveryTatDays', v) },
+      { key: 'discountPercentage', type: 'text', set: v => setValue('discountPercentage', v) },
+      { key: 'billingCycle', type: 'text', set: v => setValue('billingCycle', v) },
+      { key: 'billingStartDay', type: 'text', set: v => setValue('billingStartDay', v) },
+      { key: 'billingEndDay', type: 'text', set: v => setValue('billingEndDay', v) },
+      { key: 'billingType', type: 'select', set: v => setValue('billingType', v) },
+      { key: 'fixedMonthlyAmount', type: 'text', set: v => setValue('fixedMonthlyAmount', v) },
     ],
     subForms: [
       {
         id: 'priceItem',
-        add: handleAddPriceItem,
+        add: () => append({ productId: "", quantity: 0, price: 0, remarks: "", serviceType: "" }),
         fields: [
           { key: 'productId', type: 'select', setByIndex: (val, idx) => {
             let productId = val;
@@ -46,15 +46,15 @@ export function useCreateAgreementAgent({
             } else if (val && val.id) {
               productId = val.id;
             }
-            handlePriceItemChange(idx, 'productId', productId);
+            setValue(`prices.${idx}.productId`, productId);
           }},
-          { key: 'quantity', type: 'text', setByIndex: (v, i) => handlePriceItemChange(i, 'quantity', v) },
-          { key: 'price', type: 'text', setByIndex: (v, i) => handlePriceItemChange(i, 'price', v) },
-          { key: 'serviceType', type: 'select', setByIndex: (v, i) => handlePriceItemChange(i, 'serviceType', v) },
-          { key: 'remarks', type: 'text', setByIndex: (v, i) => handlePriceItemChange(i, 'remarks', v) },
+          { key: 'quantity', type: 'text', setByIndex: (v, i) => setValue(`prices.${i}.quantity`, v) },
+          { key: 'price', type: 'text', setByIndex: (v, i) => setValue(`prices.${i}.price`, v) },
+          { key: 'serviceType', type: 'select', setByIndex: (v, i) => setValue(`prices.${i}.serviceType`, v) },
+          { key: 'remarks', type: 'text', setByIndex: (v, i) => setValue(`prices.${i}.remarks`, v) },
         ],
       },
     ],
-    clearAll: resetAgreementForm,
+    clearAll: () => reset(),
   }, isAgreementDialogOpen);
 }

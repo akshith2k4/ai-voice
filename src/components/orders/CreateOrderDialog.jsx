@@ -1,5 +1,6 @@
 // src/components/orders/CreateOrderDialog.jsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useForm, useFieldArray } from "react-hook-form";
 import { useCreateOrderAgent } from "../../useagent/useCreateOrderAgent";
 import {
   Dialog,
@@ -56,20 +57,33 @@ function safeDateToFullISO(d) {
 }
 
 function CreateOrderDialog({ open, onClose, onSave, order }) {
-  const [formData, setFormData] = useState({
-    orderReferenceId: "",
-    customerId: "",
-    orderDate: new Date(),
-    orderType: "",
-    deliveryType: "",
-    pickupDate: null,
-    deliveryDate: null,
-    pickupItems: [],
-    deliveryItems: [],
-    items: [],
-    isAdjustment: false,
-    orderCategory: LEASING_ORDER_CATEGORY.REGULAR,
+  const { control, setValue, getValues, watch, reset } = useForm({
+    defaultValues: {
+      orderReferenceId: "",
+      customerId: "",
+      orderDate: new Date(),
+      orderType: "LEASING",
+      deliveryType: "BOTH",
+      pickupDate: null,
+      deliveryDate: null,
+      pickupItems: [],
+      deliveryItems: [],
+      items: [],
+      isAdjustment: false,
+      orderCategory: LEASING_ORDER_CATEGORY.REGULAR,
+    }
   });
+  const formData = watch();
+
+  const setFormData = useCallback((valOrFn) => {
+    const current = getValues();
+    const next = typeof valOrFn === "function" ? valOrFn(current) : valOrFn;
+    reset(next);
+  }, [getValues, reset]);
+
+  const { fields: pickupItems, append: appendPickup, remove: removePickup } = useFieldArray({ control, name: "pickupItems" });
+  const { fields: deliveryItems, append: appendDelivery, remove: removeDelivery } = useFieldArray({ control, name: "deliveryItems" });
+  const { fields: items, append: appendItem, remove: removeItem } = useFieldArray({ control, name: "items" });
 
   const [customerOptions, setCustomerOptions] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -327,54 +341,49 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
   }, [order, open]);
 
   const handleInputChange = (field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setValue(field, value);
   };
 
   const handleOrderDateChange = (newOrderDate) => {
     if (!isValidDate(newOrderDate)) return;
 
-    setFormData((prev) => {
-      const prevOrderDate = prev.orderDate;
+    const prevOrderDate = getValues("orderDate");
+    const prevPickupDate = getValues("pickupDate");
+    const prevDeliveryDate = getValues("deliveryDate");
+    const deliveryType = getValues("deliveryType");
 
-      const hasPickup = Boolean(prev.pickupDate);
-      const hasDelivery = Boolean(prev.deliveryDate);
+    const hasPickup = Boolean(prevPickupDate);
+    const hasDelivery = Boolean(prevDeliveryDate);
 
-      const pickupDelta = hasPickup
-        ? differenceInCalendarDays(prev.pickupDate, prevOrderDate)
-        : null;
+    const pickupDelta = hasPickup
+      ? differenceInCalendarDays(prevPickupDate, prevOrderDate)
+      : null;
 
-      const deliveryDelta = hasDelivery
-        ? differenceInCalendarDays(prev.deliveryDate, prevOrderDate)
-        : null;
+    const deliveryDelta = hasDelivery
+      ? differenceInCalendarDays(prevDeliveryDate, prevOrderDate)
+      : null;
 
-      let nextPickupDate = prev.pickupDate;
-      let nextDeliveryDate = prev.deliveryDate;
+    let nextPickupDate = prevPickupDate;
+    let nextDeliveryDate = prevDeliveryDate;
 
-      if (hasPickup && pickupDelta !== null) {
-        nextPickupDate = addDays(newOrderDate, pickupDelta);
-      } else if (!hasPickup && ["PICKUP", "BOTH"].includes(prev.deliveryType)) {
-        nextPickupDate = addDays(newOrderDate, 1);
-      }
+    if (hasPickup && pickupDelta !== null) {
+      nextPickupDate = addDays(newOrderDate, pickupDelta);
+    } else if (!hasPickup && ["PICKUP", "BOTH"].includes(deliveryType)) {
+      nextPickupDate = addDays(newOrderDate, 1);
+    }
 
-      if (hasDelivery && deliveryDelta !== null) {
-        nextDeliveryDate = addDays(newOrderDate, deliveryDelta);
-      } else if (
-        !hasDelivery &&
-        ["DELIVERY", "BOTH"].includes(prev.deliveryType)
-      ) {
-        nextDeliveryDate = addDays(newOrderDate, 1);
-      }
+    if (hasDelivery && deliveryDelta !== null) {
+      nextDeliveryDate = addDays(newOrderDate, deliveryDelta);
+    } else if (
+      !hasDelivery &&
+      ["DELIVERY", "BOTH"].includes(deliveryType)
+    ) {
+      nextDeliveryDate = addDays(newOrderDate, 1);
+    }
 
-      return {
-        ...prev,
-        orderDate: newOrderDate,
-        pickupDate: nextPickupDate,
-        deliveryDate: nextDeliveryDate,
-      };
-    });
+    setValue("orderDate", newOrderDate);
+    setValue("pickupDate", nextPickupDate);
+    setValue("deliveryDate", nextDeliveryDate);
   };
 
   const handleAddItem = (field) => {
@@ -382,18 +391,16 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
       setCopyDeliveryToPickup(false);
     }
 
-    setFormData((prev) => ({
-      ...prev,
-      [field]: [
-        ...prev[field],
-        {
-          productId: "",
-          quantity: "",
-          remarks: "",
-          rentalDuration: 0,
-        },
-      ],
-    }));
+    const newItem = {
+      productId: "",
+      quantity: "",
+      remarks: "",
+      rentalDuration: 0,
+    };
+
+    if (field === "deliveryItems") appendDelivery(newItem);
+    else if (field === "pickupItems") appendPickup(newItem);
+    else if (field === "items") appendItem(newItem);
   };
 
   const handleItemChange = (index, field, value, itemField) => {
@@ -401,13 +408,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
       setCopyDeliveryToPickup(false);
     }
 
-    const updatedItems = formData[itemField].map((item, i) =>
-      i === index ? { ...item, [field]: value } : item
-    );
-    setFormData((prev) => ({
-      ...prev,
-      [itemField]: updatedItems,
-    }));
+    setValue(`${itemField}.${index}.${field}`, value);
   };
 
   const handleDeleteItem = (index, itemField) => {
@@ -415,11 +416,9 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
       setCopyDeliveryToPickup(false);
     }
 
-    const updatedItems = formData[itemField].filter((_, i) => i !== index);
-    setFormData((prev) => ({
-      ...prev,
-      [itemField]: updatedItems,
-    }));
+    if (itemField === "deliveryItems") removeDelivery(index);
+    else if (itemField === "pickupItems") removePickup(index);
+    else if (itemField === "items") removeItem(index);
 
     // clean refs
     if (qtyRefs.current[itemField]) {
@@ -497,6 +496,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
       onSave(savedOrder);
       onClose();
     } catch (error) {
+      console.error(error);
       const backendMessage =
         error.response?.data?.message ||
         "Failed to save order. Please try again.";
@@ -512,15 +512,12 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
     setCopyDeliveryToPickup(checked);
 
     if (checked) {
-      const copiedItems = formData.deliveryItems.map((item) => ({
+      const copiedItems = (formData.deliveryItems || []).map((item) => ({
         ...item,
         remarks: "",
       }));
 
-      setFormData((prev) => ({
-        ...prev,
-        pickupItems: copiedItems,
-      }));
+      setValue("pickupItems", copiedItems);
     }
   };
 
@@ -614,12 +611,12 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
   );
 
   const resetForm = () => {
-    setFormData({
+    reset({
       orderReferenceId: "",
       customerId: "",
       orderDate: new Date(),
-      orderType: "",
-      deliveryType: "",
+      orderType: "LEASING",
+      deliveryType: "BOTH",
       pickupDate: null,
       deliveryDate: null,
       pickupItems: [],
@@ -831,7 +828,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                     Add Delivery Item
                   </Button>
                 </Box>
-                {formData.deliveryItems.map((item, index) =>
+                {(formData.deliveryItems || []).map((item, index) =>
                   renderItemRow(item, index, "deliveryItems")
                 )}
               </>
@@ -870,7 +867,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                     />
                   )}
                 </Box>
-                {formData.pickupItems.map((item, index) =>
+                {(formData.pickupItems || []).map((item, index) =>
                   renderItemRow(item, index, "pickupItems", copyDeliveryToPickup)
                 )}
               </>
@@ -908,7 +905,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 Add Rental Item
               </Button>
             </Box>
-            {formData.items.map((item, index) => (
+            {(formData.items || []).map((item, index) => (
               <Box display={"flex"} gap={2} alignItems="center" key={index}>
                 <Box flex={1}>
                   <FormControl fullWidth margin="dense">
@@ -1028,7 +1025,7 @@ function CreateOrderDialog({ open, onClose, onSave, order }) {
                 Add Washing Item
               </Button>
             </Box>
-            {formData.items.map((item, index) => (
+            {(formData.items || []).map((item, index) => (
               <Box display={"flex"} gap={2} alignItems="center" key={index}>
                 <Box flex={1}>
                   <FormControl fullWidth margin="dense">
