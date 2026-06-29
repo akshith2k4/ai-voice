@@ -32,8 +32,8 @@ export default function AgentOverlay() {
     setExpanded(true);
     if (!welcomePlayed) {
       const msgId = crypto.randomUUID();
-      addMessage("agent", "Hi, I am Narad, and I am here to help you. How can I help you?");
-      audioQueue.enqueueUrl(`${S3_BASE_URL}/tara/narad_welcome.mp3`, msgId);
+      addMessage("agent", "Hi, I am Krish, and I am here to help you. How can I help you?");
+      audioQueue.enqueueUrl(`${S3_BASE_URL}/tara/krish_welcome.mp3`, msgId);
       setWelcomePlayed(true);
     }
   }, [welcomePlayed, addMessage]);
