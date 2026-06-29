@@ -39,9 +39,10 @@ const server = Bun.serve<ClientData>({
     const upgradeHeader = req.headers.get("upgrade");
     if (upgradeHeader && upgradeHeader.toLowerCase() === "websocket") {
       const isDev = process.env.NODE_ENV !== "production";
-      if (origin && origin !== CORS_ORIGIN) {
+      const allowedOrigins = CORS_ORIGIN.split(',').map(o => o.trim());
+      if (origin && !allowedOrigins.includes('*') && !allowedOrigins.includes(origin)) {
         console.warn(
-          `[Server] Rejected WebSocket upgrade from origin: ${origin}`
+          `[Server] Rejected WebSocket upgrade from origin: ${origin} (Allowed: ${CORS_ORIGIN})`
         );
         return new Response("Forbidden", { status: 403 });
       }
