@@ -29,7 +29,8 @@ export interface ILLMService {
   generateStream(
     systemPrompt: string,
     userPrompt: string,
-    languageHint?: string
+    languageHint?: string,
+    signal?: AbortSignal
   ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown>;
 }
 

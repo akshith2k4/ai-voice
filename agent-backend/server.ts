@@ -24,7 +24,7 @@ console.log("Available forms:", getAvailableForms());
 await initializeFillers();
 preloadStaticAudio().catch(err => console.error("[Preloader] Pre-upload failed:", err));
 const PORT = parseInt(process.env.PORT || "3001");
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000,http://localhost:5173,https://krishai.linengrass.com,https://linengrass.com";
 
 console.log(`[Config] PORT: ${PORT}`);
 console.log(`[Config] CORS_ORIGIN: ${CORS_ORIGIN}`);

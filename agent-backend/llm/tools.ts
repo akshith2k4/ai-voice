@@ -116,6 +116,13 @@ export const resumeWalkthroughTool = new DynamicStructuredTool({
   },
 });
 
+export const cancelWalkthroughTool = new DynamicStructuredTool({
+  name: "cancel_walkthrough",
+  description: "Cancel the currently active walkthrough. Use this when the user says 'stop', 'cancel', 'exit', or no longer wants to continue the walkthrough.",
+  schema: z.object({}),
+  func: async (input) => JSON.stringify(input),
+});
+
 export const allTools = [
   navigateTool,
   startWalkthroughTool,
@@ -123,4 +130,5 @@ export const allTools = [
   askClarificationTool,
   detourToFieldTool,
   resumeWalkthroughTool,
+  cancelWalkthroughTool,
 ];

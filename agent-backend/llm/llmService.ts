@@ -38,13 +38,13 @@ export const streamLLM = traceable(async function* (
   if (activeSession) {
     const nav = activeSession.currentNav;
     const currentField = nav ? findFieldInNodes(activeSession.schema.nodes, nav.fieldKey).matchedField : undefined;
+    
     systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField, activeSession.languageCode || "en");
     console.log(`[LLMService] Active walkthrough — using walkthrough prompt`);
   }
 
-  const languageHint = languageCode
-    ? `\n\nThe user's speech was detected as language code: ${languageCode}. Respond in that language.`
-    : "";
+  // Rely on LLM's native detection + system prompt rules
+  const languageHint = "";
 
   const toolCalls: LLMToolCall[] = [];
   let rawContent = "";

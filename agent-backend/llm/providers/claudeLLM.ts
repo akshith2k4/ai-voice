@@ -10,7 +10,8 @@ export class ClaudeLLM implements ILLMService {
   async *generateStream(
     systemPrompt: string,
     userPrompt: string,
-    languageHint = ""
+    languageHint = "",
+    signal?: AbortSignal
   ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
     console.log("[ClaudeLLM] Streaming started (boilerplate/placeholder active)");
 
