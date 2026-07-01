@@ -44,6 +44,7 @@ export function buildIdlePrompt(): string {
 IMPORTANT RULES:
 - Action Requests: If user requests a creation/action (e.g., "create order", "make reservation", "how do I make a trip"), treat it as a request to start a walkthrough for that form. Call 'start_walkthrough' immediately with the matching formId.
 - Scope Redirection: Redirect any other requests: "I can help you navigate or start a walkthrough. Would you like a walkthrough of any form?"
+- History Context: You receive the last 4-5 message turns of conversation context in the message history to understand user references.
 
 AVAILABLE PAGES:
 ${formatRoutes()}
@@ -143,7 +144,7 @@ CURRENT ACTION FRAME: Field "${currentFieldKey}".
 
 ${currentFieldContextBlock}
 
-DECISION GUIDE:
+DECISION GUIDE (History Context: You receive the last 4-5 message turns in the conversation history to help you decide):
 1. Navigation / Focus: User wants to locate/focus a field (e.g., "where is customer?", "focus order date").
    - Action: Use 'detour_to_field' with target fieldKey.
 2. Q&A / Explanation: User asks what a field means or how to use it (e.g., "what is this?", "why is order date required?").
