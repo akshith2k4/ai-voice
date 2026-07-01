@@ -38,7 +38,7 @@ export const navigateTool = new DynamicStructuredTool({
 export const startWalkthroughTool = new DynamicStructuredTool({
   name: "start_walkthrough",
   description:
-    "Start a guided walkthrough for a form. Use this when the user asks to learn how to use a form, e.g. 'show me how to create an order', 'teach me the order workflow', 'walk me through creating an order'.",
+    "Start a guided walkthrough for a form. Use this when the user asks to learn how to use a form, or requests a creation/action matching a form, e.g. 'create order', 'create an order', 'make an order', 'show me how to create an order', 'teach me the order workflow', 'walk me through creating an order'.",
   schema: z.object({
     formId: z
       .string()

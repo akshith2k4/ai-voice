@@ -7,6 +7,9 @@ import { OpenAILLM } from "./providers/openAiLLM.js";
 import { ClaudeLLM } from "./providers/claudeLLM.js";
 import { ILLMService, LLMToolCall, LLMResult, LLMStreamChunk } from "../src/services/interfaces.js";
 import { config } from "../src/config.js";
+import { db, turns } from "../src/services/db.js";
+import { eq, desc } from "drizzle-orm";
+import { getTurnId } from "../src/services/latencyTracker.js";
 
 export type { LLMToolCall, LLMResult, LLMStreamChunk };
 
@@ -46,11 +49,43 @@ export const streamLLM = traceable(async function* (
   // Rely on LLM's native detection + system prompt rules
   const languageHint = "";
 
+  let history: { role: "user" | "assistant"; content: string }[] = [];
+  try {
+    const currentTurnId = getTurnId();
+    const recentTurns = await db.select({
+      id: turns.id,
+      userTranscript: turns.userTranscript,
+      llmRawContent: turns.llmRawContent,
+    })
+    .from(turns)
+    .where(eq(turns.sessionId, sessionId))
+    .orderBy(desc(turns.createdAt))
+    .limit(6);
+
+    const filteredTurns = recentTurns
+      .filter((t) => t.id !== currentTurnId)
+      .slice(0, 5);
+
+    // Sort chronologically (oldest first)
+    filteredTurns.reverse();
+
+    for (const t of filteredTurns) {
+      if (t.userTranscript) {
+        history.push({ role: "user", content: t.userTranscript });
+      }
+      if (t.llmRawContent) {
+        history.push({ role: "assistant", content: t.llmRawContent });
+      }
+    }
+  } catch (error) {
+    console.error("[LLMService] Error fetching history from DB:", error);
+  }
+
   const toolCalls: LLMToolCall[] = [];
   let rawContent = "";
 
   try {
-    const generator = getLLMService().generateStream(systemPrompt, userText, languageHint, signal);
+    const generator = getLLMService().generateStream(systemPrompt, userText, languageHint, signal, history);
 
     while (true) {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");

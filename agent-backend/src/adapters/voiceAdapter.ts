@@ -66,7 +66,21 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
     }
 
     if (msg.text && !msg.audio) {
-      await startTracking(sessionId, context.userName, () => processUserText(msg.text!, "en", context));
+      const turnId = crypto.randomUUID();
+      await startTracking(sessionId, context.userName, async () => {
+        setTurnId(turnId);
+        fireAndForget(
+          (async () => {
+            await ensureSessionExists(sessionId, undefined, context.userName);
+            await db.insert(turns).values({
+              id: turnId,
+              sessionId,
+              userTranscript: msg.text,
+            });
+          })()
+        );
+        await processUserText(msg.text!, "en", context);
+      });
       return;
     }
 

@@ -11,7 +11,8 @@ export class ClaudeLLM implements ILLMService {
     systemPrompt: string,
     userPrompt: string,
     languageHint = "",
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    history: { role: "user" | "assistant"; content: string }[] = []
   ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
     console.log("[ClaudeLLM] Streaming started (boilerplate/placeholder active)");
 
