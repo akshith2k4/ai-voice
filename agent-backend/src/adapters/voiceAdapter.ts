@@ -66,7 +66,21 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
     }
 
     if (msg.text && !msg.audio) {
-      await startTracking(sessionId, context.userName, () => processUserText(msg.text!, "en", context));
+      const turnId = crypto.randomUUID();
+      await startTracking(sessionId, context.userName, async () => {
+        setTurnId(turnId);
+        fireAndForget(
+          (async () => {
+            await ensureSessionExists(sessionId, undefined, context.userName);
+            await db.insert(turns).values({
+              id: turnId,
+              sessionId,
+              userTranscript: msg.text,
+            });
+          })()
+        );
+        await processUserText(msg.text!, "en", context);
+      });
       return;
     }
 
@@ -135,20 +149,18 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
 
 async function processUserText(text: string, languageCode: string | undefined, context: HandlerContext): Promise<void> {
   const { sessionId, send } = context;
-  let lang = languageCode || "en";
-  const lowerLang = lang.toLowerCase();
-  if (lowerLang.startsWith("en") || lowerLang === "eng") {
-    lang = "en";
-  } else if (lowerLang.startsWith("hi") || lowerLang === "hin" || lowerLang === "hindi") {
+  
+  // STRICTLY ENFORCE ENGLISH AND HINDI ONLY
+  // Script-based detection is more reliable than STT language_code.
+  let lang = "en"; // Default to English
+  
+  const hasDevanagari = /[\u0900-\u097F]/.test(text);
+  if (hasDevanagari) {
     lang = "hi";
-  } else if (lowerLang.startsWith("es") || lowerLang === "spa" || lowerLang === "spanish") {
-    lang = "es";
   }
+  // If no Devanagari script, it's English (even if STT misdetects it)
 
-  const session = walkthroughExecutor.getSession(sessionId);
-  if (session && session.languageCode) {
-    lang = session.languageCode;
-  }
+  // Removed the session.languageCode override to allow dynamic language switching per utterance.
 
   playFiller(text, lang, sessionId, send);
 

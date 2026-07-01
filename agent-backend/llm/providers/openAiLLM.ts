@@ -1,5 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages";
 import { allTools } from "../tools.js";
 import { ILLMService, LLMStreamChunk, LLMResult, LLMToolCall } from "../../src/services/interfaces.js";
 import { config } from "../../src/config.js";
@@ -31,7 +31,8 @@ export class OpenAILLM implements ILLMService {
     systemPrompt: string,
     userPrompt: string,
     languageHint = "",
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    history: { role: "user" | "assistant"; content: string }[] = []
   ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
     const modelWithTools = this.getModel();
     const toolCalls: LLMToolCall[] = [];
@@ -50,10 +51,21 @@ export class OpenAILLM implements ILLMService {
     const combinedSignal = controller.signal;
 
     try {
-      const stream = await modelWithTools.stream([
-        new SystemMessage(systemPrompt + languageHint),
-        new HumanMessage(userPrompt),
-      ], { signal: combinedSignal });
+      const messages: any[] = [
+        new SystemMessage(systemPrompt + languageHint)
+      ];
+
+      for (const h of history) {
+        if (h.role === "user") {
+          messages.push(new HumanMessage(h.content));
+        } else {
+          messages.push(new AIMessage(h.content));
+        }
+      }
+
+      messages.push(new HumanMessage(userPrompt));
+
+      const stream = await modelWithTools.stream(messages, { signal: combinedSignal });
 
       let finalMessage: any = null;
 

@@ -124,6 +124,12 @@ class ToolDispatcher {
       case "resume_walkthrough":
         walkthroughExecutor.resumeWalkthrough(sessionId);
         break;
+
+      case "cancel_walkthrough": {
+        walkthroughExecutor.cancel(sessionId);
+        await responder.speak("Okay, I've cancelled the walkthrough.");
+        break;
+      }
     }
   }
 }

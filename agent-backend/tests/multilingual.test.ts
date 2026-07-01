@@ -148,13 +148,13 @@ describe("Multi-Language Integration Tests", () => {
 
     // Build prompt for English
     const promptEn = buildWalkthroughPrompt(testSchema, currentField, "en");
-    expect(promptEn).toContain("You MUST respond in the following language: en.");
+    expect(promptEn).toContain("English or Hindi ONLY.");
     expect(promptEn).toContain("English explanation");
     expect(promptEn).not.toContain("Hindi explanation");
 
     // Build prompt for Hindi
     const promptHi = buildWalkthroughPrompt(testSchema, currentField, "hi");
-    expect(promptHi).toContain("You MUST respond in the following language: hi.");
+    expect(promptHi).toContain("English or Hindi ONLY.");
     expect(promptHi).toContain("Hindi explanation");
     expect(promptHi).not.toContain("English explanation");
   });
