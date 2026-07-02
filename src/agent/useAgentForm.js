@@ -8,6 +8,7 @@ import { useEffect, useRef } from "react";
 import { agentFormRegistry } from "./agentFormRegistry";
 import { sendStatus } from "./wsConnection";
 import { STATUS_EVENTS } from "./protocol";
+import { walkthroughEngine } from "./WalkthroughEngine";
 
 export function useAgentForm(formId, formApi, enabled = true) {
   const apiRef = useRef(formApi);
@@ -78,6 +79,13 @@ export function useAgentForm(formId, formApi, enabled = true) {
     return () => {
       agentFormRegistry.unregister(formId);
       document.removeEventListener("change", handleFieldChange, true);
+
+      // If the walkthrough is active and this form is the active walkthrough form being unregistered,
+      // it means the user manually closed the modal or navigated away.
+      if (walkthroughEngine.activeFormId === formId) {
+        console.warn(`[useAgentForm] Active walkthrough form "${formId}" unmounted. Sending dialog_closed_by_user.`);
+        sendStatus("dialog_closed_by_user");
+      }
     };
   }, [formId, enabled]);
 }

@@ -303,7 +303,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
       expect(beginMsg.args.formId).toBe("createOrder");
     });
 
-    test("start rejects duplicate session", async () => {
+    test("start auto-cancels and restarts duplicate session (context switch)", async () => {
       const sid = "dup-session-1";
       walkthroughDriver.start("createOrder", sid);
       await delay(200);
@@ -315,13 +315,16 @@ describe("WalkthroughDriver — acceptance tests", () => {
       walkthroughDriver.start("createOrder", sid);
       await delay(100);
 
-      const dupMsg = sentMessages(sid).find(
-        (m: any) =>
-          m.type === "tool" &&
-          m.tool === "respond" &&
-          m.args?.message?.includes("already in progress")
+      const msgs = sentMessages(sid);
+      const cancelMsg = msgs.find(
+        (m: any) => m.type === "tool" && m.tool === "walkthrough_cancelled"
       );
-      expect(dupMsg).toBeDefined();
+      expect(cancelMsg).toBeDefined();
+
+      const beginMsg = msgs.find(
+        (m: any) => m.type === "tool" && m.tool === "begin_walkthrough"
+      );
+      expect(beginMsg).toBeDefined();
     });
 
     test("start rejects unknown formId", async () => {

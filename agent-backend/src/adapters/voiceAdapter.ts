@@ -149,18 +149,23 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
 
 async function processUserText(text: string, languageCode: string | undefined, context: HandlerContext): Promise<void> {
   const { sessionId, send } = context;
-  
-  // STRICTLY ENFORCE ENGLISH AND HINDI ONLY
-  // Script-based detection is more reliable than STT language_code.
-  let lang = "en"; // Default to English
-  
-  const hasDevanagari = /[\u0900-\u097F]/.test(text);
-  if (hasDevanagari) {
-    lang = "hi";
-  }
-  // If no Devanagari script, it's English (even if STT misdetects it)
 
-  // Removed the session.languageCode override to allow dynamic language switching per utterance.
+  // ✅ DIRECT RAW STT: Use ElevenLabs' language code directly. No custom checks.
+  let lang: string = "en"; // Fallback if API returns nothing
+
+  if (languageCode) {
+    const lowerCode = languageCode.toLowerCase();
+    // ElevenLabs returns ISO-639-3 (e.g., "eng", "hin") or ISO-639-1 ("en", "hi")
+    if (lowerCode === "hin" || lowerCode === "hi") {
+      lang = "hi";
+    } else if (lowerCode === "eng" || lowerCode === "en") {
+      lang = "en";
+    } else {
+      console.warn(`[VoiceAdapter] ElevenLabs returned unsupported lang: ${languageCode}. Defaulting to en.`);
+    }
+  }
+
+  console.log(`[VoiceAdapter] Using raw STT language -> ${lang}`);
 
   playFiller(text, lang, sessionId, send);
 

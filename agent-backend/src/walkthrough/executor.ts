@@ -208,64 +208,63 @@ export class WalkthroughExecutor {
       actualResponder = responder;
     }
 
+    // ✅ AUTO-CANCEL: If a walkthrough is already running, cancel it before starting the new one.
     if (this.starting.has(sessionId) || this.sessionManager.has(sessionId)) {
+      console.log(`[Executor] Context switch detected. Cancelling existing walkthrough for ${sessionId} to start ${formId}.`);
+      this.cancel(sessionId);
+      
+      // Optional: Let the user know we are switching
       if (actualResponder) {
-        await actualResponder.speak("A walkthrough is already in progress. Say 'cancel' to stop it first.");
-      } else {
-        this.toolMessenger.send(sessionId, {
-          type: "tool",
-          tool: "respond",
-          args: { message: "A walkthrough is already in progress. Say 'cancel' to stop it first.", tts: false }
-        });
+        await actualResponder.speak("Let's switch gears.");
       }
-    } else {
-      this.starting.add(sessionId);
-      let session: WalkthroughSession | null = null;
-      try {
-        session = this.sessionManager.create(sessionId, formId, actualTtsEnabled, actualLang);
-      } catch {
-        const { getAvailableForms } = await import("./sessionManager.js");
-        const available = getAvailableForms().map(f => f.name).join(", ");
-        const errMsg = `I couldn't find the form "${formId}". Available forms: ${available}`;
-        this.toolMessenger.send(sessionId, {
-          type: "tool",
-          tool: "respond",
-          args: { message: errMsg, tts: false }
-        });
-        if (actualResponder) {
-          await actualResponder.speak(errMsg);
-        }
-      }
-      this.starting.delete(sessionId);
-      if (session) {
-        if (actualResponder) {
-          session.responder = actualResponder;
-          if (typeof actualResponder === "object" && actualResponder !== null && "boundSession" in actualResponder) {
-            (actualResponder as any).boundSession = session;
-          }
-        }
-        session.treeWalker = createTreeWalker(session.schema, session);
-        session.stateMachine.transition("START_WALKTHROUGH");
-        this.tool(session, "begin_walkthrough", { formId: session.schema.id });
+    }
 
-        if (actualIntroMessage) {
-          const msgId = session.ttsEnabled ? crypto.randomUUID() : undefined;
-          this.tool(session, "respond", { message: actualIntroMessage, tts: session.ttsEnabled, messageId: msgId });
-          this.tool(session, "speak", { text: actualIntroMessage, tts: session.ttsEnabled, messageId: msgId });
-          session.waitingFor = "walkthrough_speak_done";
-          this.setStepTimeout(session, "walkthrough_speak_done");
-          if (session.responder) {
-            if (session.ttsEnabled) {
-              fireAndForget(session.responder.speak(actualIntroMessage, msgId));
-            }
-          } else if (session.ttsEnabled) {
-            import ("../services/narrationSpeaker.js")
-              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, actualIntroMessage!, msgId!))
-              .catch(err => console.error(err));
-          }
-        } else {
-          this.sendNext(session);
+    this.starting.add(sessionId);
+    let session: WalkthroughSession | null = null;
+    try {
+      session = this.sessionManager.create(sessionId, formId, actualTtsEnabled, actualLang);
+    } catch {
+      const { getAvailableForms } = await import("./sessionManager.js");
+      const available = getAvailableForms().map(f => f.name).join(", ");
+      const errMsg = `I couldn't find the form "${formId}". Available forms: ${available}`;
+      this.toolMessenger.send(sessionId, {
+        type: "tool",
+        tool: "respond",
+        args: { message: errMsg, tts: false }
+      });
+      if (actualResponder) {
+        await actualResponder.speak(errMsg);
+      }
+    }
+    this.starting.delete(sessionId);
+    if (session) {
+      if (actualResponder) {
+        session.responder = actualResponder;
+        if (typeof actualResponder === "object" && actualResponder !== null && "boundSession" in actualResponder) {
+          (actualResponder as any).boundSession = session;
         }
+      }
+      session.treeWalker = createTreeWalker(session.schema, session);
+      session.stateMachine.transition("START_WALKTHROUGH");
+      this.tool(session, "begin_walkthrough", { formId: session.schema.id });
+
+      if (actualIntroMessage) {
+        const msgId = session.ttsEnabled ? crypto.randomUUID() : undefined;
+        this.tool(session, "respond", { message: actualIntroMessage, tts: session.ttsEnabled, messageId: msgId });
+        this.tool(session, "speak", { text: actualIntroMessage, tts: session.ttsEnabled, messageId: msgId });
+        session.waitingFor = "walkthrough_speak_done";
+        this.setStepTimeout(session, "walkthrough_speak_done");
+        if (session.responder) {
+          if (session.ttsEnabled) {
+            fireAndForget(session.responder.speak(actualIntroMessage, msgId));
+          }
+        } else if (session.ttsEnabled) {
+          import ("../services/narrationSpeaker.js")
+            .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, actualIntroMessage!, msgId!))
+            .catch(err => console.error(err));
+        }
+      } else {
+        this.sendNext(session);
       }
     }
   }
@@ -476,9 +475,32 @@ export class WalkthroughExecutor {
   handleEvent(sessionId: string, event: string, data?: any): void {
     const session = this.sessionManager.get(sessionId)!;
     if (!session) return;
-    if (event === "dialog_closed_by_user" || event === "page_changed") {
+
+    // 1. Detect if the user closed the form or navigated away
+    const isClosureEvent = 
+      event === "dialog_closed_by_user" || 
+      event === "page_changed" ||
+      event === "close_dialog" ||
+      event === "modal_closed" ||
+      event === "navigate_away" ||
+      event === "form_closed";
+
+    if (isClosureEvent) {
+      console.warn(`[Executor] Form closed or navigated away (event: ${event}). Cancelling walkthrough.`);
       this.cancel(sessionId);
-    } else if (event === "field_changed") {
+      return;
+    }
+
+    // 2. Detect if the user clicked a different tab/menu item manually
+    if (event === "navigation_complete" && data?.newRoute) {
+      if (data.newRoute !== session.schema.route) {
+        console.warn(`[Executor] User navigated to ${data.newRoute} (expected ${session.schema.route}). Cancelling walkthrough.`);
+        this.cancel(sessionId);
+        return;
+      }
+    }
+
+    if (event === "field_changed") {
       if (data && typeof data.fieldKey === "string") {
         console.log(`[Executor] Updating filledValues for ${data.fieldKey} to ${data.value}`);
         session.filledValues.set(data.fieldKey, data.value);

@@ -18,6 +18,8 @@ const getUsernameFromStorage = () => {
 };
 
 
+let isFirstMount = true;
+
 export { AgentErrorBoundary } from "./AgentErrorBoundary";
 
 const AgentContext = createContext({
@@ -60,6 +62,15 @@ export function AgentProvider({ children }) {
       walkthroughEngine.reset();
       setIsWalkthroughActive(false);
       setIsPaused(false);
+    }
+  }, [connectionStatus]);
+
+  // Handle page reload: cancel active walkthrough on first connect
+  useEffect(() => {
+    if (connectionStatus === STATUS.CONNECTED && isFirstMount) {
+      isFirstMount = false;
+      console.warn("[AgentBridge] First connection after page reload. Sending dialog_closed_by_user to clean up backend.");
+      wsSendMessage({ type: "event", name: "dialog_closed_by_user" });
     }
   }, [connectionStatus]);
 
@@ -151,6 +162,21 @@ export function AgentProvider({ children }) {
     connect(wsUrl);
     return () => { disconnect(); unsubStatus(); unsubMsg(); };
   }, [connectedUsername]);
+
+  // Listen to tab visibility changes to detect when the user switches tabs/minimized window
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isWalkthroughActive) {
+        console.warn("[AgentBridge] User switched tabs or minimized window. Sending navigate_away event.");
+        sendMessage({ type: "event", name: "navigate_away" });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isWalkthroughActive, sendMessage]);
 
 
   const contextValue = {
