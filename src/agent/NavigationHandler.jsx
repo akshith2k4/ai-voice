@@ -18,7 +18,7 @@ import { sendStatus, sendError } from "./wsConnection";
 export default function NavigationHandler() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { pendingNavigation, clearPendingNavigation } = useAgent();
+  const { pendingNavigation, clearPendingNavigation, isWalkthroughActive } = useAgent();
   const targetRef = useRef(null);
 
   // Kick off navigation when pendingNavigation changes
@@ -28,7 +28,7 @@ export default function NavigationHandler() {
     // Already on the target route → complete immediately
     if (pendingNavigation === location.pathname) {
       console.log(`[NavigationHandler] Already on ${location.pathname} — sending navigation_complete`);
-      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname });
+      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname, newRoute: location.pathname });
       clearPendingNavigation();
       return;
     }
@@ -53,13 +53,29 @@ export default function NavigationHandler() {
     // Wait one frame for DOM to mount after the route change
     const id = requestAnimationFrame(() => {
       console.log(`[NavigationHandler] Route confirmed: ${location.pathname} — sending navigation_complete`);
-      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname });
+      sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname, newRoute: location.pathname });
       clearPendingNavigation();
       targetRef.current = null;
     });
 
     return () => cancelAnimationFrame(id);
   }, [location.pathname, clearPendingNavigation]);
+
+  // Listen for user-initiated navigation while a walkthrough is active
+  const lastPathnameRef = useRef(location.pathname);
+  useEffect(() => {
+    if (isWalkthroughActive) {
+      const pathChanged = location.pathname !== lastPathnameRef.current;
+      if (pathChanged) {
+        // If it was not initiated by the agent (i.e. targetRef.current doesn't match location.pathname)
+        if (targetRef.current !== location.pathname) {
+          console.warn(`[NavigationHandler] User manually navigated from ${lastPathnameRef.current} to ${location.pathname}. Sending navigation_complete.`);
+          sendStatus(STATUS_EVENTS.NAVIGATION_COMPLETE, { route: location.pathname, newRoute: location.pathname });
+        }
+      }
+    }
+    lastPathnameRef.current = location.pathname;
+  }, [location.pathname, isWalkthroughActive]);
 
   return null;
 }

@@ -142,11 +142,18 @@ class WalkthroughEngine {
     if (tool === "detour_start") { this.isDetourActive = true; return; }
     if (tool === "detour_end")   { this.isDetourActive = false; this._drain(); return; }
 
+    if (tool === TOOL_TYPES.CLOSE_DIALOG || tool === "close_dialog") {
+      this.activeFormId = null;
+    }
+
     if (tool === TOOL_TYPES.BEGIN_WALKTHROUGH || tool === TOOL_TYPES.START_WALKTHROUGH) {
       this._setIsWalkthroughActive?.(true);
       if (args?.formId) this.activeFormId = args.formId;
     }
-    if (tool === "walkthrough_finished") this._setIsWalkthroughActive?.(false);
+    if (tool === "walkthrough_finished") {
+      this._setIsWalkthroughActive?.(false);
+      this.activeFormId = null;
+    }
 
     this.queue.push({ tool, args });
     this._drain();

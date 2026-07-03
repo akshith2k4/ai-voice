@@ -29,10 +29,20 @@ export class ElevenLabsSTT implements ISTTService {
         throw new Error(`ElevenLabs STT failed ${res.status}: ${text}`);
       }
 
-      const data = await res.json() as { text?: string; language_code?: string };
+      // ✅ Parse the exact response format from the ElevenLabs docs
+      const data = await res.json() as { 
+        text?: string; 
+        language_code?: string; 
+        language_probability?: number;
+      };
+      
       const text = (data.text || "").trim();
-      console.log(`[ElevenLabsSTT] Transcribed: "${text}"`);
-      return { text, languageCode: data.language_code || "en", confidence: 1.0 };
+      const languageCode = data.language_code || "en";
+      const confidence = data.language_probability || 1.0;
+      
+      console.log(`[ElevenLabsSTT] Raw STT Result -> Lang: ${languageCode} | Conf: ${confidence} | Text: "${text}"`);
+      
+      return { text, languageCode, confidence };
     } catch (err: any) {
       if (attempt <= 2 && err.name !== "AbortError") {
         console.warn(`[ElevenLabsSTT] Transient error: ${err.message || err}. Retrying in 1000ms (attempt ${attempt}/2)...`);
