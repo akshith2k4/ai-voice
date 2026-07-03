@@ -20,6 +20,12 @@ ws.on('message', (data) => {
     switch(msg.tool) {
       case 'respond':
         console.log(`\n🤖 Krish: ${msg.args.message}`);
+        // ✅ FIX: Simulate TTS finishing for text responses so flowController can proceed
+        if (msg.args.messageId) {
+          setTimeout(() => {
+            ws.send(JSON.stringify({ type: "event", name: "tts_playback_complete", messageId: msg.args.messageId }));
+          }, 500);
+        }
         break;
         
       case 'navigate':

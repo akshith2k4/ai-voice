@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { Paper, IconButton, Typography, Box } from "@mui/material";
+import { Paper, IconButton, Typography, Box, Switch, FormControlLabel } from "@mui/material";
 import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import CloseIcon from "@mui/icons-material/Close";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import SettingsIcon from "@mui/icons-material/Settings";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useAgent } from "./AgentBridge";
 import { useAudioRecorder } from "./useAudioRecorder";
 import { audioQueue } from "./AudioQueue";
@@ -27,6 +29,44 @@ export default function AgentOverlay() {
 
   const [expanded, setExpanded] = useState(false);
   const [welcomePlayed, setWelcomePlayed] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const [autoGainControl, setAutoGainControl] = useState(() => {
+    try {
+      const val = localStorage.getItem("agent_mic_agc");
+      return val === null ? true : val === "true";
+    } catch { return true; }
+  });
+  const [noiseSuppression, setNoiseSuppression] = useState(() => {
+    try {
+      const val = localStorage.getItem("agent_mic_noise");
+      return val === null ? true : val === "true";
+    } catch { return true; }
+  });
+  const [echoCancellation, setEchoCancellation] = useState(() => {
+    try {
+      const val = localStorage.getItem("agent_mic_echo");
+      return val === null ? true : val === "true";
+    } catch { return true; }
+  });
+
+  const [micVolume, setMicVolume] = useState(0);
+
+  const handleToggleAGC = (e) => {
+    const val = e.target.checked;
+    setAutoGainControl(val);
+    try { localStorage.setItem("agent_mic_agc", String(val)); } catch {}
+  };
+  const handleToggleNoise = (e) => {
+    const val = e.target.checked;
+    setNoiseSuppression(val);
+    try { localStorage.setItem("agent_mic_noise", String(val)); } catch {}
+  };
+  const handleToggleEcho = (e) => {
+    const val = e.target.checked;
+    setEchoCancellation(val);
+    try { localStorage.setItem("agent_mic_echo", String(val)); } catch {}
+  };
 
   const handleExpand = useCallback(() => {
     setExpanded(true);
@@ -46,7 +86,19 @@ export default function AgentOverlay() {
     onChunk: sendAudioChunk,
     onEnd: sendAudioEnd,
     isAgentSpeaking,
+    autoGainControl,
+    noiseSuppression,
+    echoCancellation,
+    onVolumeChange: (vol) => {
+      setMicVolume(vol);
+    },
   });
+
+  useEffect(() => {
+    if (!isRecording) {
+      setMicVolume(0);
+    }
+  }, [isRecording]);
 
   const isRecordingRef = useRef(isRecording);
   const canRecordRef = useRef(canRecord);
@@ -213,7 +265,6 @@ export default function AgentOverlay() {
     <Box sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999 }}>
       <ConnectionBadge isCollapsed={false} />
       <Paper elevation={8} sx={{ width: 320, maxHeight: 440, display: "flex", flexDirection: "column", borderRadius: 3, overflow: "hidden", backgroundColor: "#0f172a", border: "1px solid rgba(255,255,255,0.08)" }}>
-
         {/* Header */}
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, py: 1.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -223,15 +274,70 @@ export default function AgentOverlay() {
             </Typography>
           </Box>
           <Box sx={{ display: "flex", gap: 0.5 }}>
-            <IconButton size="small" onClick={clearMessages} sx={{ color: "#64748b" }} title="Clear messages"><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+            <IconButton
+              size="small"
+              onClick={() => setShowSettings(!showSettings)}
+              sx={{ color: showSettings ? "#10b981" : "#64748b" }}
+              title={showSettings ? "Back to Chat" : "Mic Settings"}
+            >
+              {showSettings ? <ArrowBackIcon sx={{ fontSize: 16 }} /> : <SettingsIcon sx={{ fontSize: 14 }} />}
+            </IconButton>
+            {!showSettings && (
+              <IconButton size="small" onClick={clearMessages} sx={{ color: "#64748b" }} title="Clear messages"><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+            )}
             <IconButton size="small" onClick={() => setExpanded(false)} sx={{ color: "#64748b" }} title="Minimize"><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></IconButton>
           </Box>
         </Box>
 
-        {/* Chat history */}
-        <AgentChat sx={{ flex: 1, maxHeight: 220, minHeight: 80 }} />
+        {/* Chat history or settings panel */}
+        {showSettings ? (
+          <Box sx={{ flex: 1, maxHeight: 220, minHeight: 80, overflowY: "auto", px: 2.5, py: 1.5, display: "flex", flexDirection: "column", gap: 2 }}>
+            <Typography variant="subtitle2" sx={{ color: "#f8fafc", fontWeight: "bold", fontSize: 13, display: "flex", alignItems: "center", gap: 1 }}>
+              <SettingsIcon sx={{ fontSize: 16, color: "#10b981" }} /> Microphone Settings
+            </Typography>
 
+            <FormControlLabel
+              control={<Switch checked={autoGainControl} onChange={handleToggleAGC} color="primary" size="small" />}
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ color: "#cbd5e1", fontSize: 12, fontWeight: 500 }}>Volume Boost (AGC)</Typography>
+                  <Typography variant="caption" sx={{ color: "#64748b", fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
+                    Automatically boosts your mic volume if you speak softly or are far away.
+                  </Typography>
+                </Box>
+              }
+              sx={{ margin: 0, alignItems: "flex-start", gap: 1 }}
+            />
 
+            <FormControlLabel
+              control={<Switch checked={noiseSuppression} onChange={handleToggleNoise} color="primary" size="small" />}
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ color: "#cbd5e1", fontSize: 12, fontWeight: 500 }}>Noise Suppression</Typography>
+                  <Typography variant="caption" sx={{ color: "#64748b", fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
+                    Aggressively filters background noise (may clip quiet speech or beginning of words).
+                  </Typography>
+                </Box>
+              }
+              sx={{ margin: 0, alignItems: "flex-start", gap: 1 }}
+            />
+
+            <FormControlLabel
+              control={<Switch checked={echoCancellation} onChange={handleToggleEcho} color="primary" size="small" />}
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ color: "#cbd5e1", fontSize: 12, fontWeight: 500 }}>Echo Cancellation</Typography>
+                  <Typography variant="caption" sx={{ color: "#64748b", fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
+                    Prevents speaker audio feedback. Turn off for cleaner raw audio if using headphones.
+                  </Typography>
+                </Box>
+              }
+              sx={{ margin: 0, alignItems: "flex-start", gap: 1 }}
+            />
+          </Box>
+        ) : (
+          <AgentChat sx={{ flex: 1, maxHeight: 220, minHeight: 80 }} />
+        )}
 
         {/* Mic */}
         <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 2, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "rgba(0,0,0,0.2)" }}>
@@ -244,7 +350,19 @@ export default function AgentOverlay() {
             onClick={handleMicClick}
             disabled={!canRecord && !isRecording}
             className={isRecording ? "pulse-mic-animation" : ""}
-            sx={{ width: 56, height: 56, borderRadius: "50%", backgroundColor: micBg, color: "#fff", transition: "all 0.2s ease", "&:hover": { backgroundColor: micBg }, "&:active": { transform: "scale(0.95)" } }}
+            sx={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              backgroundColor: micBg,
+              color: "#fff",
+              transition: "all 0.1s ease",
+              "&:hover": { backgroundColor: micBg },
+              "&:active": { transform: "scale(0.95)" },
+              boxShadow: isRecording
+                ? `0 0 ${8 + (micVolume / 100) * 24}px ${2 + (micVolume / 100) * 8}px rgba(239, 68, 68, ${0.4 + (micVolume / 100) * 0.6})`
+                : "none",
+            }}
           >
             {canRecord ? <MicIcon sx={{ fontSize: 28 }} /> : <MicOffIcon sx={{ fontSize: 28 }} />}
           </IconButton>

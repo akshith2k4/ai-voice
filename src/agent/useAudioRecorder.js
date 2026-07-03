@@ -31,7 +31,16 @@ function getAudioContext() {
   return { ctx: sharedAudioContext, workletReady };
 }
 
-export function useAudioRecorder({ onChunk, onEnd, enabled, isAgentSpeaking }) {
+export function useAudioRecorder({
+  onChunk,
+  onEnd,
+  enabled,
+  isAgentSpeaking,
+  echoCancellation = true,
+  noiseSuppression = true,
+  autoGainControl = true,
+  onVolumeChange,
+}) {
   const [isRecording, setIsRecording] = useState(false);
   const [micPermission, setMicPermission] = useState("prompt");
 
@@ -45,18 +54,31 @@ export function useAudioRecorder({ onChunk, onEnd, enabled, isAgentSpeaking }) {
     agentIsSpeakingRef.current = isAgentSpeaking;
   }, [isAgentSpeaking]);
 
+  const settingsRef = useRef({ echoCancellation, noiseSuppression, autoGainControl });
+  useEffect(() => {
+    settingsRef.current = { echoCancellation, noiseSuppression, autoGainControl };
+  }, [echoCancellation, noiseSuppression, autoGainControl]);
+
+  const onVolumeChangeRef = useRef(onVolumeChange);
+  useEffect(() => {
+    onVolumeChangeRef.current = onVolumeChange;
+  }, [onVolumeChange]);
+
   const start = useCallback(async () => {
     if (activeRef.current || !enabled) return;
     try {
       const { ctx, workletReady } = getAudioContext();
       await workletReady;
 
+      const { echoCancellation: echo, noiseSuppression: noise, autoGainControl: agc } = settingsRef.current;
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 16000,
           channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
+          echoCancellation: echo,
+          noiseSuppression: noise,
+          autoGainControl: agc,
         }
       });
       streamRef.current = stream;
@@ -71,6 +93,21 @@ export function useAudioRecorder({ onChunk, onEnd, enabled, isAgentSpeaking }) {
       workletNode.port.onmessage = (e) => {
         if (!activeRef.current) return;
         if (agentIsSpeakingRef.current) return;
+
+        // Calculate real-time volume level (RMS)
+        const floatData = e.data;
+        if (floatData && floatData.length > 0) {
+          let sum = 0;
+          for (let i = 0; i < floatData.length; i++) {
+            sum += floatData[i] * floatData[i];
+          }
+          const rms = Math.sqrt(sum / floatData.length);
+          const vol = Math.min(100, Math.round(rms * 500));
+          if (onVolumeChangeRef.current) {
+            onVolumeChangeRef.current(vol);
+          }
+        }
+
         const chunk = arrayBufferToBase64(float32To16BitPCM(e.data));
         if (chunk && onChunk) onChunk(chunk);
       };
