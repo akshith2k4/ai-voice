@@ -18,14 +18,16 @@ function flattenFields(nodes: SchemaNode[]): FieldNode[] {
 }
 
 function formatRoutes(): string {
+  // ✅ OPTIMIZED: Only show name and path. Drop the aliases to save hundreds of tokens.
   return routeRegistry.routes
-    .map((r) => `- "${r.name}" → ${r.path} (aliases: ${r.aliases.join(", ")})`)
+    .map((r) => `- ${r.name} (${r.path})`)
     .join("\n");
 }
 
 function formatForms(): string {
+  // ✅ OPTIMIZED: Only show name and ID. Drop the aliases to save hundreds of tokens.
   return getAvailableForms()
-    .map((f) => `- "${f.name}" (id: ${f.id}, route: ${f.route}${f.aliases.length ? `, aliases: ${f.aliases.join(", ")}` : ""})`)
+    .map((f) => `- ${f.name} (id: ${f.id})`)
     .join("\n");
 }
 
