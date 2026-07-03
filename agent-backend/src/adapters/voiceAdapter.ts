@@ -150,6 +150,8 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
 async function processUserText(text: string, languageCode: string | undefined, context: HandlerContext): Promise<void> {
   const { sessionId, send } = context;
 
+
+
   // ✅ DIRECT RAW STT: Use ElevenLabs' language code directly. No custom checks.
   let lang: string = "en"; // Fallback if API returns nothing
 

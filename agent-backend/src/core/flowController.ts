@@ -117,7 +117,16 @@ export const processText = traceable(async function (
         const isPaused = currentSession?.stateMachine.currentState === "PAUSED" || currentSession?.cancelled;
 
         if (isPaused) {
-          const safePausedTools = ["resume_walkthrough", "detour_to_field", "answer_question", "ask_clarification"];
+          // ✅ FIX: Allow starting a new form and cancelling while paused
+          const safePausedTools = [
+            "resume_walkthrough", 
+            "detour_to_field", 
+            "answer_question", 
+            "ask_clarification",
+            "start_walkthrough",  // <-- ADDED
+            "cancel_walkthrough", // <-- ADDED
+            "navigate"            // <-- ADDED
+          ];
           const originalCount = toolCalls.length;
           toolCalls = toolCalls.filter(tc => safePausedTools.includes(tc.name));
           
