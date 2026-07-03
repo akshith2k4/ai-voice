@@ -8,6 +8,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
 import { useAgent } from "./AgentBridge";
 import { useAudioRecorder } from "./useAudioRecorder";
 import { audioQueue } from "./AudioQueue";
@@ -30,6 +32,144 @@ export default function AgentOverlay() {
   const [expanded, setExpanded] = useState(false);
   const [welcomePlayed, setWelcomePlayed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [themeMode, setThemeMode] = useState(() => {
+    try {
+      const val = localStorage.getItem("agent_theme_mode");
+      return val === "light" ? "light" : "dark";
+    } catch { return "dark"; }
+  });
+
+  const toggleThemeMode = () => {
+    const nextMode = themeMode === "dark" ? "light" : "dark";
+    setThemeMode(nextMode);
+    try { localStorage.setItem("agent_theme_mode", nextMode); } catch {}
+  };
+
+  const [position, setPosition] = useState(() => {
+    try {
+      const saved = localStorage.getItem("agent_overlay_position");
+      return saved ? JSON.parse(saved) : { x: 24, y: 24 };
+    } catch {
+      return { x: 24, y: 24 };
+    }
+  });
+
+  const positionRef = useRef(position);
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const dragStartPos = useRef({ x: 24, y: 24 });
+
+  useEffect(() => {
+    const handleResize = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const width = expanded ? 320 : 56;
+      const height = expanded ? 440 : 56;
+
+      setPosition((prev) => {
+        const clampedRight = Math.max(12, Math.min(vw - width - 12, prev.x));
+        const clampedBottom = Math.max(12, Math.min(vh - height - 12, prev.y));
+        return { x: clampedRight, y: clampedBottom };
+      });
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [expanded]);
+
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("textarea") || e.target.closest(".MuiSwitch-root")) {
+      return;
+    }
+
+    isDragging.current = false;
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    dragStartPos.current = { ...positionRef.current };
+
+    const handleMouseMove = (moveEvent) => {
+      const dx = dragStart.current.x - moveEvent.clientX;
+      const dy = dragStart.current.y - moveEvent.clientY;
+
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        isDragging.current = true;
+      }
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const width = expanded ? 320 : 56;
+      const height = expanded ? 440 : 56;
+
+      const newRight = Math.max(12, Math.min(vw - width - 12, dragStartPos.current.x + dx));
+      const newBottom = Math.max(12, Math.min(vh - height - 12, dragStartPos.current.y + dy));
+
+      setPosition({ x: newRight, y: newBottom });
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+
+      if (isDragging.current) {
+        try {
+          localStorage.setItem("agent_overlay_position", JSON.stringify(positionRef.current));
+        } catch {}
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("textarea") || e.target.closest(".MuiSwitch-root")) {
+      return;
+    }
+
+    isDragging.current = false;
+    const touch = e.touches[0];
+    dragStart.current = { x: touch.clientX, y: touch.clientY };
+    dragStartPos.current = { ...positionRef.current };
+
+    const handleTouchMove = (moveEvent) => {
+      const touchMove = moveEvent.touches[0];
+      const dx = dragStart.current.x - touchMove.clientX;
+      const dy = dragStart.current.y - touchMove.clientY;
+
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        isDragging.current = true;
+      }
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const width = expanded ? 320 : 56;
+      const height = expanded ? 440 : 56;
+
+      const newRight = Math.max(12, Math.min(vw - width - 12, dragStartPos.current.x + dx));
+      const newBottom = Math.max(12, Math.min(vh - height - 12, dragStartPos.current.y + dy));
+
+      setPosition({ x: newRight, y: newBottom });
+    };
+
+    const handleTouchEnd = () => {
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+
+      if (isDragging.current) {
+        try {
+          localStorage.setItem("agent_overlay_position", JSON.stringify(positionRef.current));
+        } catch {}
+      }
+    };
+
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd);
+  };
 
   const [autoGainControl, setAutoGainControl] = useState(() => {
     try {
@@ -204,7 +344,39 @@ export default function AgentOverlay() {
   const statusColor = STATUS_COLOR[connectionStatus] || STATUS_COLOR[STATUS.DISCONNECTED];
   const isSpeaking = isAgentSpeaking && !isRecording;
   const micState = isRecording ? "recording" : canRecord ? "ready" : "disabled";
-  const micBg = { recording: "#ef4444", ready: "#1e40af", disabled: "#374151" }[micState];
+
+  const isDark = themeMode === "dark";
+  const collapsedBg = isConnected
+    ? (isDark ? "#0f172a" : "#ffffff")
+    : (isDark ? "#374151" : "#f3f4f6");
+  const collapsedBorder = isDark ? "none" : "1px solid rgba(0,0,0,0.1)";
+
+  const containerBg = isDark ? "#0f172a" : "#ffffff";
+  const containerBorder = isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)";
+  const headerBorderBottom = isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)";
+
+  const headerTextColor = isPaused
+    ? "#f59e0b"
+    : isSpeaking
+      ? (isDark ? "#10b981" : "#059669")
+      : (isDark ? "#94a3b8" : "#475569");
+
+  const iconColor = isDark ? "#64748b" : "#475569";
+
+  const settingsTitleColor = isDark ? "#f8fafc" : "#0f172a";
+  const settingsLabelColor = isDark ? "#cbd5e1" : "#1e293b";
+  const settingsCaptionColor = isDark ? "#64748b" : "#64748b";
+
+  const micSectionBg = isDark ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.02)";
+  const micSectionBorderTop = isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)";
+  const micInstructionColor = isDark ? "#64748b" : "#475569";
+  const micDeniedColor = isDark ? "#f87171" : "#dc2626";
+
+  const micBg = {
+    recording: "#ef4444",
+    ready: isDark ? "#1e40af" : "#2563eb",
+    disabled: isDark ? "#374151" : "#cbd5e1"
+  }[micState];
 
   const ConnectionBadge = ({ isCollapsed }) => {
     if (connectionStatus === STATUS.CONNECTED || connectionStatus === "connected") return null;
@@ -245,14 +417,37 @@ export default function AgentOverlay() {
   // ── Collapsed: orb only ──────────────────────────────────────────────────
   if (!expanded) {
     return (
-      <Box onClick={handleExpand} sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, cursor: "pointer", display: "flex", alignItems: "center", gap: 1 }}>
+      <Box
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onClick={(e) => {
+          if (isDragging.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          handleExpand();
+        }}
+        sx={{
+          position: "fixed",
+          bottom: position.y,
+          right: position.x,
+          zIndex: 9999,
+          cursor: "grab",
+          "&:active": { cursor: "grabbing" },
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          userSelect: "none"
+        }}
+      >
         <Box className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""} sx={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: statusColor }} />
         <Box sx={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ConnectionBadge isCollapsed={true} />
           {isSpeaking && (
             <Box className="siri-glow-aura" sx={{ position: "absolute", top: -3, left: -3, width: 62, height: 62, borderRadius: "50%", background: "linear-gradient(45deg, #a855f7, #3b82f6, #06b6d4, #ec4899)", backgroundSize: "400% 400%", zIndex: 1 }} />
           )}
-          <Paper elevation={4} className={isSpeaking ? "siri-orb-glow" : ""} sx={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isConnected ? "#0f172a" : "#374151", color: "#fff", position: "relative", zIndex: 2, transition: "all 0.2s ease", "&:hover": { transform: "scale(1.05)" } }}>
+          <Paper elevation={4} className={isSpeaking ? "siri-orb-glow" : ""} sx={{ width: 56, height: 56, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: collapsedBg, border: collapsedBorder, color: isDark ? "#fff" : "#0f172a", position: "relative", zIndex: 2, transition: "all 0.2s ease", "&:hover": { transform: "scale(1.05)" } }}>
             <AutoAwesomeIcon sx={{ fontSize: 26, color: "#10b981" }} />
           </Paper>
         </Box>
@@ -262,46 +457,80 @@ export default function AgentOverlay() {
 
   // ── Expanded: input panel ────────────────────────────────────────────────
   return (
-    <Box sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999 }}>
+    <Box sx={{ position: "fixed", bottom: position.y, right: position.x, zIndex: 9999 }}>
       <ConnectionBadge isCollapsed={false} />
-      <Paper elevation={8} sx={{ width: 320, maxHeight: 440, display: "flex", flexDirection: "column", borderRadius: 3, overflow: "hidden", backgroundColor: "#0f172a", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <Paper elevation={8} sx={{ width: 320, maxHeight: 440, display: "flex", flexDirection: "column", borderRadius: 3, overflow: "hidden", backgroundColor: containerBg, border: containerBorder }}>
         {/* Header */}
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, py: 1.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <Box
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            px: 2,
+            py: 1.5,
+            borderBottom: headerBorderBottom,
+            cursor: "grab",
+            "&:active": { cursor: "grabbing" },
+            userSelect: "none"
+          }}
+        >
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Box className={connectionStatus === STATUS.RECONNECTING ? "pulse-dot-animation" : ""} sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: isPaused ? "#f59e0b" : statusColor }} />
-            <Typography variant="caption" sx={{ color: isPaused ? "#f59e0b" : isSpeaking ? "#10b981" : "#94a3b8", fontSize: 12 }}>
+            <Typography variant="caption" sx={{ color: headerTextColor, fontSize: 12 }}>
               {isPaused ? "Paused" : isSpeaking ? "Speaking..." : connectionStatus === STATUS.RECONNECTING ? "Reconnecting..." : connectionStatus}
             </Typography>
           </Box>
           <Box sx={{ display: "flex", gap: 0.5 }}>
             <IconButton
               size="small"
+              onClick={toggleThemeMode}
+              sx={{ color: iconColor }}
+              title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {isDark ? <LightModeIcon sx={{ fontSize: 15 }} /> : <DarkModeIcon sx={{ fontSize: 15 }} />}
+            </IconButton>
+            <IconButton
+              size="small"
               onClick={() => setShowSettings(!showSettings)}
-              sx={{ color: showSettings ? "#10b981" : "#64748b" }}
+              sx={{ color: showSettings ? (isDark ? "#10b981" : "#059669") : iconColor }}
               title={showSettings ? "Back to Chat" : "Mic Settings"}
             >
               {showSettings ? <ArrowBackIcon sx={{ fontSize: 16 }} /> : <SettingsIcon sx={{ fontSize: 14 }} />}
             </IconButton>
             {!showSettings && (
-              <IconButton size="small" onClick={clearMessages} sx={{ color: "#64748b" }} title="Clear messages"><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+              <IconButton size="small" onClick={clearMessages} sx={{ color: iconColor }} title="Clear messages"><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
             )}
-            <IconButton size="small" onClick={() => setExpanded(false)} sx={{ color: "#64748b" }} title="Minimize"><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></IconButton>
+            <IconButton size="small" onClick={() => setExpanded(false)} sx={{ color: iconColor }} title="Minimize"><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></IconButton>
           </Box>
         </Box>
 
         {/* Chat history or settings panel */}
         {showSettings ? (
-          <Box sx={{ flex: 1, maxHeight: 220, minHeight: 80, overflowY: "auto", px: 2.5, py: 1.5, display: "flex", flexDirection: "column", gap: 2 }}>
-            <Typography variant="subtitle2" sx={{ color: "#f8fafc", fontWeight: "bold", fontSize: 13, display: "flex", alignItems: "center", gap: 1 }}>
-              <SettingsIcon sx={{ fontSize: 16, color: "#10b981" }} /> Microphone Settings
+          <Box sx={{
+            flex: 1,
+            maxHeight: 220,
+            minHeight: 80,
+            overflowY: "auto",
+            px: 2.5,
+            py: 1.5,
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            "&::-webkit-scrollbar": { width: 4 },
+            "&::-webkit-scrollbar-thumb": { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", borderRadius: 2 }
+          }}>
+            <Typography variant="subtitle2" sx={{ color: settingsTitleColor, fontWeight: "bold", fontSize: 13, display: "flex", alignItems: "center", gap: 1 }}>
+              <SettingsIcon sx={{ fontSize: 16, color: isDark ? "#10b981" : "#059669" }} /> Microphone Settings
             </Typography>
 
             <FormControlLabel
               control={<Switch checked={autoGainControl} onChange={handleToggleAGC} color="primary" size="small" />}
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ color: "#cbd5e1", fontSize: 12, fontWeight: 500 }}>Volume Boost (AGC)</Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b", fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
+                  <Typography variant="body2" sx={{ color: settingsLabelColor, fontSize: 12, fontWeight: 500 }}>Volume Boost (AGC)</Typography>
+                  <Typography variant="caption" sx={{ color: settingsCaptionColor, fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
                     Automatically boosts your mic volume if you speak softly or are far away.
                   </Typography>
                 </Box>
@@ -313,8 +542,8 @@ export default function AgentOverlay() {
               control={<Switch checked={noiseSuppression} onChange={handleToggleNoise} color="primary" size="small" />}
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ color: "#cbd5e1", fontSize: 12, fontWeight: 500 }}>Noise Suppression</Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b", fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
+                  <Typography variant="body2" sx={{ color: settingsLabelColor, fontSize: 12, fontWeight: 500 }}>Noise Suppression</Typography>
+                  <Typography variant="caption" sx={{ color: settingsCaptionColor, fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
                     Aggressively filters background noise (may clip quiet speech or beginning of words).
                   </Typography>
                 </Box>
@@ -326,8 +555,8 @@ export default function AgentOverlay() {
               control={<Switch checked={echoCancellation} onChange={handleToggleEcho} color="primary" size="small" />}
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ color: "#cbd5e1", fontSize: 12, fontWeight: 500 }}>Echo Cancellation</Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b", fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
+                  <Typography variant="body2" sx={{ color: settingsLabelColor, fontSize: 12, fontWeight: 500 }}>Echo Cancellation</Typography>
+                  <Typography variant="caption" sx={{ color: settingsCaptionColor, fontSize: 9.5, display: "block", lineHeight: 1.2 }}>
                     Prevents speaker audio feedback. Turn off for cleaner raw audio if using headphones.
                   </Typography>
                 </Box>
@@ -336,13 +565,13 @@ export default function AgentOverlay() {
             />
           </Box>
         ) : (
-          <AgentChat sx={{ flex: 1, maxHeight: 220, minHeight: 80 }} />
+          <AgentChat sx={{ flex: 1, maxHeight: 220, minHeight: 80 }} themeMode={themeMode} />
         )}
 
         {/* Mic */}
-        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 2, borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "rgba(0,0,0,0.2)" }}>
+        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 2, borderTop: micSectionBorderTop, backgroundColor: micSectionBg }}>
           {micPermission === "denied" && (
-            <Typography variant="caption" sx={{ color: "#f87171", fontSize: 11, mb: 1, textAlign: "center", px: 2 }}>
+            <Typography variant="caption" sx={{ color: micDeniedColor, fontSize: 11, mb: 1, textAlign: "center", px: 2 }}>
               Microphone access denied. Enable it in browser settings.
             </Typography>
           )}
@@ -355,7 +584,7 @@ export default function AgentOverlay() {
               height: 56,
               borderRadius: "50%",
               backgroundColor: micBg,
-              color: "#fff",
+              color: canRecord || isRecording ? "#fff" : (isDark ? "#94a3b8" : "#cbd5e1"),
               transition: "all 0.1s ease",
               "&:hover": { backgroundColor: micBg },
               "&:active": { transform: "scale(0.95)" },
@@ -366,7 +595,7 @@ export default function AgentOverlay() {
           >
             {canRecord ? <MicIcon sx={{ fontSize: 28 }} /> : <MicOffIcon sx={{ fontSize: 28 }} />}
           </IconButton>
-          <Typography variant="caption" sx={{ color: "#64748b", fontSize: 11, mt: 1 }}>
+          <Typography variant="caption" sx={{ color: micInstructionColor, fontSize: 11, mt: 1 }}>
             {isRecording
               ? "Listening... click or release to send"
               : canRecord

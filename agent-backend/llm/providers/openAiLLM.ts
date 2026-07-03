@@ -22,6 +22,7 @@ export class OpenAILLM implements ILLMService {
         temperature: 0,
         apiKey: OPENAI_API_KEY,
         maxRetries: 2,
+        streaming: true,
       });
     }
     return this.model.bindTools(allTools);
