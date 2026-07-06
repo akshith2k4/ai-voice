@@ -7,6 +7,7 @@ import { OpenAILLM } from "./providers/openAiLLM.js";
 import { ClaudeLLM } from "./providers/claudeLLM.js";
 import { ILLMService, LLMToolCall, LLMResult, LLMStreamChunk } from "../src/services/interfaces.js";
 import { config } from "../src/config.js";
+import { getUserName } from "../src/services/latencyTracker.js";
 
 export type { LLMToolCall, LLMResult, LLMStreamChunk };
 
@@ -33,16 +34,31 @@ export const streamLLM = traceable(async function* (
   languageCode?: string,
   signal?: AbortSignal
 ): AsyncGenerator<LLMStreamChunk, LLMResult, unknown> {
-  let systemPrompt = buildIdlePrompt();
+  let systemPrompt = buildIdlePrompt(getUserName() || undefined);
 
   const activeSession = walkthroughExecutor.getSession(sessionId);
+  let dynamicContext = "";
+
   if (activeSession) {
     const nav = activeSession.currentNav;
     const currentField = nav ? findFieldInNodes(activeSession.schema.nodes, nav.fieldKey).matchedField : undefined;
     
-    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField, activeSession.languageCode || "en");
+    systemPrompt = buildWalkthroughPrompt(activeSession.schema, currentField, activeSession.languageCode || "en", getUserName() || undefined);
+    
+    // Build a dynamic state string so the LLM knows exactly what's happening
+    const stateMap: Record<string, string> = {
+      "ACTIVE": "Actively explaining/filling fields",
+      "PAUSED": "Paused because the user interrupted with a question",
+      "DETOUR_QA": "Answering a user's question about a specific field",
+      "IDLE": "Idle"
+    };
+    const currentState = stateMap[activeSession.stateMachine.currentState] || activeSession.stateMachine.currentState;
+    dynamicContext = `\n\n[CURRENT SYSTEM STATE: You are guiding the "${activeSession.schema.name}" form. Current Field: ${nav?.label || "Overview"}. Conversation State: ${currentState}.]`;
     console.log(`[LLMService] Active walkthrough — using walkthrough prompt`);
   }
+
+  // Combine prompt, dynamic state, and language hint
+  const finalSystemPrompt = systemPrompt + dynamicContext;
 
   // Rely on LLM's native detection + system prompt rules
   const languageHint = "";
@@ -54,7 +70,7 @@ export const streamLLM = traceable(async function* (
   let rawContent = "";
 
   try {
-    const generator = getLLMService().generateStream(systemPrompt, userText, languageHint, signal, history);
+    const generator = getLLMService().generateStream(finalSystemPrompt, userText, languageHint, signal, history);
 
     while (true) {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -77,12 +93,30 @@ export const streamLLM = traceable(async function* (
     }
 
     // Update memory cache after LLM finishes
-    // Keep only the last 10 messages (5 pairs) to prevent memory leaks
     const updatedHistory = [...history, { role: "user" as const, content: userText }];
-    if (rawContent) {
-      updatedHistory.push({ role: "assistant" as const, content: rawContent });
+
+    // 1. Format tool calls into a readable action tag
+    let assistantMemory = rawContent || "";
+    if (toolCalls.length > 0) {
+      const actions = toolCalls.map(tc => {
+        if (tc.name === "navigate") return `navigated to ${tc.args.route}`;
+        if (tc.name === "start_walkthrough") return `started ${tc.args.formId} walkthrough`;
+        if (tc.name === "answer_question") return `answered a question`;
+        if (tc.name === "detour_to_field") return `highlighted ${tc.args.fieldKey}`;
+        if (tc.name === "resume_walkthrough") return `resumed walkthrough`;
+        return tc.name;
+      }).join(", ");
+      
+      // Append a hidden context tag so the LLM remembers what it JUST did
+      assistantMemory += ` [Action taken: ${actions}]`;
     }
-    sessionHistoryCache.set(sessionId, updatedHistory.slice(-10));
+
+    if (assistantMemory) {
+      updatedHistory.push({ role: "assistant" as const, content: assistantMemory });
+    }
+
+    // Keep last 12 messages (6 pairs) for better short-term memory
+    sessionHistoryCache.set(sessionId, updatedHistory.slice(-12));
 
     console.log(
       `[LLMService] Stream done. ${toolCalls.length} tool call(s)` +

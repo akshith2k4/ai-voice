@@ -22,6 +22,11 @@ export const config = {
     sttModel: process.env.ELEVENLABS_STT_MODEL || "scribe_v1",
   },
 
+  sarvam: {
+    apiKey: process.env.SARVAM_API_KEY || "",
+    sttModel: process.env.SARVAM_STT_MODEL || process.env.STT_MODEL || "saaras:v3",
+  },
+
   openai: {
     apiKey: process.env.OPENAI_API_KEY || "",
     model: process.env.OPENAI_MODEL || "gpt-4o",

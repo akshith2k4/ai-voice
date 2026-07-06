@@ -56,12 +56,14 @@ const server = Bun.serve<ClientData>({
       const url = new URL(req.url, `http://localhost`);
       const sessionId = url.searchParams.get("sessionId") || crypto.randomUUID();
       const userName = url.searchParams.get("username") || undefined;
+      const ttsEnabled = url.searchParams.get("tts") !== "false";
       const success = server.upgrade(req, {
         data: {
           sessionId,
           userName,
           connectedAt: Date.now(),
           lastActivityAt: Date.now(),
+          ttsEnabled,
         },
       });
 
@@ -149,6 +151,7 @@ const server = Bun.serve<ClientData>({
       const context = {
         sessionId,
         userName,
+        ttsEnabled: ws.data.ttsEnabled,
         send: (msg: OutgoingMessage) => {
           connectionManager.send(sessionId, msg);
         },

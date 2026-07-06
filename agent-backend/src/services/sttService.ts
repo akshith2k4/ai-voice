@@ -1,6 +1,7 @@
 import { STTProvider } from "./providersConfig.js";
 import { ElevenLabsSTT } from "./providers/elevenLabsSTT.js";
 import { OpenAISTT } from "./providers/openAiSTT.js";
+import { SarvamSTT } from "./providers/sarvamSTT.js";
 import { ISTTService, SttResult } from "./interfaces.js";
 import { config } from "../config.js";
 import { getTurnId } from "./latencyTracker.js";
@@ -17,13 +18,22 @@ const activeSessions = new Map<string, AudioSession>();
 const providers = new Map<STTProvider, ISTTService>();
 
 function getSTTProvider(): STTProvider {
-  return config.providers.stt === STTProvider.OPEN_AI ? STTProvider.OPEN_AI : STTProvider.ELEVEN_LABS;
+  const provider = config.providers.stt;
+  if (provider === STTProvider.OPEN_AI) return STTProvider.OPEN_AI;
+  if (provider === STTProvider.SARVAM) return STTProvider.SARVAM;
+  return STTProvider.ELEVEN_LABS;
 }
 
 function getSTTService(): ISTTService {
   const provider = getSTTProvider();
   if (!providers.has(provider)) {
-    providers.set(provider, provider === STTProvider.OPEN_AI ? new OpenAISTT() : new ElevenLabsSTT());
+    if (provider === STTProvider.OPEN_AI) {
+      providers.set(provider, new OpenAISTT());
+    } else if (provider === STTProvider.SARVAM) {
+      providers.set(provider, new SarvamSTT());
+    } else {
+      providers.set(provider, new ElevenLabsSTT());
+    }
   }
   return providers.get(provider)!;
 }

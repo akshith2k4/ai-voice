@@ -62,6 +62,8 @@ mock.module("fs", () => {
 import { loadAllSchemas, getSchema } from "../src/schema/loader.js";
 import { buildWalkthroughPrompt } from "../llm/prompts.js";
 import { OpenAISTT } from "../src/services/providers/openAiSTT.js";
+import { SarvamSTT } from "../src/services/providers/sarvamSTT.js";
+import { config } from "../src/config.js";
 
 describe("Multi-Language Integration Tests", () => {
   test("Schema loader normalizes flat strings and keeps language objects", () => {
@@ -116,6 +118,41 @@ describe("Multi-Language Integration Tests", () => {
     expect(result2.languageCode).toBe("en");
 
     globalThis.fetch = originalFetch;
+  });
+
+  test("Sarvam language detection returns mapped code", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async () => {
+      return new Response(JSON.stringify({
+        transcript: "नमस्ते, आप कैसे हैं?",
+        language_code: "hi-IN"
+      }), { status: 200 });
+    }) as any;
+
+    const originalApiKey = config.sarvam.apiKey;
+    (config.sarvam as any).apiKey = "test-api-key";
+
+    try {
+      const sarvamStt = new SarvamSTT();
+      const result = await sarvamStt.transcribe(Buffer.from([]));
+
+      expect(result.text).toBe("नमस्ते, आप कैसे हैं?");
+      expect(result.languageCode).toBe("hi");
+
+      // Now test English
+      globalThis.fetch = mock(async () => {
+        return new Response(JSON.stringify({
+          transcript: "hello, how are you?",
+          language_code: "en-IN"
+        }), { status: 200 });
+      }) as any;
+
+      const result2 = await sarvamStt.transcribe(Buffer.from([]));
+      expect(result2.languageCode).toBe("en");
+    } finally {
+      (config.sarvam as any).apiKey = originalApiKey;
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("Prompt builder incorporates language rules and correct context translations", () => {

@@ -10,12 +10,48 @@ import { walkthroughExecutor } from "../walkthrough/executor.js";
 
 const activeAbortControllers = new Map<string, AbortController>();
 
+function isNoiseInput(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+
+  // Bracketed text like [music], [outro jingle]
+  if (/^[\[\(\{\<].*[\]\)\}\>]$/i.test(trimmed)) return true;
+
+  // Check for common STT non-speech tags anywhere in the input
+  const sttNoiseKeywords = /\[(music|jingle|outro|intro|applause|laughter|coughing|sigh|throat|whispering|noise|static|silence|inaudible)\]/i;
+  if (sttNoiseKeywords.test(trimmed)) return true;
+
+  // Clean the text to see if there is any alphanumeric character
+  const cleanText = trimmed.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").trim();
+  if (cleanText.length === 0) return true;
+
+  if (cleanText.length === 1 && !/^\d$/.test(cleanText)) {
+    return true;
+  }
+
+  // Common filler words if they are the ONLY input
+  const fillers = new Set(["um", "uh", "ah", "oh", "er", "hmm"]);
+  if (fillers.has(cleanText.toLowerCase())) return true;
+
+  return false;
+}
+
 export const processText = traceable(async function (
   text: string,
   sessionId: string,
   lang: string,
   responder: IResponder
 ): Promise<void> {
+  if (isNoiseInput(text)) {
+    console.log(`[FlowController] Filtered out noise/STT hallucination: "${text}"`);
+    responder.interrupt();
+    const clarificationMsg = lang === "hi" 
+      ? "मुझे समझ नहीं आया। क्या आप कृपया फिर से कह सकते हैं?" 
+      : "I didn't quite catch that. Could you please repeat?";
+    await responder.speak(clarificationMsg);
+    return;
+  }
+
   const session = walkthroughExecutor.getSession(sessionId);
   if (session) {
     (responder as any).boundSession = session;
