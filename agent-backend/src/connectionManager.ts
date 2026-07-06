@@ -28,6 +28,8 @@ class ConnectionManager {
         sessionId,
         connectedAt: now,
         lastActivityAt: now,
+        userName: ws.data?.userName,
+        ttsEnabled: ws.data?.ttsEnabled,
       },
     });
     console.log(

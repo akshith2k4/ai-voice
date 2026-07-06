@@ -1,8 +1,9 @@
 import WebSocket from 'ws';
 import readline from 'readline';
+import crypto from 'crypto';
 
-const sessionId = 'text-test-' + Date.now();
-const ws = new WebSocket(`ws://localhost:3001?sessionId=${sessionId}&username=TextTester`);
+const sessionId = crypto.randomUUID();
+const ws = new WebSocket(`ws://localhost:3001?sessionId=${sessionId}&username=akshith&tts=false`);
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 

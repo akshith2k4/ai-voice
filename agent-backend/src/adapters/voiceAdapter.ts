@@ -44,8 +44,10 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
 
     if (message.type === "audio_end") {
       await startTracking(sessionId, context.userName, async () => {
+        const sttStart = Date.now();
         try {
           const stt = await sttService.handleAudioEnd(sessionId);
+          recordStt(Date.now() - sttStart);
           await afterSTT(stt, context);
         } catch (error) {
           console.error("[VoiceAdapter] STT error:", error);
@@ -150,7 +152,14 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
 async function processUserText(text: string, languageCode: string | undefined, context: HandlerContext): Promise<void> {
   const { sessionId, send } = context;
 
-
+  // ✅ FIX #4: Filter out STT hallucinations (bracketed noise like [outro jingle])
+  const noiseRegex = /^\s*\[.*\]\s*$/i;
+  if (noiseRegex.test(text) || text.trim().length < 2) {
+    console.log(`[VoiceAdapter] Detected STT noise or empty text: "${text}". Ignoring.`);
+    const responder = makeResponder(context, "en");
+    await responder.speak("I didn't catch that, could you repeat?");
+    return;
+  }
 
   // ✅ DIRECT RAW STT: Use ElevenLabs' language code directly. No custom checks.
   let lang: string = "en"; // Fallback if API returns nothing
@@ -169,14 +178,14 @@ async function processUserText(text: string, languageCode: string | undefined, c
 
   console.log(`[VoiceAdapter] Using raw STT language -> ${lang}`);
 
-  playFiller(text, lang, sessionId, send);
+  playFiller(text, lang, context);
 
   const responder = makeResponder(context, lang);
   await processText(text, sessionId, lang, responder);
 }
 
 function makeResponder(context: HandlerContext, lang = "en"): VoiceResponder {
-  const responder = new VoiceResponder(context.send, context.sessionId, lang, statusAwaiter);
+  const responder = new VoiceResponder(context.send, context.sessionId, lang, statusAwaiter, context.ttsEnabled !== false);
   activeResponders.set(context.sessionId, responder);
   const session = walkthroughExecutor.getSession(context.sessionId);
   if (session) {
@@ -187,7 +196,9 @@ function makeResponder(context: HandlerContext, lang = "en"): VoiceResponder {
   return responder;
 }
 
-function playFiller(text: string, lang: string, sessionId: string, send: HandlerContext["send"]): void {
+function playFiller(text: string, lang: string, context: HandlerContext): void {
+  if (context.ttsEnabled === false) return;
+  const { sessionId, send } = context;
   if (lang !== "en" || !isQuestion(text)) return;
   const filler = selectFiller(text, sessionId);
   if (!filler) return;

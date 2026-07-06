@@ -22,12 +22,18 @@ export class VoiceResponder implements IResponder {
     private readonly send: HandlerContext["send"],
     private readonly sessionId: string,
     private readonly lang: string,
-    private readonly eventMonitor: EventMonitor
+    private readonly eventMonitor: EventMonitor,
+    private readonly ttsEnabled: boolean = true
   ) {}
 
   // ── LLM streaming path ─────────────────────────────────────────────────────
 
   onTextChunk(chunk: string): void {
+    if (!this.ttsEnabled) {
+      this.streamedText += chunk;
+      return;
+    }
+
     if (!this.streamInstance) {
       this.streamedText = "";
       this.streamMessageId = crypto.randomUUID();
@@ -63,6 +69,16 @@ export class VoiceResponder implements IResponder {
   }
 
   onComplete(text: string, messageId: string, latency?: any): void {
+    if (!this.ttsEnabled) {
+      if (text) {
+        responseSender.sendRespond(this.send, text, false, messageId, latency);
+        import("../voiceAdapter.js")
+          .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
+          .catch(() => {});
+      }
+      return;
+    }
+
     if (this.streamInstance) {
       if (this.streamedText && text && !text.startsWith(this.streamedText)) {
         // Fallback occurred (LLM failed partway and stream content differs from fallback text)
@@ -88,6 +104,11 @@ export class VoiceResponder implements IResponder {
     if (!text) return messageId ?? crypto.randomUUID();
 
     const id = messageId ?? crypto.randomUUID();
+
+    if (!this.ttsEnabled) {
+      responseSender.sendRespond(this.send, text, false, id);
+      return id;
+    }
 
     // Wrap the entire narration in startTracking() so this runs in an
     // AsyncLocalStorage context — enabling responseSender to create a DB turn
@@ -190,6 +211,7 @@ export class VoiceResponder implements IResponder {
   // Wait for a specific messageId's playback to finish.
   // Returns true if interrupted (barge-in), false on completion or timeout.
   async waitForPlayback(messageId: string, text: string, minTimeoutMs = 5000): Promise<boolean> {
+    if (!this.ttsEnabled) return false;
     if (!this.boundSession) return false;
     
     // Cap the maximum timeout at 15 seconds regardless of text length

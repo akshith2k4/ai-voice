@@ -76,6 +76,7 @@ export interface ClientData {
   userName?: string;
   connectedAt: number;
   lastActivityAt: number;
+  ttsEnabled?: boolean;
 }
 
 // --- Handler Context ---
@@ -83,5 +84,6 @@ export interface ClientData {
 export interface HandlerContext {
   sessionId: string;
   userName?: string;
+  ttsEnabled?: boolean;
   send: (message: OutgoingMessage) => void;
 }

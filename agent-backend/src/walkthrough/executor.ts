@@ -12,6 +12,15 @@ import type { IResponder } from "../adapters/responders/IResponder.js";
 import { resolveDemoValue } from "../core/workflowResolver.js";
 import { FormSchema, SchemaNode, FieldNode, RepeatingNode, findFieldInNodes } from "../schema/loader.js";
 import { fireAndForget } from "../services/observability.js";
+import routeRegistry from "../schema/routeRegistry.json" with { type: "json" };
+
+function cleanFormName(formId: string): string {
+  // Remove "create", "edit", "update", "delete", "make", "add" from start, case insensitively
+  let cleaned = formId.replace(/^(create|edit|update|delete|make|add)/i, "");
+  // Decamelize (e.g. washRequest -> wash Request)
+  cleaned = cleaned.replace(/([A-Z])/g, " $1").trim().toLowerCase();
+  return cleaned || formId;
+}
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 
@@ -224,9 +233,14 @@ export class WalkthroughExecutor {
     try {
       session = this.sessionManager.create(sessionId, formId, actualTtsEnabled, actualLang);
     } catch {
-      const { getAvailableForms } = await import("./sessionManager.js");
-      const available = getAvailableForms().map(f => f.name).join(", ");
-      const errMsg = `I couldn't find the form "${formId}". Available forms: ${available}`;
+      // ✅ FIX #3: Humanize the error message instead of leaking form IDs
+      const humanReadableForm = formId
+        .replace(/([A-Z])/g, ' $1') // Adds space before capital letters
+        .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+        .trim();
+        
+      const errMsg = `It looks like we don't have a guided walkthrough for ${humanReadableForm} yet. But I can help you navigate to the relevant page if you'd like.`;
+
       this.toolMessenger.send(sessionId, {
         type: "tool",
         tool: "respond",
@@ -343,7 +357,7 @@ export class WalkthroughExecutor {
         this.tool(session, "detour_end", {});
         const waitingFor = session.waitingFor;
         if (waitingFor === "field_done" || waitingFor === "walkthrough_speak_done") {
-          this.replayCurrent(session);
+          this.replayCurrent(session, true);
         } else if (waitingFor === "item_added" || waitingFor === "checkbox_clicked") {
           session.waitingFor = null;
           this.sendNext(session);
@@ -362,7 +376,7 @@ export class WalkthroughExecutor {
           this.sendNext(session);
         } else {
           // If it was waiting for speech or field_done, safe to replay
-          this.replayCurrent(session);
+          this.replayCurrent(session, false);
         }
       } else {
         this.sendNext(session);
@@ -372,7 +386,7 @@ export class WalkthroughExecutor {
 
   // Re-dispatches the last command that was interrupted mid-execution.
   // Generates fresh messageIds so audio is re-requested and played from scratch.
-  private replayCurrent(session: WalkthroughSession): void {
+  private replayCurrent(session: WalkthroughSession, fromDetourQa = false): void {
     if (!session.lastCommand) {
       this.sendNext(session);
       return;
@@ -380,10 +394,13 @@ export class WalkthroughExecutor {
     const cmd = session.lastCommand;
     for (const { tool, args } of cmd.tools) {
       if (tool === "speak" && args.text) {
-        const text = String(args.text);
+        let text = String(args.text);
+        if (fromDetourQa) {
+          text = session.languageCode === "hi" ? "आगे बढ़ते हैं।" : "Let's continue.";
+        }
         const msgId = session.ttsEnabled ? crypto.randomUUID() : undefined;
         this.tool(session, "respond", { message: text, tts: session.ttsEnabled, messageId: msgId });
-        this.tool(session, tool, { ...args, tts: session.ttsEnabled, messageId: msgId });
+        this.tool(session, tool, { ...args, text, tts: session.ttsEnabled, messageId: msgId });
         if (session.responder) {
           if (session.ttsEnabled) {
             fireAndForget(session.responder.speak(text, msgId));
@@ -394,17 +411,24 @@ export class WalkthroughExecutor {
             .catch(err => console.error(err));
         }
       } else if (tool === "field_step") {
-        const speechMsgId = (session.ttsEnabled && args.speech) ? crypto.randomUUID() : undefined;
-        const toolArgs = { ...args, tts: session.ttsEnabled, speechMessageId: speechMsgId };
+        let speechText = String(args.speech || "");
+        if (fromDetourQa) {
+          const label = String(args.label || "");
+          speechText = session.languageCode === "hi" 
+            ? `आइए ${label} फ़ील्ड भरें।` 
+            : `Let's fill in the ${label} field.`;
+        }
+        const speechMsgId = (session.ttsEnabled && speechText) ? crypto.randomUUID() : undefined;
+        const toolArgs = { ...args, speech: speechText, tts: session.ttsEnabled, speechMessageId: speechMsgId };
         this.tool(session, tool, toolArgs);
         if (speechMsgId) {
           if (session.responder) {
             if (session.ttsEnabled) {
-              fireAndForget(session.responder.speak(String(args.speech), speechMsgId));
+              fireAndForget(session.responder.speak(speechText, speechMsgId));
             }
           } else if (session.ttsEnabled) {
             import("../services/narrationSpeaker.js")
-              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, String(args.speech), speechMsgId))
+              .then(({ speakNarration }) => speakNarration(session.sessionId, session.languageCode, speechText, speechMsgId))
               .catch(err => console.error(err));
           }
         }

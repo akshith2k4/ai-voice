@@ -336,7 +336,7 @@ describe("WalkthroughDriver — acceptance tests", () => {
         (m: any) =>
           m.type === "tool" &&
           m.tool === "respond" &&
-          m.args?.message?.includes("couldn't find the form")
+          m.args?.message?.includes("guided walkthrough for")
       );
       expect(errMsg).toBeDefined();
     });

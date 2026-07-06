@@ -55,11 +55,13 @@ class ToolDispatcher {
         fireAndForget(
           ensureSessionExists(sessionId, formId, getUserName() || undefined)
         );
+        const conn = connectionManager.get(sessionId);
+        const ttsEnabled = conn ? conn.data.ttsEnabled !== false : true;
         await walkthroughExecutor.start(
           formId,
           sessionId,
           responder,
-          true,
+          ttsEnabled,
           lang,
           hadTextResponse ? undefined : (tc.args.message ? String(tc.args.message) : undefined)
         );

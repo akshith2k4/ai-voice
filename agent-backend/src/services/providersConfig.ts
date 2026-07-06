@@ -1,6 +1,7 @@
 export enum STTProvider {
   ELEVEN_LABS = 'ELEVEN_LABS',
   OPEN_AI = 'OPEN_AI',
+  SARVAM = 'SARVAM',
 }
 
 export enum LLMProvider {
