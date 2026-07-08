@@ -1,159 +1,138 @@
 import { config } from "../config.js";
+import { getObjectFromS3 } from "./s3Service.js";
 
 export interface FillerAudio {
   text: string;
-  s3Url: string;
+  audioBase64: string;
+  state: "idle" | "walkthrough";
+  intent?: string;
 }
 
-const { region, bucketName } = config.aws;
-const S3_BASE_URL = bucketName && region 
-  ? `https://${bucketName}.s3.${region}.amazonaws.com`
-  : "https://linengrass-voiceai-prod.s3.ap-southeast-2.amazonaws.com";
+const cachedFillers: FillerAudio[] = [];
+const lastPlayedFiller = new Map<string, string>(); // sessionId -> fillerText
 
-const fillers: FillerAudio[] = [
-  {
-    text: "Yeah, good question.",
-    s3Url: `${S3_BASE_URL}/assets/fillers/Yeah%20good%20question.mp3`,
-  },
-  {
-    text: "Let's check that section.",
-    s3Url: `${S3_BASE_URL}/assets/fillers/let%20check%20that%20section.mp3`,
-  },
-  {
-    text: "Let me check that for you.",
-    s3Url: `${S3_BASE_URL}/assets/fillers/let%20me%20check%20that%20for%20you.mp3`,
-  },
-  {
-    text: "Let me explain how that works.",
-    s3Url: `${S3_BASE_URL}/assets/fillers/let%20me%20explain%20how%20that%20works.mp3`,
-  },
-  {
-    text: "Let's pause and look at that.",
-    s3Url: `${S3_BASE_URL}/assets/fillers/lets%20pause%20and%20look%20at%20that.mp3`,
-  },
-  {
-    text: "Let's see what we have here.",
-    s3Url: `${S3_BASE_URL}/assets/fillers/lets%20see%20what%20we%20have%20here.mp3`,
-  },
+// Define all fillers with their S3 keys
+const FILLER_DEFINITIONS = [
+  // --- IDLE STATE (Human-like thinking sounds) ---
+  // NOTE: You must upload these specific files to your S3 bucket under assets/fillers/
+  { text: "Mm-hmm.", s3Key: "assets/fillers/mm-hmm.mp3", state: "idle" },
+  { text: "Yeah.", s3Key: "assets/fillers/yeah.mp3", state: "idle" },
+  // --- WALKTHROUGH STATE (Contextual) ---
+  { text: "Yeah, good question.", s3Key: "assets/fillers/Yeah%20good%20question.mp3", state: "walkthrough", intent: "generic" },
+  { text: "Let's check that section.", s3Key: "assets/fillers/let%20check%20that%20section.mp3", state: "walkthrough", intent: "section" },
+  { text: "Let me check that for you.", s3Key: "assets/fillers/let%20me%20check%20that%20for%20you.mp3", state: "walkthrough", intent: "check" },
+  { text: "Let me explain how that works.", s3Key: "assets/fillers/let%20me%20explain%20how%20that%20works.mp3", state: "walkthrough", intent: "explain" },
+  { text: "Let's pause and look at that.", s3Key: "assets/fillers/lets%20pause%20and%20look%20at%20that.mp3", state: "walkthrough", intent: "pause" },
+  { text: "Let's see what we have here.", s3Key: "assets/fillers/lets%20see%20what%20we%20have%20here.mp3", state: "walkthrough", intent: "generic" },
 ];
 
 /**
- * Loads all conversational fillers from the public assets directory on startup.
- * Converts each MP3 to base64 and caches it in memory.
+ * Preloads all filler audio from S3 into memory as Base64 strings.
  */
 export async function initializeFillers() {
-  console.log(`[FillerService] Configured ${fillers.length} conversational fillers from S3: ${S3_BASE_URL}`);
+  cachedFillers.length = 0; // Clear any existing cache
+
+  if (process.env.NODE_ENV === "test") {
+    console.log("[FillerService] Test mode detected. Skipping filler preload.");
+    return;
+  }
+
+  console.log(`[FillerService] Preloading ${FILLER_DEFINITIONS.length} fillers from S3...`);
+
+  for (const def of FILLER_DEFINITIONS) {
+    try {
+      const decodedKey = decodeURIComponent(def.s3Key);
+      const buffer = await getObjectFromS3(decodedKey);
+      cachedFillers.push({
+        text: def.text,
+        audioBase64: buffer.toString("base64"),
+        state: def.state as "idle" | "walkthrough",
+        intent: def.intent,
+      });
+    } catch (err: any) {
+      if (err && (err.name === "NoSuchKey" || err.Code === "NoSuchKey" || err.$metadata?.httpStatusCode === 404)) {
+        console.warn(`[FillerService] ⚠️ Optional filler "${def.text}" not found on S3 (Key: ${def.s3Key}). Skipping.`);
+      } else {
+        console.error(`[FillerService] Failed to load filler "${def.text}" from S3 key: ${def.s3Key}. Skipping.`, err);
+      }
+    }
+  }
+
+  console.log(`[FillerService] ✅ Preloaded ${cachedFillers.length} fillers into memory.`);
 }
 
 /**
  * Checks if the user's transcribed text is a question.
- * Handles conversational preambles, missing end punctuation, and nested questions.
  */
 export function isQuestion(text: string): boolean {
   const trimmed = text.trim();
-  
-  // 1. If it contains a question mark anywhere, it is a question
   if (trimmed.includes("?")) return true;
 
-  // 2. Split the utterance into sentences or clauses to check segment starts
   const segments = trimmed.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
-
-  // Match common question-starting words and auxiliary verbs
   const questionRegex = /^(what|how|why|who|when|where|can|could|would|is|are|do|does|did|should|will|has|have|may|tell)\b/i;
 
   for (const segment of segments) {
-    // Clean common leading conversational starters for each segment
     const cleaned = segment.replace(/^(so|well|hey|ok|okay|hi|hello|now|please|regarding|coming to|about)\b\s*,?\s*/i, "");
-    if (questionRegex.test(cleaned)) {
-      return true;
-    }
+    if (questionRegex.test(cleaned)) return true;
   }
 
-  // 3. Fallback: match common question patterns anywhere in the string
   const patternRegex = /\b(what should|how (do|can|to)|can (i|you)|is there|are there|how about)\b/i;
-  if (patternRegex.test(trimmed)) {
-    return true;
-  }
+  if (patternRegex.test(trimmed)) return true;
 
   return false;
 }
-
-const lastPlayedFiller = new Map<string, string>(); // sessionId -> fillerText
 
 export function cleanupSession(sessionId: string): void {
   lastPlayedFiller.delete(sessionId);
 }
 
 /**
- * Maps query topics/intents to the most appropriate filler, falling back to a random generic filler.
- * Tracks last played fillers to prevent consecutive repetitions for the same session.
+ * Selects a filler based on session context and text intent.
  */
-export function selectFiller(text: string, sessionId?: string): FillerAudio | null {
-  if (process.env.NODE_ENV === "test" || fillers.length === 0) return null;
+export function selectFiller(text: string, sessionId: string, sessionContext: "idle" | "walkthrough"): FillerAudio | null {
+  if (process.env.NODE_ENV === "test" || cachedFillers.length === 0) return null;
 
-  const lowercaseText = text.toLowerCase();
-  const candidates: FillerAudio[] = [];
+  let pool: FillerAudio[] = [];
 
-  // 1. Explanation intent -> "Let me explain how that works."
-  const explainKeywords = ["how", "why", "explain", "reason", "meaning", "what is", "what does", "define", "purpose", "format"];
-  if (explainKeywords.some((kw) => lowercaseText.includes(kw))) {
-    const filler = fillers.find((f) => f.text.includes("explain"));
-    if (filler) candidates.push(filler);
-  }
+  if (sessionContext === "idle") {
+    // For idle state, just pick a random thinking sound
+    pool = cachedFillers.filter(f => f.state === "idle");
+  } else {
+    // For walkthrough state, use keyword matching
+    const lowercaseText = text.toLowerCase();
+    const candidates: FillerAudio[] = [];
 
-  // 2. UI/field/section detour navigation intent -> "Let's check that section."
-  const sectionKeywords = [
-    "section", "page", "field", "screen", "tab", "where", "go to", "navigate",
-    "button", "click", "select", "input", "dropdown", "box", "type",
-    "customer", "reference", "id", "hotel", "agreement", "issue", "date"
-  ];
-  if (sectionKeywords.some((kw) => lowercaseText.includes(kw))) {
-    const filler = fillers.find((f) => f.text.includes("check that section"));
-    if (filler) candidates.push(filler);
-  }
+    const findFiller = (intent: string) => cachedFillers.find(f => f.intent === intent && f.state === "walkthrough");
 
-  // 3. Lookup/status check intent -> "Let me check that for you."
-  const checkKeywords = ["check", "find", "status", "search", "lookup", "value", "get", "show", "list"];
-  if (checkKeywords.some((kw) => lowercaseText.includes(kw))) {
-    const filler = fillers.find((f) => f.text.includes("check that for you"));
-    if (filler) candidates.push(filler);
-  }
-
-  // 4. Pause/wait intent -> "Let's pause and look at that."
-  const pauseKeywords = ["wait", "pause", "stop", "hold on", "hang on", "second", "moment"];
-  if (pauseKeywords.some((kw) => lowercaseText.includes(kw))) {
-    const filler = fillers.find((f) => f.text.includes("pause"));
-    if (filler) candidates.push(filler);
-  }
-
-  // Generic pool fallbacks
-  const genericTexts = [
-    "Yeah, good question.",
-    "Let's see what we have here.",
-    "Let me check that for you."
-  ];
-  const genericPool = fillers.filter((f) => genericTexts.includes(f.text));
-
-  // Use matched specific intent candidates if present, else fallback to generic pool
-  let pool = candidates.length > 0 ? candidates : genericPool;
-  if (pool.length === 0) {
-    pool = fillers; // ultimate fallback
-  }
-
-  // Apply no-repeat constraint to avoid consecutive repetition
-  let finalPool = pool;
-  if (sessionId) {
-    const lastText = lastPlayedFiller.get(sessionId);
-    if (lastText) {
-      const filtered = pool.filter((f) => f.text !== lastText);
-      if (filtered.length > 0) {
-        finalPool = filtered;
-      }
+    if (["how", "why", "explain", "reason", "meaning", "what is", "what does", "define", "purpose", "format"].some(kw => lowercaseText.includes(kw))) {
+      const f = findFiller("explain"); if (f) candidates.push(f);
     }
+    if (["section", "page", "field", "screen", "tab", "where", "go to", "navigate", "button", "click", "select", "input", "dropdown", "box", "type", "customer", "reference", "id", "hotel", "agreement", "issue", "date"].some(kw => lowercaseText.includes(kw))) {
+      const f = findFiller("section"); if (f) candidates.push(f);
+    }
+    if (["check", "find", "status", "search", "lookup", "value", "get", "show", "list"].some(kw => lowercaseText.includes(kw))) {
+      const f = findFiller("check"); if (f) candidates.push(f);
+    }
+    if (["wait", "pause", "stop", "hold on", "hang on", "second", "moment"].some(kw => lowercaseText.includes(kw))) {
+      const f = findFiller("pause"); if (f) candidates.push(f);
+    }
+
+    pool = candidates.length > 0 ? candidates : cachedFillers.filter(f => f.state === "walkthrough" && f.intent === "generic");
+    
+    // Fallback if specific walkthrough fillers are missing
+    if (pool.length === 0) pool = cachedFillers.filter(f => f.state === "walkthrough");
+    if (pool.length === 0) pool = cachedFillers; // Ultimate fallback
   }
 
-  const randomIndex = Math.floor(Math.random() * finalPool.length);
-  const selected = finalPool[randomIndex];
+  // Apply anti-repetition constraint
+  let finalPool = pool;
+  const lastText = lastPlayedFiller.get(sessionId);
+  if (lastText) {
+    const filtered = pool.filter(f => f.text !== lastText);
+    if (filtered.length > 0) finalPool = filtered;
+  }
+
+  const selected = finalPool[Math.floor(Math.random() * finalPool.length)];
 
   if (sessionId && selected) {
     lastPlayedFiller.set(sessionId, selected.text);
@@ -161,3 +140,4 @@ export function selectFiller(text: string, sessionId?: string): FillerAudio | nu
 
   return selected;
 }
+

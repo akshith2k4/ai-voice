@@ -213,14 +213,37 @@ function makeResponder(context: HandlerContext, lang = "en"): VoiceResponder {
 function playFiller(text: string, lang: string, context: HandlerContext): void {
   if (context.ttsEnabled === false) return;
   const { sessionId, send } = context;
-  if (lang !== "en" || !isQuestion(text)) return;
-  const filler = selectFiller(text, sessionId);
+  if (lang !== "en") return;
+
+  const session = walkthroughExecutor.getSession(sessionId);
+  const isWalkthrough = !!session;
+  const sessionContext = isWalkthrough ? "walkthrough" : "idle";
+
+  if (sessionContext === "walkthrough") {
+    // If context is "walkthrough", require isQuestion(text) or keyword matching
+    const lowercaseText = text.toLowerCase();
+    const hasKeywords = [
+      "how", "why", "explain", "reason", "meaning", "what is", "what does", "define", "purpose", "format",
+      "section", "page", "field", "screen", "tab", "where", "go to", "navigate",
+      "button", "click", "select", "input", "dropdown", "box", "type",
+      "customer", "reference", "id", "hotel", "agreement", "issue", "date",
+      "check", "find", "status", "search", "lookup", "value", "get", "show", "list",
+      "wait", "pause", "stop", "hold on", "hang on", "second", "moment"
+    ].some((kw) => lowercaseText.includes(kw));
+
+    if (!isQuestion(text) && !hasKeywords) {
+      return;
+    }
+  }
+
+  const filler = selectFiller(text, sessionId, sessionContext);
   if (!filler) return;
+
   const fillerMessageId = crypto.randomUUID();
-  console.log(`[VoiceAdapter] Filler: "${filler.text}"`);
+  console.log(`[VoiceAdapter] Filler: "${filler.text}" (${sessionContext})`);
   markAgentSpeechStart(sessionId);
   responseSender.sendRespond(send, filler.text, true, fillerMessageId);
-  responseSender.sendTtsAudioUrl(send, filler.s3Url, fillerMessageId);
+  responseSender.sendTtsAudio(send, filler.audioBase64, fillerMessageId, true);
 }
 
 export function interruptTTS(sessionId: string): void {
