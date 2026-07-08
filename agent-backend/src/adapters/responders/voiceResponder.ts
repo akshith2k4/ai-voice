@@ -76,6 +76,7 @@ export class VoiceResponder implements IResponder {
           .then(({ markAgentSpeechEnd }) => markAgentSpeechEnd(this.sessionId))
           .catch(() => {});
       }
+      logLatency("text-only");
       return;
     }
 

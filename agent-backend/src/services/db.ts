@@ -1,9 +1,9 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { pgTable, uuid, varchar, text, integer, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, timestamp, jsonb, real } from 'drizzle-orm/pg-core';
 
 export const sessions = pgTable('sessions', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().defaultRandom(),
   userName: varchar('username'),
   startedAt: timestamp('started_at').defaultNow(),
   endedAt: timestamp('ended_at'),
@@ -12,8 +12,9 @@ export const sessions = pgTable('sessions', {
 });
 
 export const turns = pgTable('turns', {
-  id: uuid('id').primaryKey(),
-  sessionId: uuid('session_id').references(() => sessions.id),
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Enforce that a turn cannot exist without a session
+  sessionId: uuid('session_id').notNull().references(() => sessions.id),
   
   // Text
   userTranscript: text('user_transcript'),
@@ -30,6 +31,15 @@ export const turns = pgTable('turns', {
   latencyLlm: integer('latency_llm'),
   latencyTts: integer('latency_tts'),
   latencyTotal: integer('latency_total'),
+  
+  // Usage Metrics
+  llmModel: varchar('llm_model'),
+  llmInputTokens: integer('llm_input_tokens'),
+  llmOutputTokens: integer('llm_output_tokens'),
+  ttsModel: varchar('tts_model'),
+  ttsChars: integer('tts_chars'),
+  sttModel: varchar('stt_model'),
+  sttSeconds: real('stt_seconds'),
   
   createdAt: timestamp('created_at').defaultNow(),
 });

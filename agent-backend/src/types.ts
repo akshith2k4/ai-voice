@@ -9,6 +9,7 @@ export interface VoiceMessage {
   audio?: string; // base64 encoded WebM/Opus
   text?: string;  // plain text command (MVP)
   sessionId?: string;
+  audioDuration?: number;
 }
 
 export interface StatusMessage {

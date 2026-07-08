@@ -112,14 +112,41 @@ export async function handleAudioEnd(sessionId: string): Promise<SttResult> {
   const combined = Buffer.concat(session.chunks);
   console.log(`[STT] Finalizing ${sessionId} — ${combined.length} bytes PCM`);
 
+  const audioSeconds = combined.length / 32000;
+  const provider = getSTTProvider();
+  let modelId = 'whisper-1';
+  if (provider === STTProvider.ELEVEN_LABS) {
+    modelId = process.env.ELEVENLABS_STT_MODEL || 'scribe_v2';
+  } else if (provider === STTProvider.SARVAM) {
+    modelId = process.env.STT_MODEL || 'saaras:v3';
+  }
+  const { recordSttUsage } = await import("./latencyTracker.js");
+  recordSttUsage(audioSeconds, modelId);
+
   const wavBuffer = pcmToWav(combined, 16000);
   const result = await getSTTService().transcribe(wavBuffer);
   return { ...result, wavBuffer };
 }
 
-export async function transcribeAudio(base64Audio: string): Promise<SttResult> {
-  const pcm = Buffer.from(base64Audio, "base64");
-  const wavBuffer = pcmToWav(pcm, 16000);
+export async function transcribeAudio(base64Audio: string, frontendDurationSec?: number): Promise<SttResult> {
+  const pcmOrWebm = Buffer.from(base64Audio, "base64");
+  
+  // If frontend provides duration, use it. 
+  // Otherwise, fallback to PCM calculation (only accurate if actually PCM)
+  const audioSeconds = frontendDurationSec ?? (pcmOrWebm.length / 32000);
+  
+  const provider = getSTTProvider();
+  let modelId = 'whisper-1';
+  if (provider === STTProvider.ELEVEN_LABS) {
+    modelId = process.env.ELEVENLABS_STT_MODEL || 'scribe_v2';
+  } else if (provider === STTProvider.SARVAM) {
+    modelId = process.env.STT_MODEL || 'saaras:v3';
+  }
+  
+  const { recordSttUsage } = await import("./latencyTracker.js");
+  recordSttUsage(audioSeconds, modelId);
+
+  const wavBuffer = pcmToWav(pcmOrWebm, 16000);
   const result = await getSTTService().transcribe(wavBuffer);
   return { ...result, wavBuffer };
 }

@@ -3,7 +3,7 @@ import { ElevenLabsTTS } from "./providers/elevenLabsTTS.js";
 import { OpenAITTS } from "./providers/openAiTTS.js";
 import { ITTSService } from "./interfaces.js";
 import { config } from "../config.js";
-import { recordTts, logLatency } from "./latencyTracker.js";
+import { recordTts, logLatency, recordTtsUsage } from "./latencyTracker.js";
 
 // --- Provider management ---
 
@@ -29,32 +29,54 @@ export async function synthesizeStream(
   onChunk: (base64Chunk: string, isDone: boolean) => void,
   sessionId = "default"
 ): Promise<void> {
-  const provider = getTTSProvider();
-  let chunkCalled = false;
+  const activeProvider = getTTSProvider();
+  const modelId = activeProvider === 'OPEN_AI' ? 'tts-1' : (process.env.ELEVENLABS_TTS_MODEL || 'eleven_v3');
+  
+  let hasCounted = false;
   const wrappedOnChunk = (base64Chunk: string, isDone: boolean) => {
-    chunkCalled = true;
+    // Record usage ONLY when we actually receive audio data (proves API accepted it)
+    if (!hasCounted && base64Chunk) {
+      hasCounted = true;
+      recordTtsUsage(text.length, modelId);
+    }
     onChunk(base64Chunk, isDone);
   };
+
   try {
     await getTTSService().synthesizeStream(text, languageCode, wrappedOnChunk, sessionId);
   } catch (err) {
-    console.error(`[TTS] Primary provider (${provider}) failed:`, err);
-    if (chunkCalled) {
-      console.warn(`[TTS] Primary provider failed after sending chunk. Aborting fallback.`);
-      throw err;
+    console.error(`[TTS] Primary provider (${activeProvider}) failed:`, err);
+    if (hasCounted) {
+      // Primary provider started streaming audio before failing, do not fallback
+      throw err; 
     }
-    const fallbackProvider = provider === TTSProvider.OPEN_AI ? TTSProvider.ELEVEN_LABS : TTSProvider.OPEN_AI;
+    
+    // If we reach here, primary failed BEFORE sending any audio. We haven't counted chars yet.
+    const fallbackProvider = activeProvider === TTSProvider.OPEN_AI ? TTSProvider.ELEVEN_LABS : TTSProvider.OPEN_AI;
     console.log(`[TTS] Attempting fallback to: ${fallbackProvider}`);
+    
     try {
       let service = providers.get(fallbackProvider);
       if (!service) {
         service = fallbackProvider === TTSProvider.OPEN_AI ? new OpenAITTS() : new ElevenLabsTTS();
         providers.set(fallbackProvider, service);
       }
-      await service.synthesizeStream(text, languageCode, onChunk, sessionId);
+      
+      const fallbackModelId = fallbackProvider === 'OPEN_AI' ? 'tts-1' : (process.env.ELEVENLABS_TTS_MODEL || 'eleven_v3');
+      let fallbackHasCounted = false;
+      
+      await service.synthesizeStream(text, languageCode, (chunk, done) => {
+        if (!fallbackHasCounted && chunk) {
+          fallbackHasCounted = true;
+          recordTtsUsage(text.length, fallbackModelId);
+        }
+        onChunk(chunk, done);
+      }, sessionId);
+      
       console.log(`[TTS] Fallback to ${fallbackProvider} succeeded.`);
     } catch (fallbackErr) {
       console.error(`[TTS] Fallback provider (${fallbackProvider}) also failed:`, fallbackErr);
+      // NEITHER provider counted chars, so 0 chars will be recorded. This is accurate for billing.
       throw fallbackErr;
     }
   }
@@ -137,13 +159,15 @@ class SessionStream {
     this.buffer = "";
     this.clearFlushTimer();
     this.onStop();
-    // Ensure cleanup even if finish() is never called
+    
+    // FIX: Log latency on interrupt so we capture whatever metrics we have up to the barge-in point
+    logLatency("tts-interrupted"); 
+    
     if (activeStreams.get(this.sessionId) === this) {
       activeStreams.delete(this.sessionId);
     }
   }
 
-  // Drains buffer into complete sentences and appends them to sentenceQueue.
   private extractSentences(): void {
     let searchStart = 0;
     while (true) {
@@ -168,7 +192,6 @@ class SessionStream {
     }
   }
 
-  // Ensures at most one drainQueue() runs at a time.
   private processQueue(): void {
     if (this.processing) return;
     this.processing = true;
@@ -177,8 +200,6 @@ class SessionStream {
       .finally(() => { this.processing = false; });
   }
 
-  // Synthesizes sentences sequentially. Holds the last sentence until allPushed
-  // so we know whether to mark it isLast before sending to the provider.
   private async drainQueue(): Promise<void> {
     while (this.sentenceQueue.length > 0) {
       if (this.interrupted) { this.sentenceQueue = []; this.clearFlushTimer(); break; }
@@ -192,7 +213,7 @@ class SessionStream {
               this.processQueue();
             }, 1500 - elapsed);
           }
-          break;
+          return;
         }
       }
 
@@ -201,9 +222,13 @@ class SessionStream {
       await this.synthesize(item.text, item.isLast);
     }
 
-    if (this.allPushed && this.sentenceQueue.length === 0 && !this.firstChunkReceived) {
-      this.onReady("");
-      this.onAudio("", true);
+    if (this.allPushed && this.sentenceQueue.length === 0) {
+      if (!this.firstChunkReceived) {
+        this.onReady("");
+        this.onAudio("", true);
+      }
+      // FIX: Log latency ONLY after the entire stream is finished to ensure all TTS chars and LLM tokens are recorded!
+      logLatency("tts-stream-complete");
     }
   }
 
@@ -213,7 +238,7 @@ class SessionStream {
         if (!this.firstChunkReceived) {
           this.firstChunkReceived = true;
           recordTts(Date.now() - this.ttsStart);
-          logLatency();
+          // FIX: Removed logLatency() from here. It was causing the DB to save early with incomplete data.
           this.onReady(text);
         }
         if (!this.interrupted) {
