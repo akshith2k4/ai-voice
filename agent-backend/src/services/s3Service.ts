@@ -68,3 +68,31 @@ export async function uploadToS3(key: string, body: Buffer, contentType: string 
     ContentType: contentType,
   }));
 }
+
+/**
+ * Downloads an object from S3 and returns it as a Buffer.
+ */
+export async function getObjectFromS3(key: string): Promise<Buffer> {
+  if (!bucketName) throw new Error("AWS_S3_BUCKET_NAME is not configured");
+  
+  const command = new GetObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+  });
+  
+  const response = await getClient().send(command);
+  
+  if (!response.Body) {
+    throw new Error(`Empty response body for S3 key: ${key}`);
+  }
+
+  // Convert the stream to a Buffer
+  const chunks: Uint8Array[] = [];
+  // @ts-ignore - Body is a stream
+  for await (const chunk of response.Body) {
+    chunks.push(chunk);
+  }
+  
+  return Buffer.concat(chunks);
+}
+
