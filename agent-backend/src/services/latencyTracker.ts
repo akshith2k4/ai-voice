@@ -11,6 +11,13 @@ export type LatencyTracker = {
   sessionId: string | null;
   turnId: string | null;
   userName: string | null;
+  llmModel?: string | null;
+  llmInputTokens?: number | null;
+  llmOutputTokens?: number | null;
+  ttsModel?: string | null;
+  ttsChars?: number | null;
+  sttModel?: string | null;
+  sttSeconds?: number | null;
 };
 
 const storage = new AsyncLocalStorage<LatencyTracker>();
@@ -42,6 +49,13 @@ export function startTracking<T>(
       sessionId: sessionId ?? parent?.sessionId ?? null,
       userName: userName,
       turnId: parent?.turnId ?? null,
+      llmModel: parent?.llmModel ?? null,
+      llmInputTokens: parent?.llmInputTokens ?? 0,
+      llmOutputTokens: parent?.llmOutputTokens ?? 0,
+      ttsModel: parent?.ttsModel ?? null,
+      ttsChars: parent?.ttsChars ?? 0,
+      sttModel: parent?.sttModel ?? null,
+      sttSeconds: parent?.sttSeconds ?? 0,
     },
     callback
   );
@@ -62,6 +76,35 @@ export function recordTts(ms: number): void {
   if (t) t.ttsDuration = ms;
 }
 
+export function recordLlmUsage(modelId: string, inputTokens: number, outputTokens: number): void {
+  const t = storage.getStore();
+  if (t) {
+    t.llmModel = modelId;
+    t.llmInputTokens = (t.llmInputTokens ?? 0) + inputTokens;
+    t.llmOutputTokens = (t.llmOutputTokens ?? 0) + outputTokens;
+  }
+}
+
+export function recordTtsUsage(chars: number, modelId?: string): void {
+  const t = storage.getStore();
+  if (t) {
+    t.ttsChars = (t.ttsChars ?? 0) + chars;
+    if (modelId) {
+      t.ttsModel = modelId;
+    }
+  }
+}
+
+export function recordSttUsage(seconds: number, modelId?: string): void {
+  const t = storage.getStore();
+  if (t) {
+    t.sttSeconds = (t.sttSeconds ?? 0) + seconds;
+    if (modelId) {
+      t.sttModel = modelId;
+    }
+  }
+}
+
 export function logLatency(label?: string): void {
   const t = storage.getStore();
   if (!t) return;
@@ -73,14 +116,30 @@ export function logLatency(label?: string): void {
   if (turnId && latencies) {
     fireAndForget(
       (async () => {
-        await db.update(turns)
-          .set({
-            latencyStt: latencies.stt,
-            latencyLlm: latencies.llm,
-            latencyTts: latencies.tts,
-            latencyTotal: latencies.total,
+        // Use ON CONFLICT to ensure the row exists before updating
+        // This requires `id` to be the Primary Key (which it is in your schema)
+        await db.insert(turns)
+          .values({
+            id: turnId,
+            sessionId: t.sessionId || undefined,
           })
-          .where(eq(turns.id, turnId));
+          .onConflictDoUpdate({
+            target: turns.id,
+            set: {
+              latencyStt: latencies.stt,
+              latencyLlm: latencies.llm,
+              latencyTts: latencies.tts,
+              latencyTotal: latencies.total,
+              llmModel: t.llmModel || process.env.OPENAI_MODEL || "gpt-4o",
+              llmInputTokens: t.llmInputTokens,
+              llmOutputTokens: t.llmOutputTokens,
+              ttsModel: t.ttsModel || (process.env.TTS_PROVIDER === 'OPEN_AI' ? 'tts-1' : process.env.ELEVENLABS_TTS_MODEL || 'eleven_v3'),
+              ttsChars: t.ttsChars,
+              sttModel: t.sttModel || (process.env.STT_PROVIDER === 'SARVAM' ? process.env.STT_MODEL || 'saaras:v3' : process.env.STT_PROVIDER === 'OPEN_AI' ? 'whisper-1' : process.env.ELEVENLABS_STT_MODEL || 'scribe_v2'),
+              sttSeconds: t.sttSeconds ? Math.round(t.sttSeconds * 100) / 100 : 0,
+            }
+          })
+          .execute();
       })()
     );
   }

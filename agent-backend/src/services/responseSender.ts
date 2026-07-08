@@ -38,6 +38,13 @@ export function sendRespond(
               id: turnId,
               sessionId,
               agentTranscript: cleanMessage,
+            })
+            .onConflictDoUpdate({
+              target: turns.id,
+              set: {
+                sessionId,
+                agentTranscript: cleanMessage,
+              }
             });
           })()
         );

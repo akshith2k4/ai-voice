@@ -78,6 +78,13 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
               id: turnId,
               sessionId,
               userTranscript: msg.text,
+            })
+            .onConflictDoUpdate({
+              target: turns.id,
+              set: {
+                sessionId,
+                userTranscript: msg.text,
+              }
             });
           })()
         );
@@ -90,7 +97,7 @@ export async function handleIncoming(message: IncomingMessage, context: HandlerC
       await startTracking(sessionId, context.userName, async () => {
         const sttStart = Date.now();
         try {
-          const stt = await sttService.transcribeAudio(msg.audio!);
+          const stt = await sttService.transcribeAudio(msg.audio!, msg.audioDuration);
           recordStt(Date.now() - sttStart);
           await afterSTT(stt, context);
         } catch (error) {
@@ -133,6 +140,13 @@ async function afterSTT(stt: sttService.SttResult, context: HandlerContext): Pro
         id: turnId,
         sessionId,
         userTranscript: stt.text,
+      })
+      .onConflictDoUpdate({
+        target: turns.id,
+        set: {
+          sessionId,
+          userTranscript: stt.text,
+        }
       });
 
       if (stt.wavBuffer) {

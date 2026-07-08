@@ -3,6 +3,7 @@ import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages
 import { allTools } from "../tools.js";
 import { ILLMService, LLMStreamChunk, LLMResult, LLMToolCall } from "../../src/services/interfaces.js";
 import { config } from "../../src/config.js";
+import { recordLlmUsage } from "../../src/services/latencyTracker.js";
 
 export class OpenAILLM implements ILLMService {
   private model: ChatOpenAI | null = null;
@@ -23,6 +24,7 @@ export class OpenAILLM implements ILLMService {
         apiKey: OPENAI_API_KEY,
         maxRetries: 2,
         streaming: true,
+        streamUsage: true,
       });
     }
     return this.model.bindTools(allTools);
@@ -104,6 +106,12 @@ export class OpenAILLM implements ILLMService {
           toolCalls.push(toolCall);
           yield { type: "tool_call", toolCall };
         }
+      }
+
+      if (finalMessage && finalMessage.usage_metadata) {
+        const { input_tokens = 0, output_tokens = 0 } = finalMessage.usage_metadata;
+        const modelId = config.openai.model || "gpt-4o";
+        recordLlmUsage(modelId, input_tokens, output_tokens);
       }
 
       return {

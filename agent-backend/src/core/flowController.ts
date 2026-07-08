@@ -1,12 +1,13 @@
 import { streamLLM, type LLMStreamChunk, type LLMResult, type LLMToolCall } from "../../llm/llmService.js";
 import { traceable } from "langsmith/traceable";
-import { recordLlm, startTracking, getTurnId } from "../services/latencyTracker.js";
+import { recordLlm, startTracking, getTurnId, recordLlmUsage } from "../services/latencyTracker.js";
 import { fireAndForget } from "../services/observability.js";
 import { db, turns } from "../services/db.js";
 import { eq } from "drizzle-orm";
 import type { IResponder } from "../adapters/responders/IResponder.js";
 import { toolDispatcher } from "./toolDispatcher.js";
 import { walkthroughExecutor } from "../walkthrough/executor.js";
+import { config } from "../config.js";
 
 const activeAbortControllers = new Map<string, AbortController>();
 
@@ -196,21 +197,47 @@ async function runLLM(
   const llmStart = Date.now();
   const toolCalls: LLMToolCall[] = [];
   let rawContent = "";
+  let lastKnownUsage = null;
 
   const generator = streamLLM(text, sessionId, lang, signal);
 
-  while (true) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const { done, value } = await generator.next();
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    if (done) {
-      const result = value as LLMResult;
-      toolCalls.push(...result.toolCalls);
-      rawContent = result.rawContent || "";
-      break;
+  try {
+    while (true) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const { done, value } = await generator.next();
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      
+      if (done) {
+        const result = value as LLMResult;
+        toolCalls.push(...result.toolCalls);
+        rawContent = result.rawContent || "";
+        break;
+      }
+      
+      const chunk = value as LLMStreamChunk;
+      if (chunk.type === "text" && chunk.text) onTextChunk(chunk.text);
+      
+      // FIX: Intercept usage metadata from the stream chunk if present
+      // LangChain streams usage in the final chunk before done.
+      // We extract it here so it survives the AbortError.
+      if ((chunk as any).usage_metadata) {
+        lastKnownUsage = (chunk as any).usage_metadata;
+      }
     }
-    const chunk = value as LLMStreamChunk;
-    if (chunk.type === "text" && chunk.text) onTextChunk(chunk.text);
+  } catch (error: any) {
+    if (signal?.aborted || error.name === "AbortError") {
+      console.log(`[FlowController] Run aborted for session ${sessionId}`);
+      
+      // FIX: If we intercepted usage data before aborting, record it!
+      if (lastKnownUsage) {
+        const { input_tokens = 0, output_tokens = 0 } = lastKnownUsage;
+        const modelId = config.openai.model || "gpt-4o";
+        recordLlmUsage(modelId, input_tokens, output_tokens);
+        console.log(`[FlowController] Recorded partial usage for aborted request: IN ${input_tokens} / OUT ${output_tokens}`);
+      }
+      throw error; // Re-throw to let flowController handle the abort gracefully
+    }
+    throw error;
   }
 
   recordLlm(Date.now() - llmStart);

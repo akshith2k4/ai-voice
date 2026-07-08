@@ -38,9 +38,18 @@ mock.module("../src/services/db.js", () => ({
       })),
     })),
     insert: mock(() => ({
-      values: mock(() => ({
-        returning: mock(() => Promise.resolve([{ id: "mock-id" }])),
-      })),
+      values: mock(() => {
+        const result: any = Promise.resolve([{ id: "mock-id" }]);
+        result.execute = mock(() => Promise.resolve([{ id: "mock-id" }]));
+        result.returning = mock(() => Promise.resolve([{ id: "mock-id" }]));
+        result.onConflictDoUpdate = mock(() => {
+          const upsertResult: any = Promise.resolve([{ id: "mock-id" }]);
+          upsertResult.execute = mock(() => Promise.resolve([{ id: "mock-id" }]));
+          upsertResult.returning = mock(() => Promise.resolve([{ id: "mock-id" }]));
+          return upsertResult;
+        });
+        return result;
+      }),
     })),
     update: mock(() => ({
       set: mock(() => ({
@@ -426,7 +435,7 @@ describe("VoiceHandler — acceptance tests", () => {
       const ctx = createCtx();
       await handleVoice({ type: "voice", audio: "base64audio" }, ctx as any);
 
-      expect(mockTranscribeAudio).toHaveBeenCalledWith("base64audio");
+      expect(mockTranscribeAudio).toHaveBeenCalledWith("base64audio", undefined);
 
       // Echo message
       const echoMsg = ctx.sent.find(
